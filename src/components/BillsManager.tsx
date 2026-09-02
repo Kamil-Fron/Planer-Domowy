@@ -71,6 +71,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   const [name, setName] = useState('');
   const [serviceType, setServiceType] = useState<UtilityServiceType>('prąd');
   const [pricingType, setPricingType] = useState<BillPricingType>('fixed');
+  const [initialStatus, setInitialStatus] = useState<'pending' | 'paid'>('pending');
   const [provider, setProvider] = useState('');
   const [amount, setAmount] = useState('');
   const [dueDate, setDueDate] = useState(new Date().toISOString().split('T')[0]);
@@ -382,26 +383,81 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
     e.preventDefault();
     if (!name.trim() || !amount) return;
 
-    onAddBill({
-      name: name.trim(),
-      serviceType,
-      pricingType,
-      provider: provider.trim() || name.trim(),
-      amount: parseFloat(amount),
-      dueDate,
-      billingCycle,
-      status: 'pending',
-      notes: notes.trim() || undefined,
-      meterReading:
-        hasMeterReading && meterCurr
-          ? {
-              previous: parseFloat(meterPrev) || 0,
-              current: parseFloat(meterCurr),
-              unit: meterUnit,
-              readingDate: new Date().toISOString().split('T')[0],
-            }
-          : undefined,
-    });
+    const parsedAmount = parseFloat(amount);
+    const payDate = new Date().toISOString().split('T')[0];
+    const periodName = getBillingPeriodName(dueDate);
+
+    const meterData =
+      hasMeterReading && meterCurr
+        ? {
+            previous: parseFloat(meterPrev) || 0,
+            current: parseFloat(meterCurr),
+            unit: meterUnit,
+            readingDate: payDate,
+          }
+        : undefined;
+
+    if (initialStatus === 'paid') {
+      // 1. Zapisz transakcję w wydatkach
+      onAddTransaction({
+        type: 'expense',
+        amount: parsedAmount,
+        category: 'Rachunki i media',
+        date: payDate,
+        title: `Rachunek: ${name.trim()}`,
+        comment: `Opłacono rachunek (${provider.trim() || name.trim()}) za okres ${periodName}.${
+          meterData ? ` Stan licznika: ${meterData.current} ${meterData.unit}.` : ''
+        }`,
+      });
+
+      const newHistoryItem = {
+        id: `hist-${Date.now()}`,
+        amount: parsedAmount,
+        paidDate: payDate,
+        billingPeriod: periodName,
+        meterReading: meterData,
+        notes: 'Opłacono podczas dodawania rachunku',
+      };
+
+      // 2. Dodaj rachunek jako opłacony
+      onAddBill({
+        name: name.trim(),
+        serviceType,
+        pricingType,
+        provider: provider.trim() || name.trim(),
+        amount: parsedAmount,
+        dueDate,
+        billingCycle,
+        status: 'paid',
+        paymentDate: payDate,
+        lastPaidAmount: parsedAmount,
+        paymentHistory: [newHistoryItem],
+        notes: notes.trim() || undefined,
+        meterReading: meterData,
+      });
+
+      showToast(
+        `Dodano rachunek "${name.trim()}" i automatycznie zaksięgowano ${parsedAmount.toFixed(
+          2
+        )} PLN w wydatkach.`
+      );
+    } else {
+      // Oczekujący na opłacenie
+      onAddBill({
+        name: name.trim(),
+        serviceType,
+        pricingType,
+        provider: provider.trim() || name.trim(),
+        amount: parsedAmount,
+        dueDate,
+        billingCycle,
+        status: 'pending',
+        notes: notes.trim() || undefined,
+        meterReading: meterData,
+      });
+
+      showToast(`Pomyślnie dodano rachunek "${name.trim()}" (termin: ${dueDate}).`);
+    }
 
     // Reset Form
     setName('');
@@ -409,11 +465,11 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
     setAmount('');
     setNotes('');
     setPricingType('fixed');
+    setInitialStatus('pending');
     setHasMeterReading(false);
     setMeterPrev('');
     setMeterCurr('');
     setShowAddModal(false);
-    showToast(`Pomyślnie dodano rachunek "${name.trim()}".`);
   };
 
   return (
@@ -1099,6 +1155,50 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                     <option value="rocznie">Rocznie</option>
                     <option value="jednorazowo">Jednorazowo</option>
                   </select>
+                </div>
+              </div>
+
+              {/* Initial Status & Auto-expense choice */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Status przy dodaniu rachunku
+                </label>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setInitialStatus('pending')}
+                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                      initialStatus === 'pending'
+                        ? 'border-amber-500 bg-amber-50/80 text-amber-950 font-bold shadow-xs'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-1.5 text-xs font-bold text-amber-700">
+                      <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                      <span>Do zapłaty (Oczekujący)</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 font-normal mt-0.5">
+                      Przypomnij w terminie ({dueDate})
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setInitialStatus('paid')}
+                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                      initialStatus === 'paid'
+                        ? 'border-emerald-600 bg-emerald-50/80 text-emerald-950 font-bold shadow-xs'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-1.5 text-xs font-bold text-emerald-700">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Już opłacony</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 font-normal mt-0.5">
+                      Wpisz od razu do Wydatków
+                    </p>
+                  </button>
                 </div>
               </div>
 

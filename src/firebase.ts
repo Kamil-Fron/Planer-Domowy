@@ -534,7 +534,7 @@ export async function findHouseholdsByMemberEmail(
  */
 export function subscribeToHouseholdFirestore(
   householdId: string,
-  onUpdate: (data: HouseholdFirestoreData) => void,
+  onUpdate: (data: HouseholdFirestoreData, hasPendingWrites?: boolean) => void,
   onError?: (err: any) => void
 ): Unsubscribe {
   const db = getFirestoreDb();
@@ -549,7 +549,7 @@ export function subscribeToHouseholdFirestore(
     (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.data() as HouseholdFirestoreData;
-        onUpdate(data);
+        onUpdate(data, snapshot.metadata.hasPendingWrites);
       }
     },
     (err) => {

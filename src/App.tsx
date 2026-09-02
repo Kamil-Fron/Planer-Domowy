@@ -82,12 +82,42 @@ export default function App() {
 
   // Ref to prevent echo update loops when Firestore snapshot triggers local state update
   const isIncomingFirestoreUpdate = useRef(false);
+  const lastLocalMutationTime = useRef<number>(0);
+
+  // Ref always pointing to freshest data
+  const stateRef = useRef({
+    transactions,
+    bills,
+    budgetLimits,
+    shoppingLists,
+    shoppingItems,
+    notifications,
+    household,
+    currentUser,
+  });
+
+  useEffect(() => {
+    stateRef.current = {
+      transactions,
+      bills,
+      budgetLimits,
+      shoppingLists,
+      shoppingItems,
+      notifications,
+      household,
+      currentUser,
+    };
+  });
 
   // Helper to record new activity notification
   const logActivity = (title: string, message: string) => {
     const author = currentUser?.name || 'Domownik';
     const notif = createActivityNotification(title, message, author, 'activity');
-    setNotifications((prev) => [notif, ...prev.slice(0, 49)]);
+    setNotifications((prev) => {
+      const updated = [notif, ...prev.slice(0, 49)];
+      saveNotifications(updated);
+      return updated;
+    });
   };
 
   // 1. Subscribe to Firebase Auth state on mount (ensures independent user isolation)
@@ -157,21 +187,27 @@ export default function App() {
 
                 if (cloudHousehold.transactions && Array.isArray(cloudHousehold.transactions)) {
                   setTransactions(cloudHousehold.transactions);
+                  saveTransactions(cloudHousehold.transactions);
                 }
                 if (cloudHousehold.bills && Array.isArray(cloudHousehold.bills)) {
                   setBills(cloudHousehold.bills);
+                  saveBills(cloudHousehold.bills);
                 }
                 if (cloudHousehold.budgetLimits && Array.isArray(cloudHousehold.budgetLimits)) {
                   setBudgetLimits(cloudHousehold.budgetLimits);
+                  saveBudgetLimits(cloudHousehold.budgetLimits);
                 }
                 if (cloudHousehold.shoppingLists && Array.isArray(cloudHousehold.shoppingLists)) {
                   setShoppingLists(cloudHousehold.shoppingLists);
+                  saveShoppingLists(cloudHousehold.shoppingLists);
                 }
                 if (cloudHousehold.shoppingItems && Array.isArray(cloudHousehold.shoppingItems)) {
                   setShoppingItems(cloudHousehold.shoppingItems);
+                  saveShoppingItems(cloudHousehold.shoppingItems);
                 }
                 if (cloudHousehold.notifications && Array.isArray(cloudHousehold.notifications)) {
                   setNotifications(cloudHousehold.notifications);
+                  saveNotifications(cloudHousehold.notifications);
                 }
 
                 if (memberChanged) {
@@ -209,27 +245,38 @@ export default function App() {
 
     const unsubscribe = subscribeToHouseholdFirestore(
       household.id,
-      (cloudData) => {
+      (cloudData, hasPendingWrites) => {
         if (!cloudData) return;
+        // Ignore local uncommitted snapshot writes
+        if (hasPendingWrites) return;
+        // If the user just edited something locally in the last 2 seconds, don't overwrite with snapshot
+        if (Date.now() - lastLocalMutationTime.current < 2000) return;
+
         isIncomingFirestoreUpdate.current = true;
 
         if (cloudData.transactions && Array.isArray(cloudData.transactions)) {
           setTransactions(cloudData.transactions);
+          saveTransactions(cloudData.transactions);
         }
         if (cloudData.bills && Array.isArray(cloudData.bills)) {
           setBills(cloudData.bills);
+          saveBills(cloudData.bills);
         }
         if (cloudData.budgetLimits && Array.isArray(cloudData.budgetLimits)) {
           setBudgetLimits(cloudData.budgetLimits);
+          saveBudgetLimits(cloudData.budgetLimits);
         }
         if (cloudData.shoppingLists && Array.isArray(cloudData.shoppingLists)) {
           setShoppingLists(cloudData.shoppingLists);
+          saveShoppingLists(cloudData.shoppingLists);
         }
         if (cloudData.shoppingItems && Array.isArray(cloudData.shoppingItems)) {
           setShoppingItems(cloudData.shoppingItems);
+          saveShoppingItems(cloudData.shoppingItems);
         }
         if (cloudData.notifications && Array.isArray(cloudData.notifications)) {
           setNotifications(cloudData.notifications);
+          saveNotifications(cloudData.notifications);
         }
         if (cloudData.members && Array.isArray(cloudData.members)) {
           setHousehold((prev) => (prev ? { ...prev, members: cloudData.members } : null));
@@ -255,6 +302,7 @@ export default function App() {
     const timer = setTimeout(async () => {
       setIsSyncing(true);
       try {
+        const current = stateRef.current;
         await saveHouseholdToFirestore(household.id, {
           id: household.id,
           name: household.name,
@@ -262,12 +310,12 @@ export default function App() {
           createdAt: household.createdAt,
           createdBy: household.createdBy,
           members: household.members,
-          transactions,
-          bills,
-          budgetLimits,
-          shoppingLists,
-          shoppingItems,
-          notifications,
+          transactions: current.transactions,
+          bills: current.bills,
+          budgetLimits: current.budgetLimits,
+          shoppingLists: current.shoppingLists,
+          shoppingItems: current.shoppingItems,
+          notifications: current.notifications,
           lastUpdatedBy: currentUser.email || currentUser.name,
         });
       } catch (err) {
@@ -331,7 +379,12 @@ export default function App() {
       id: `tx-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       createdAt: new Date().toISOString(),
     };
-    setTransactions((prev) => [newTx, ...prev]);
+    lastLocalMutationTime.current = Date.now();
+    setTransactions((prev) => {
+      const updated = [newTx, ...prev];
+      saveTransactions(updated);
+      return updated;
+    });
 
     // Powiadomienie o nowej transakcji
     const typeLabel = transactionData.type === 'income' ? 'Wpłata' : 'Wydatek';
@@ -343,7 +396,12 @@ export default function App() {
 
   const handleDeleteTransaction = (id: string) => {
     const deletedTx = transactions.find((t) => t.id === id);
-    setTransactions((prev) => prev.filter((t) => t.id !== id));
+    lastLocalMutationTime.current = Date.now();
+    setTransactions((prev) => {
+      const updated = prev.filter((t) => t.id !== id);
+      saveTransactions(updated);
+      return updated;
+    });
     if (deletedTx) {
       logActivity(
         'Usunięto transakcję',
@@ -383,14 +441,28 @@ export default function App() {
       id: `list-${Date.now()}`,
       createdAt: new Date().toISOString(),
     };
-    setShoppingLists((prev) => [...prev, newList]);
+    lastLocalMutationTime.current = Date.now();
+    setShoppingLists((prev) => {
+      const updated = [...prev, newList];
+      saveShoppingLists(updated);
+      return updated;
+    });
     logActivity('Nowa lista zakupów', `Utworzono listę: "${newList.name}"`);
   };
 
   const handleDeleteShoppingList = (id: string) => {
     const listToDelete = shoppingLists.find((l) => l.id === id);
-    setShoppingLists((prev) => prev.filter((l) => l.id !== id));
-    setShoppingItems((prev) => prev.filter((i) => i.listId !== id));
+    lastLocalMutationTime.current = Date.now();
+    setShoppingLists((prev) => {
+      const updated = prev.filter((l) => l.id !== id);
+      saveShoppingLists(updated);
+      return updated;
+    });
+    setShoppingItems((prev) => {
+      const updated = prev.filter((i) => i.listId !== id);
+      saveShoppingItems(updated);
+      return updated;
+    });
     if (listToDelete) {
       logActivity('Usunięto listę zakupów', `Skasowano listę "${listToDelete.name}"`);
     }
@@ -403,13 +475,19 @@ export default function App() {
       createdAt: new Date().toISOString(),
       assignedTo: itemData.assignedTo || currentUser.name || 'Wszyscy',
     };
-    setShoppingItems((prev) => [...prev, newItem]);
+    lastLocalMutationTime.current = Date.now();
+    setShoppingItems((prev) => {
+      const updated = [...prev, newItem];
+      saveShoppingItems(updated);
+      return updated;
+    });
     logActivity('Dodano produkt do listy', `Dodano "${newItem.name}" (${newItem.quantity} ${newItem.unit})`);
   };
 
   const handleToggleShoppingItem = (id: string) => {
-    setShoppingItems((prev) =>
-      prev.map((item) => {
+    lastLocalMutationTime.current = Date.now();
+    setShoppingItems((prev) => {
+      const updated = prev.map((item) => {
         if (item.id === id) {
           const isCompleted = !item.isCompleted;
           if (isCompleted) {
@@ -421,13 +499,20 @@ export default function App() {
           };
         }
         return item;
-      })
-    );
+      });
+      saveShoppingItems(updated);
+      return updated;
+    });
   };
 
   const handleDeleteShoppingItem = (id: string) => {
     const itemToDelete = shoppingItems.find((i) => i.id === id);
-    setShoppingItems((prev) => prev.filter((i) => i.id !== id));
+    lastLocalMutationTime.current = Date.now();
+    setShoppingItems((prev) => {
+      const updated = prev.filter((i) => i.id !== id);
+      saveShoppingItems(updated);
+      return updated;
+    });
     if (itemToDelete) {
       logActivity('Usunięto z listy', `Usunięto artykuł "${itemToDelete.name}"`);
     }
@@ -437,10 +522,15 @@ export default function App() {
   const handleAddBill = (billData: Omit<Bill, 'id' | 'createdAt'>) => {
     const newBill: Bill = {
       ...billData,
-      id: `bill-${Date.now()}`,
+      id: `bill-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       createdAt: new Date().toISOString(),
     };
-    setBills((prev) => [...prev, newBill]);
+    lastLocalMutationTime.current = Date.now();
+    setBills((prev) => {
+      const updated = [...prev, newBill];
+      saveBills(updated);
+      return updated;
+    });
     logActivity(
       'Dodano nowy rachunek',
       `Rachunek: ${newBill.name} (${newBill.amount.toFixed(2)} PLN, termin: ${newBill.dueDate})`
@@ -448,25 +538,33 @@ export default function App() {
   };
 
   const handleUpdateBill = (id: string, updates: Partial<Bill>) => {
-    setBills((prev) =>
-      prev.map((b) => {
+    lastLocalMutationTime.current = Date.now();
+    setBills((prev) => {
+      const updated = prev.map((b) => {
         if (b.id === id) {
-          const updated = { ...b, ...updates };
+          const u = { ...b, ...updates };
           if (updates.status === 'paid' && b.status !== 'paid') {
             logActivity('Opłacono rachunek', `Rachunek "${b.name}" (${b.amount.toFixed(2)} PLN) został oznaczony jako opłacony!`);
           } else if (updates.amount !== undefined && updates.amount !== b.amount) {
             logActivity('Zaktualizowano rachunek', `Zmieniono kwotę rachunku "${b.name}" na ${updates.amount.toFixed(2)} PLN`);
           }
-          return updated;
+          return u;
         }
         return b;
-      })
-    );
+      });
+      saveBills(updated);
+      return updated;
+    });
   };
 
   const handleDeleteBill = (id: string) => {
     const billToDelete = bills.find((b) => b.id === id);
-    setBills((prev) => prev.filter((b) => b.id !== id));
+    lastLocalMutationTime.current = Date.now();
+    setBills((prev) => {
+      const updated = prev.filter((b) => b.id !== id);
+      saveBills(updated);
+      return updated;
+    });
     if (billToDelete) {
       logActivity('Usunięto rachunek', `Usunięto rachunek "${billToDelete.name}"`);
     }
@@ -478,25 +576,38 @@ export default function App() {
       ...limitData,
       id: `limit-${Date.now()}`,
     };
-    setBudgetLimits((prev) => [...prev, newLimit]);
+    lastLocalMutationTime.current = Date.now();
+    setBudgetLimits((prev) => {
+      const updated = [...prev, newLimit];
+      saveBudgetLimits(updated);
+      return updated;
+    });
     logActivity('Ustalono limit budżetowy', `Limit dla ${newLimit.category}: ${newLimit.monthlyLimit.toFixed(2)} PLN`);
   };
 
   const handleUpdateBudgetLimit = (id: string, limit: number) => {
-    setBudgetLimits((prev) =>
-      prev.map((l) => {
+    lastLocalMutationTime.current = Date.now();
+    setBudgetLimits((prev) => {
+      const updated = prev.map((l) => {
         if (l.id === id) {
           logActivity('Zmieniono limit budżetowy', `Nowy limit dla ${l.category}: ${limit.toFixed(2)} PLN`);
           return { ...l, monthlyLimit: limit };
         }
         return l;
-      })
-    );
+      });
+      saveBudgetLimits(updated);
+      return updated;
+    });
   };
 
   const handleDeleteBudgetLimit = (id: string) => {
     const limitToDelete = budgetLimits.find((l) => l.id === id);
-    setBudgetLimits((prev) => prev.filter((l) => l.id !== id));
+    lastLocalMutationTime.current = Date.now();
+    setBudgetLimits((prev) => {
+      const updated = prev.filter((l) => l.id !== id);
+      saveBudgetLimits(updated);
+      return updated;
+    });
     if (limitToDelete) {
       logActivity('Usunięto limit budżetowy', `Skasowano limit dla ${limitToDelete.category}`);
     }

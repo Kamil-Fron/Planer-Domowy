@@ -90,6 +90,17 @@ export interface MeterReading {
   readingDate?: string;
 }
 
+export type BillPricingType = 'fixed' | 'variable';
+
+export interface BillPaymentHistoryItem {
+  id: string;
+  amount: number;
+  paidDate: string; // YYYY-MM-DD
+  billingPeriod?: string;
+  notes?: string;
+  meterReading?: MeterReading;
+}
+
 export interface Bill {
   id: string;
   name: string;
@@ -98,12 +109,15 @@ export interface Bill {
   amount: number;
   dueDate: string; // YYYY-MM-DD
   billingCycle: 'miesięcznie' | 'co 2 miesiące' | 'kwartalnie' | 'rocznie' | 'jednorazowo';
+  pricingType?: BillPricingType; // 'fixed' (stała) | 'variable' (zmienna)
   status: 'pending' | 'paid' | 'overdue';
   paymentDate?: string;
+  lastPaidAmount?: number;
   invoiceNumber?: string;
   meterReading?: MeterReading;
   notes?: string;
   autoExpenseId?: string;
+  paymentHistory?: BillPaymentHistoryItem[];
   createdAt: string;
 }
 

@@ -240,6 +240,7 @@ export const INITIAL_BILLS: Bill[] = [
     amount: 245.8,
     dueDate: formatDate(2), // Due in 2 days -> upcoming alert!
     billingCycle: 'miesięcznie',
+    pricingType: 'variable', // Opłata zmienna (wg licznika)
     status: 'pending',
     invoiceNumber: 'FV/2026/08/TAU-9821',
     meterReading: {
@@ -248,7 +249,16 @@ export const INITIAL_BILLS: Bill[] = [
       unit: 'kWh',
       readingDate: formatDate(-10),
     },
-    notes: 'Płatność przez aplikację bankową / przelew zlecenia stałego',
+    notes: 'Płatność przez aplikację bankową / e-BOK',
+    paymentHistory: [
+      {
+        id: 'hist-1',
+        amount: 238.4,
+        paidDate: formatDate(-32),
+        billingPeriod: 'Lipiec 2026',
+        notes: 'Opłacono na czas',
+      },
+    ],
     createdAt: new Date().toISOString(),
   },
   {
@@ -259,6 +269,7 @@ export const INITIAL_BILLS: Bill[] = [
     amount: 118.4,
     dueDate: formatDate(6),
     billingCycle: 'co 2 miesiące',
+    pricingType: 'variable', // Opłata zmienna
     status: 'pending',
     invoiceNumber: 'PGN-8812/08/2026',
     meterReading: {
@@ -277,9 +288,18 @@ export const INITIAL_BILLS: Bill[] = [
     amount: 680.0,
     dueDate: formatDate(10),
     billingCycle: 'miesięcznie',
+    pricingType: 'fixed', // Opłata stała
     status: 'pending',
     invoiceNumber: 'CZYNSZ-2026-09-LOK14',
     notes: 'Zawiera zaliczkę na CO i wywóz śmieci',
+    paymentHistory: [
+      {
+        id: 'hist-3',
+        amount: 680.0,
+        paidDate: formatDate(-28),
+        billingPeriod: 'Sierpień 2026',
+      },
+    ],
     createdAt: new Date().toISOString(),
   },
   {
@@ -290,8 +310,10 @@ export const INITIAL_BILLS: Bill[] = [
     amount: 142.5,
     dueDate: formatDate(-3),
     billingCycle: 'miesięcznie',
+    pricingType: 'variable', // Opłata zmienna
     status: 'paid',
     paymentDate: formatDate(-3),
+    lastPaidAmount: 142.5,
     invoiceNumber: 'WOD/2026/08/4412',
     meterReading: {
       previous: 124.5,
@@ -309,8 +331,17 @@ export const INITIAL_BILLS: Bill[] = [
     amount: 89.99,
     dueDate: formatDate(14),
     billingCycle: 'miesięcznie',
+    pricingType: 'fixed', // Opłata stała
     status: 'pending',
     invoiceNumber: 'ORG/INV/2026/09/1',
+    paymentHistory: [
+      {
+        id: 'hist-5',
+        amount: 89.99,
+        paidDate: formatDate(-25),
+        billingPeriod: 'Sierpień 2026',
+      },
+    ],
     createdAt: new Date().toISOString(),
   },
   {
@@ -321,6 +352,7 @@ export const INITIAL_BILLS: Bill[] = [
     amount: 85.0,
     dueDate: formatDate(15),
     billingCycle: 'miesięcznie',
+    pricingType: 'fixed', // Opłata stała
     status: 'pending',
     createdAt: new Date().toISOString(),
   },

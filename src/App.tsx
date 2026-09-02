@@ -434,10 +434,11 @@ export default function App() {
   };
 
   // Handlers for Bills
-  const handleAddBill = (billData: Omit<Bill, 'id'>) => {
+  const handleAddBill = (billData: Omit<Bill, 'id' | 'createdAt'>) => {
     const newBill: Bill = {
       ...billData,
       id: `bill-${Date.now()}`,
+      createdAt: new Date().toISOString(),
     };
     setBills((prev) => [...prev, newBill]);
     logActivity(

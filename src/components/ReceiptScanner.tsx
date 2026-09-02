@@ -30,17 +30,27 @@ import {
 } from '../services/aiService';
 
 interface ReceiptScannerProps {
-  onAddTransaction: (transaction: Omit<Transaction, 'id' | 'createdAt'>) => void;
-  shoppingItems: ShoppingItem[];
+  onAddTransaction?: (transaction: Omit<Transaction, 'id' | 'createdAt'>) => void;
+  onReceiptScanned?: (extracted: {
+    title: string;
+    amount: number;
+    category: any;
+    date: string;
+    items?: { name: string; price: number; quantity: number }[];
+  }) => void;
+  shoppingItems?: ShoppingItem[];
   onCompleteShoppingItem?: (itemId: string) => void;
-  onNavigateToTransactions: () => void;
+  onNavigateToTransactions?: () => void;
+  onCancel?: () => void;
 }
 
 export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   onAddTransaction,
-  shoppingItems,
+  onReceiptScanned,
+  shoppingItems = [],
   onCompleteShoppingItem,
   onNavigateToTransactions,
+  onCancel,
 }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -181,6 +191,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   // Save parsed receipt into budget
   const handleSaveToBudget = () => {
     if (!scanResult) return;
+    setError(null);
 
     const selectedItems = scanResult.items.filter((i) => i.selected);
     if (selectedItems.length === 0) {
@@ -188,45 +199,71 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
       return;
     }
 
-    if (splitByCategory) {
-      // Group items by category and create separate transaction per category
-      const categoriesMap: Record<string, { total: number; items: ReceiptItemDetail[] }> = {};
-      selectedItems.forEach((item) => {
-        if (!categoriesMap[item.category]) {
-          categoriesMap[item.category] = { total: 0, items: [] };
-        }
-        categoriesMap[item.category].total += item.price;
-        categoriesMap[item.category].items.push(item);
-      });
-
-      Object.entries(categoriesMap).forEach(([catName, group]) => {
-        onAddTransaction({
-          type: 'expense',
-          amount: parseFloat(group.total.toFixed(2)),
-          category: catName,
-          date: scanResult.date,
-          title: `Paragon: ${scanResult.storeName} (${catName})`,
-          comment: `Produkty (${group.items.length}): ${group.items.map((i) => i.name).join(', ')}`,
-          receiptStoreName: scanResult.storeName,
-          receiptItems: group.items,
+    try {
+      if (splitByCategory) {
+        // Group items by category and create separate transaction per category
+        const categoriesMap: Record<string, { total: number; items: ReceiptItemDetail[] }> = {};
+        selectedItems.forEach((item) => {
+          if (!categoriesMap[item.category]) {
+            categoriesMap[item.category] = { total: 0, items: [] };
+          }
+          categoriesMap[item.category].total += item.price;
+          categoriesMap[item.category].items.push(item);
         });
-      });
-    } else {
-      // Create single consolidated transaction
-      const totalSelected = selectedItems.reduce((s, i) => s + i.price, 0);
-      onAddTransaction({
-        type: 'expense',
-        amount: parseFloat(totalSelected.toFixed(2)),
-        category: scanResult.dominantCategory,
-        date: scanResult.date,
-        title: `Paragon: ${scanResult.storeName}`,
-        comment: `Zakup ${selectedItems.length} pozycji. Sklep: ${scanResult.storeName}. ${scanResult.summary || ''}`,
-        receiptStoreName: scanResult.storeName,
-        receiptItems: selectedItems,
-      });
-    }
 
-    setSuccessMessage(`Pomyślnie dodano wydatek z paragonu do budżetu domowego!`);
+        Object.entries(categoriesMap).forEach(([catName, group]) => {
+          const catAmount = parseFloat(group.total.toFixed(2));
+          if (onAddTransaction) {
+            onAddTransaction({
+              type: 'expense',
+              amount: catAmount,
+              category: catName,
+              date: scanResult.date,
+              title: `Paragon: ${scanResult.storeName} (${catName})`,
+              comment: `Produkty (${group.items.length}): ${group.items.map((i) => i.name).join(', ')}`,
+              receiptStoreName: scanResult.storeName,
+              receiptItems: group.items,
+            });
+          } else if (onReceiptScanned) {
+            onReceiptScanned({
+              title: `Paragon: ${scanResult.storeName} (${catName})`,
+              amount: catAmount,
+              category: catName,
+              date: scanResult.date,
+              items: group.items.map((i) => ({ name: i.name, price: i.price, quantity: i.quantity })),
+            });
+          }
+        });
+      } else {
+        // Create single consolidated transaction
+        const totalSelected = parseFloat(selectedItems.reduce((s, i) => s + i.price, 0).toFixed(2));
+        if (onAddTransaction) {
+          onAddTransaction({
+            type: 'expense',
+            amount: totalSelected,
+            category: scanResult.dominantCategory,
+            date: scanResult.date,
+            title: `Paragon: ${scanResult.storeName}`,
+            comment: `Zakup ${selectedItems.length} pozycji. Sklep: ${scanResult.storeName}. ${scanResult.summary || ''}`,
+            receiptStoreName: scanResult.storeName,
+            receiptItems: selectedItems,
+          });
+        } else if (onReceiptScanned) {
+          onReceiptScanned({
+            title: `Paragon: ${scanResult.storeName}`,
+            amount: totalSelected,
+            category: scanResult.dominantCategory,
+            date: scanResult.date,
+            items: selectedItems.map((i) => ({ name: i.name, price: i.price, quantity: i.quantity })),
+          });
+        }
+      }
+
+      setSuccessMessage(`Pomyślnie dodano wydatek z paragonu (${selectedTotal.toFixed(2)} PLN) do budżetu domowego!`);
+    } catch (err: any) {
+      console.error('Błąd zapisu paragonu:', err);
+      setError(err?.message || 'Wystąpił błąd podczas zatwierdzania paragonu. Spróbuj ponownie.');
+    }
   };
 
   const selectedTotal =
@@ -475,28 +512,49 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
           {/* Summary Box */}
           <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
-              <div className="flex items-start space-x-3">
-                <div className="p-3 bg-indigo-50 text-indigo-700 rounded-2xl border border-indigo-100">
+              <div className="flex items-start space-x-3 flex-1 min-w-0">
+                <div className="p-3 bg-indigo-50 text-indigo-700 rounded-2xl border border-indigo-100 shrink-0">
                   <Store className="w-6 h-6" />
                 </div>
-                <div>
-                  <div className="flex items-center space-x-2">
-                    <h2 className="text-lg font-bold text-slate-900">{scanResult.storeName}</h2>
-                    <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-800 font-medium">
-                      {scanResult.dominantCategory}
-                    </span>
+                <div className="flex-1 min-w-0 space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="text"
+                      value={scanResult.storeName}
+                      onChange={(e) => setScanResult({ ...scanResult, storeName: e.target.value })}
+                      placeholder="Nazwa sklepu / sprzedawcy"
+                      className="text-base sm:text-lg font-bold text-slate-900 bg-slate-50 hover:bg-slate-100/80 focus:bg-white border border-slate-200 rounded-lg px-2.5 py-1 focus:ring-1 focus:ring-indigo-500 focus:outline-hidden transition-colors"
+                      title="Możesz edytować nazwę sklepu"
+                    />
+                    <select
+                      value={scanResult.dominantCategory}
+                      onChange={(e) => setScanResult({ ...scanResult, dominantCategory: e.target.value })}
+                      className="text-xs px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-900 font-semibold border border-indigo-200 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                    >
+                      {INITIAL_CATEGORIES.map((cat) => (
+                        <option key={cat.name} value={cat.name}>
+                          {cat.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                  <div className="flex items-center space-x-4 text-xs text-slate-500 mt-1">
-                    <span className="flex items-center space-x-1">
-                      <Calendar className="w-3.5 h-3.5" />
-                      <span>Data: {scanResult.date}</span>
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                    <span className="flex items-center space-x-1.5 font-medium">
+                      <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Data zakupu:</span>
+                      <input
+                        type="date"
+                        value={scanResult.date}
+                        onChange={(e) => setScanResult({ ...scanResult, date: e.target.value })}
+                        className="border border-slate-200 rounded-md px-2 py-0.5 text-xs text-slate-800 bg-white font-semibold focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                      />
                     </span>
                     {scanResult.receiptNumber && <span>Nr: {scanResult.receiptNumber}</span>}
                   </div>
                 </div>
               </div>
 
-              <div className="text-right">
+              <div className="text-left md:text-right shrink-0 bg-slate-50 md:bg-transparent p-3 md:p-0 rounded-xl border md:border-0 border-slate-100">
                 <span className="text-xs text-slate-500 block">Suma z paragonu</span>
                 <span className="text-2xl font-black text-slate-900">
                   {scanResult.totalAmount.toFixed(2)} PLN
@@ -545,18 +603,30 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                     !item.selected ? 'opacity-50 bg-slate-50/50' : ''
                   }`}
                 >
-                  <div className="flex items-center space-x-3 flex-1 min-w-0">
+                  <div className="flex items-center space-x-3 flex-1 min-w-0 w-full sm:w-auto">
                     <input
                       type="checkbox"
                       checked={item.selected}
                       onChange={() => handleToggleItem(idx)}
-                      className="rounded-sm text-slate-900 focus:ring-slate-900 w-4 h-4"
+                      className="rounded-sm text-slate-900 focus:ring-slate-900 w-4 h-4 shrink-0"
                     />
-                    <div className="min-w-0">
-                      <p className="text-xs sm:text-sm font-semibold text-slate-900 truncate">
-                        {item.name}
-                      </p>
-                      {item.notes && <p className="text-[11px] text-slate-500">{item.notes}</p>}
+                    <div className="min-w-0 flex-1">
+                      <input
+                        type="text"
+                        value={item.name}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setScanResult((prev) => {
+                            if (!prev) return null;
+                            const newItems = [...prev.items];
+                            newItems[idx] = { ...newItems[idx], name: val };
+                            return { ...prev, items: newItems };
+                          });
+                        }}
+                        className="text-xs sm:text-sm font-semibold text-slate-900 w-full bg-transparent hover:bg-slate-50 border-b border-transparent hover:border-slate-200 focus:border-indigo-500 focus:outline-hidden px-1 py-0.5 rounded-sm"
+                        title="Kliknij, aby poprawić nazwę pozycji"
+                      />
+                      {item.notes && <p className="text-[11px] text-slate-500 px-1">{item.notes}</p>}
                     </div>
                   </div>
 
@@ -574,10 +644,25 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                       ))}
                     </select>
 
-                    {/* Price */}
-                    <span className="text-sm font-bold text-slate-900 whitespace-nowrap min-w-[70px] text-right">
-                      {item.price.toFixed(2)} zł
-                    </span>
+                    {/* Price with edit ability */}
+                    <div className="flex items-center space-x-1 shrink-0">
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={item.price}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value) || 0;
+                          setScanResult((prev) => {
+                            if (!prev) return null;
+                            const newItems = [...prev.items];
+                            newItems[idx] = { ...newItems[idx], price: val };
+                            return { ...prev, items: newItems };
+                          });
+                        }}
+                        className="w-20 text-right text-xs sm:text-sm font-bold text-slate-900 bg-transparent hover:bg-slate-50 border border-transparent hover:border-slate-200 focus:border-indigo-500 rounded-md px-1 py-0.5 focus:outline-hidden"
+                      />
+                      <span className="text-xs font-bold text-slate-600">zł</span>
+                    </div>
                   </div>
                 </div>
               ))}

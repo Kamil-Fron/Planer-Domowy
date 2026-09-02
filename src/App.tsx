@@ -1349,7 +1349,10 @@ export default function App() {
 
         {activeTab === 'scanner' && (
           <ReceiptScanner
+            onAddTransaction={handleAddTransaction}
             onReceiptScanned={handleScannedReceipt}
+            shoppingItems={shoppingItems}
+            onNavigateToTransactions={() => setActiveTab('transactions')}
             onCancel={() => setActiveTab('dashboard')}
           />
         )}

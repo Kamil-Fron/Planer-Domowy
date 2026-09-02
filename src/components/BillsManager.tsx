@@ -72,6 +72,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   const [serviceType, setServiceType] = useState<UtilityServiceType>('prąd');
   const [pricingType, setPricingType] = useState<BillPricingType>('fixed');
   const [initialStatus, setInitialStatus] = useState<'pending' | 'paid'>('pending');
+  const [paidDate, setPaidDate] = useState(new Date().toISOString().split('T')[0]);
   const [provider, setProvider] = useState('');
   const [amount, setAmount] = useState('');
   const [dueDate, setDueDate] = useState(new Date().toISOString().split('T')[0]);
@@ -384,7 +385,8 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
     if (!name.trim() || !amount) return;
 
     const parsedAmount = parseFloat(amount);
-    const payDate = new Date().toISOString().split('T')[0];
+    const todayDate = new Date().toISOString().split('T')[0];
+    const actualPayDate = initialStatus === 'paid' ? (paidDate || todayDate) : todayDate;
     const periodName = getBillingPeriodName(dueDate);
 
     const meterData =
@@ -393,19 +395,19 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
             previous: parseFloat(meterPrev) || 0,
             current: parseFloat(meterCurr),
             unit: meterUnit,
-            readingDate: payDate,
+            readingDate: actualPayDate,
           }
         : undefined;
 
     if (initialStatus === 'paid') {
-      // 1. Zapisz transakcję w wydatkach
+      // 1. Zapisz transakcję w wydatkach z wybraną datą opłacenia
       onAddTransaction({
         type: 'expense',
         amount: parsedAmount,
         category: 'Rachunki i media',
-        date: payDate,
+        date: actualPayDate,
         title: `Rachunek: ${name.trim()}`,
-        comment: `Opłacono rachunek (${provider.trim() || name.trim()}) za okres ${periodName}.${
+        comment: `Opłacono rachunek (${name.trim()}) za okres ${periodName}.${
           meterData ? ` Stan licznika: ${meterData.current} ${meterData.unit}.` : ''
         }`,
       });
@@ -413,7 +415,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
       const newHistoryItem = {
         id: `hist-${Date.now()}`,
         amount: parsedAmount,
-        paidDate: payDate,
+        paidDate: actualPayDate,
         billingPeriod: periodName,
         meterReading: meterData,
         notes: 'Opłacono podczas dodawania rachunku',
@@ -424,12 +426,12 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         name: name.trim(),
         serviceType,
         pricingType,
-        provider: provider.trim() || name.trim(),
+        provider: name.trim(),
         amount: parsedAmount,
         dueDate,
         billingCycle,
         status: 'paid',
-        paymentDate: payDate,
+        paymentDate: actualPayDate,
         lastPaidAmount: parsedAmount,
         paymentHistory: [newHistoryItem],
         notes: notes.trim() || undefined,
@@ -437,9 +439,9 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
       });
 
       showToast(
-        `Dodano rachunek "${name.trim()}" i automatycznie zaksięgowano ${parsedAmount.toFixed(
+        `Dodano rachunek "${name.trim()}" i zaksięgowano ${parsedAmount.toFixed(
           2
-        )} PLN w wydatkach.`
+        )} PLN w wydatkach (data: ${actualPayDate}).`
       );
     } else {
       // Oczekujący na opłacenie
@@ -447,7 +449,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         name: name.trim(),
         serviceType,
         pricingType,
-        provider: provider.trim() || name.trim(),
+        provider: name.trim(),
         amount: parsedAmount,
         dueDate,
         billingCycle,
@@ -464,6 +466,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
     setProvider('');
     setAmount('');
     setNotes('');
+    setPaidDate(new Date().toISOString().split('T')[0]);
     setPricingType('fixed');
     setInitialStatus('pending');
     setHasMeterReading(false);
@@ -1051,6 +1054,40 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                 </div>
               </div>
 
+              {/* Name & Amount */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Nazwa rachunku *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="np. Tauron Prąd, Czynsz wrzesień, Internet..."
+                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-emerald-500 focus:outline-hidden"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    {pricingType === 'fixed' ? 'Kwota stała (PLN) *' : 'Kwota bieżąca (PLN) *'}
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    required
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2 text-xs font-bold bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-emerald-500 focus:outline-hidden"
+                  />
+                </div>
+              </div>
+
+              {/* Service Type & Due Date */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -1082,53 +1119,6 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Nazwa rachunku *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="np. Tauron Prąd, Czynsz wrzesień"
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-emerald-500 focus:outline-hidden"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Dostawca / Firma
-                  </label>
-                  <input
-                    type="text"
-                    value={provider}
-                    onChange={(e) => setProvider(e.target.value)}
-                    placeholder="np. Tauron, PGNiG, MPWiK..."
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-emerald-500 focus:outline-hidden"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    {pricingType === 'fixed' ? 'Kwota stała (PLN) *' : 'Kwota bieżąca (PLN) *'}
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    required
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    placeholder="np. 245.50"
-                    className="w-full px-3 py-2 text-xs font-bold bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-emerald-500 focus:outline-hidden"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Termin płatności *
                   </label>
                   <input
@@ -1139,23 +1129,23 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                     className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-emerald-500 focus:outline-hidden"
                   />
                 </div>
+              </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Cykliczność rachunku
-                  </label>
-                  <select
-                    value={billingCycle}
-                    onChange={(e) => setBillingCycle(e.target.value as any)}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-emerald-500 focus:outline-hidden font-medium"
-                  >
-                    <option value="miesięcznie">Miesięcznie</option>
-                    <option value="co 2 miesiące">Co 2 miesiące</option>
-                    <option value="kwartalnie">Kwartalnie</option>
-                    <option value="rocznie">Rocznie</option>
-                    <option value="jednorazowo">Jednorazowo</option>
-                  </select>
-                </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Cykliczność rachunku
+                </label>
+                <select
+                  value={billingCycle}
+                  onChange={(e) => setBillingCycle(e.target.value as any)}
+                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-emerald-500 focus:outline-hidden font-medium"
+                >
+                  <option value="miesięcznie">Miesięcznie</option>
+                  <option value="co 2 miesiące">Co 2 miesiące</option>
+                  <option value="kwartalnie">Kwartalnie</option>
+                  <option value="rocznie">Rocznie</option>
+                  <option value="jednorazowo">Jednorazowo</option>
+                </select>
               </div>
 
               {/* Initial Status & Auto-expense choice */}
@@ -1201,6 +1191,26 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                   </button>
                 </div>
               </div>
+
+              {/* Payment Date (only if already paid) */}
+              {initialStatus === 'paid' && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl space-y-1.5">
+                  <label className="block text-xs font-bold text-emerald-900 flex items-center space-x-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-emerald-700" />
+                    <span>Data opłacenia rachunku *</span>
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={paidDate}
+                    onChange={(e) => setPaidDate(e.target.value)}
+                    className="w-full px-3 py-2 text-xs font-bold bg-white border border-emerald-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:outline-hidden text-slate-900"
+                  />
+                  <p className="text-[11px] text-emerald-700">
+                    Transakcja wydatku w budżecie domowym zostanie zaksięgowana z tą wybraną datą.
+                  </p>
+                </div>
+              )}
 
               {/* Meter Readings Option */}
               <div className="pt-2 border-t border-slate-100">

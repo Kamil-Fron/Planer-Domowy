@@ -92,12 +92,12 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
 
   const handleOpenEditModal = (t: Transaction) => {
     setEditingTransaction(t);
+    // Use title (or comment if title is generic)
     setEditTitle(t.title);
     setEditAmount(t.amount.toString());
     setEditType(t.type);
     setEditCategory(t.category);
     setEditDate(t.date);
-    setEditComment(t.comment || '');
     setEditRecurring(!!t.isRecurring);
     setEditStoreName(t.receiptStoreName || '');
   };
@@ -116,7 +116,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
         type: editType,
         category: editCategory,
         date: editDate,
-        comment: editComment.trim() || undefined,
+        comment: undefined,
         isRecurring: editRecurring,
         receiptStoreName: editStoreName.trim() || undefined,
       });
@@ -135,7 +135,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
       amount: parseFloat(formAmount),
       category: formCategory,
       date: formDate,
-      comment: formComment.trim() || undefined,
+      comment: undefined,
       isRecurring: formRecurring,
     });
 
@@ -345,7 +345,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                       )}
                     </div>
 
-                    {item.comment && (
+                    {item.comment && item.comment.trim() !== item.title.trim() && (
                       <div className="mt-1 flex items-center space-x-1 text-[11px] text-slate-500 truncate max-w-full">
                         <MessageSquare className="w-3 h-3 text-slate-400 shrink-0" />
                         <span className="truncate italic">{item.comment}</span>
@@ -444,21 +444,6 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                 </button>
               </div>
 
-              {/* Title */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Tytuł / Nazwa <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                  placeholder="np. Wypłata, Zakupy spożywcze"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white"
-                />
-              </div>
-
               {/* Amount & Date */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -474,13 +459,15 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                       value={editAmount}
                       onChange={(e) => setEditAmount(e.target.value)}
                       placeholder="0.00"
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-bold focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Data</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Data <span className="text-rose-500">*</span>
+                  </label>
                   <input
                     type="date"
                     required
@@ -489,6 +476,21 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white"
                   />
                 </div>
+              </div>
+
+              {/* Komentarz */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Komentarz <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  placeholder={editType === 'income' ? 'np. Wynagrodzenie, Premia' : 'np. Zakupy spożywcze, Paliwo'}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                />
               </div>
 
               {/* Category */}
@@ -528,20 +530,6 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                   />
                 </div>
               )}
-
-              {/* Comment */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Notatka / Komentarz (opcjonalnie)
-                </label>
-                <input
-                  type="text"
-                  value={editComment}
-                  onChange={(e) => setEditComment(e.target.value)}
-                  placeholder="np. Zakupy na cały tydzień"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white"
-                />
-              </div>
 
               {/* Recurring */}
               <div className="flex items-center space-x-2 pt-1">
@@ -637,30 +625,11 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                 </button>
               </div>
 
-              {/* Title */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Tytuł *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formTitle}
-                  onChange={(e) => setFormTitle(e.target.value)}
-                  placeholder={
-                    formType === 'income'
-                      ? 'np. Wynagrodzenie, Premia'
-                      : 'np. Zakupy spożywcze, Paliwo'
-                  }
-                  className="w-full px-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-slate-900 focus:outline-hidden"
-                />
-              </div>
-
               <div className="grid grid-cols-2 gap-3">
                 {/* Amount */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Kwota (PLN) *
+                    Kwota (PLN) <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="number"
@@ -677,7 +646,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                 {/* Date */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Data *
+                    Data <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="date"
@@ -687,6 +656,25 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                     className="w-full px-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-slate-900 focus:outline-hidden"
                   />
                 </div>
+              </div>
+
+              {/* Komentarz */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Komentarz <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formTitle}
+                  onChange={(e) => setFormTitle(e.target.value)}
+                  placeholder={
+                    formType === 'income'
+                      ? 'np. Wynagrodzenie, Premia'
+                      : 'np. Zakupy spożywcze, Paliwo'
+                  }
+                  className="w-full px-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-slate-900 focus:outline-hidden"
+                />
               </div>
 
               {/* Category */}
@@ -711,20 +699,6 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                         </option>
                       ))}
                 </select>
-              </div>
-
-              {/* Comment */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Komentarz / Notatka
-                </label>
-                <textarea
-                  rows={2}
-                  value={formComment}
-                  onChange={(e) => setFormComment(e.target.value)}
-                  placeholder="Dodatkowe informacje..."
-                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-slate-900 focus:outline-hidden"
-                />
               </div>
 
               {/* Recurring Toggle */}

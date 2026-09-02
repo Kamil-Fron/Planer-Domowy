@@ -21,6 +21,7 @@ import {
   MessageSquare,
   DollarSign,
   Layers,
+  ArrowLeftRight,
 } from 'lucide-react';
 import {
   Transaction,
@@ -200,13 +201,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </button>
 
             <button
-              onClick={() => onQuickAddTransaction('income')}
-              className="p-3.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-900 border border-slate-200 text-left transition-all flex flex-col justify-between group"
+              onClick={() => onNavigate('transactions')}
+              className="p-3.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-900 border border-slate-200 text-left transition-all flex flex-col justify-between group cursor-pointer"
             >
               <div className="p-2 rounded-lg bg-emerald-600 text-white w-fit group-hover:scale-105 transition-transform">
-                <ArrowDownRight className="w-4 h-4" />
+                <ArrowLeftRight className="w-4 h-4" />
               </div>
-              <span className="text-xs font-bold mt-2 text-slate-800">Wpłata z wypłaty</span>
+              <span className="text-xs font-bold mt-2 text-slate-800">Transakcje</span>
             </button>
 
             <button

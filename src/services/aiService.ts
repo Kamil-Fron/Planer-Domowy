@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { compressImageBase64 } from "../utils/imageCompressor";
 
 // Helper to retrieve the Gemini API key from environment or local storage
 export function getStoredGeminiApiKey(): string {
@@ -58,14 +58,16 @@ export async function checkAiAvailability(): Promise<AiStatusResult> {
     // Backend not running (e.g. static GitHub Pages) - ignore and check client key
   }
 
-  // 2. Check client-side injected key (from GitHub Actions secret or .env)
+  // 2. Check client-side injected key (from GitHub Actions secret or .env or localStorage)
   const clientKey = getStoredGeminiApiKey();
   if (clientKey) {
     const isFromStorage = typeof window !== "undefined" && Boolean(localStorage.getItem("gemini_api_key"));
     return {
       isConfigured: true,
       source: isFromStorage ? "client_storage" : "client_env",
-      message: "Połączono z Gemini AI (Klucz wdrożeniowy GitHub Pages)",
+      message: isFromStorage
+        ? "Połączono z Gemini AI (Klucz własny)"
+        : "Połączono z Gemini AI (Klucz wdrożeniowy GitHub Pages)",
     };
   }
 
@@ -76,9 +78,24 @@ export async function checkAiAvailability(): Promise<AiStatusResult> {
   };
 }
 
-// Clean JSON extraction from AI response string
-function extractJson(text: string | undefined): any {
-  if (!text) throw new Error("Model AI zwrócił pustą treść.");
+// Clean JSON extraction from AI response string (handles markdown, thinking blocks, and raw JSON)
+function extractJson(rawInput: any): any {
+  let text = "";
+  if (typeof rawInput === "string") {
+    text = rawInput;
+  } else if (rawInput?.candidates?.[0]?.content?.parts) {
+    const parts = rawInput.candidates[0].content.parts;
+    // Prefer non-thought text parts
+    const contentPart = parts.find((p: any) => !p.thought && p.text) || parts.find((p: any) => p.text);
+    text = contentPart?.text || "";
+  } else if (rawInput?.text) {
+    text = rawInput.text;
+  }
+
+  if (!text || !text.trim()) {
+    throw new Error("Model AI zwrócił pustą odpowiedź. Spróbuj wykonać wyraźniejsze zdjęcie paragonu.");
+  }
+
   let cleaned = text.trim();
   if (cleaned.includes("```")) {
     const match = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
@@ -88,29 +105,40 @@ function extractJson(text: string | undefined): any {
       cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
     }
   }
+
+  // Find first { and last }
+  const startIdx = cleaned.indexOf("{");
+  const endIdx = cleaned.lastIndexOf("}");
+  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+    cleaned = cleaned.substring(startIdx, endIdx + 1);
+  }
+
   return JSON.parse(cleaned);
 }
 
-// Direct Client-Side Gemini Vision Scan (works directly on GitHub Pages without server)
+// Direct Client-Side Gemini Vision Scan (works seamlessly on GitHub Pages)
 async function scanReceiptDirectClient(
   apiKey: string,
   imageBase64: string,
   mimeType: string
 ): Promise<any> {
-  const cleanBase64 = imageBase64.replace(/^data:[^;]+;base64,/i, "").trim();
-  let detectedMime = mimeType || "image/jpeg";
-  const match = imageBase64.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,/i);
-  if (match) detectedMime = match[1];
+  // Compress high-res mobile image to ensure fast transfer (<400KB) and crisp OCR
+  const { base64: cleanBase64, mimeType: compressedMime } = await compressImageBase64(
+    imageBase64,
+    1600,
+    1600,
+    0.85
+  );
 
   const prompt = `Jesteś precyzyjnym systemem OCR i asystentem finansowym do analizy paragonów fiskalnych i faktur w Polsce.
 Przeanalizuj dołączone zdjęcie paragonu i wyodrębnij:
-1. storeName: Nazwa sklepu / sprzedawcy (np. Biedronka, Lidl, Castorama, Rossmann, PGNiG, itp.).
+1. storeName: Nazwa sklepu / stacji paliw / sprzedawcy (np. Pieprzyk, Biedronka, Lidl, Orlen, Castorama, Rossmann itp.).
 2. date: Data transakcji (w formacie YYYY-MM-DD). Jeśli niewidoczna, użyj bieżącej daty.
-3. totalAmount: Łączna kwota do zapłaty (liczba w PLN).
+3. totalAmount: Łączna kwota do zapłaty (liczba w PLN, np. 111.31).
 4. currency: Waluta (zwykle "PLN").
-5. receiptNumber: Numer paragonu lub NIP (jeśli widoczny, inaczej pusty ciąg "").
-6. dominantCategory: Dominująca kategoria całego paragonu spośród: ["Jedzenie i artykuły spożywcze", "Remont i dom", "Dla zwierząt i kotów", "Rachunki i media", "Zdrowie i kosmetyki", "Transport i paliwo", "Rozrywka i hobby", "Odzież i obuwie", "Inne"].
-7. summary: Krótkie podsumowanie w języku polskim (1-2 zdania).
+5. receiptNumber: Numer paragonu lub NIP (jeśli widoczny, inaczej "").
+6. dominantCategory: Dominująca kategoria całego paragonu spośród: ["Transport i paliwo", "Jedzenie i artykuły spożywcze", "Remont i dom", "Dla zwierząt i kotów", "Rachunki i media", "Zdrowie i kosmetyki", "Rozrywka i hobby", "Odzież i obuwie", "Inne"].
+7. summary: Krótkie podsumowanie w języku polskim (np. "Zakup paliwa na stacji Pieprzyk").
 8. items: Lista pozycji zakupowych z paragonu (dla każdego produktu: name, price (liczba), quantity (liczba, domyślnie 1), category, notes).
 
 Zwróć wynik w czystym formacie JSON:
@@ -133,8 +161,8 @@ Zwróć wynik w czystym formacie JSON:
   ]
 }`;
 
-  // Try direct REST fetch first as it's 100% browser native with CORS support
-  const models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"];
+  // Use currently supported, high-accuracy vision models
+  const models = ["gemini-2.5-flash", "gemini-2.5-pro"];
   let lastError: any = null;
 
   for (const model of models) {
@@ -145,18 +173,19 @@ Zwróć wynik w czystym formacie JSON:
           {
             parts: [
               {
-                inline_data: {
-                  mime_type: detectedMime,
-                  data: cleanBase64,
-                },
+                text: prompt,
               },
               {
-                text: prompt,
+                inline_data: {
+                  mime_type: compressedMime || mimeType || "image/jpeg",
+                  data: cleanBase64,
+                },
               },
             ],
           },
         ],
         generationConfig: {
+          temperature: 0.1,
           response_mime_type: "application/json",
         },
       };
@@ -169,14 +198,14 @@ Zwróć wynik w czystym formacie JSON:
 
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson?.error?.message || `Błąd API (${res.status} ${res.statusText})`);
+        const errMsg = errJson?.error?.message || `Błąd API (${res.status} ${res.statusText})`;
+        throw new Error(errMsg);
       }
 
       const resultData = await res.json();
-      const rawText = resultData?.candidates?.[0]?.content?.parts?.[0]?.text;
-      return extractJson(rawText);
+      return extractJson(resultData);
     } catch (err: any) {
-      console.warn(`Próba z modelem ${model} nie powiodła się:`, err);
+      console.warn(`Próba analizy modelem ${model} nie powiodła się:`, err);
       lastError = err;
     }
   }
@@ -231,7 +260,7 @@ Przygotuj zwięzłą, konkretną analizę w języku polskim w formacie JSON:
   "fullText": "Pełny tekst analizy w punktach po polsku"
 }`;
 
-  const models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"];
+  const models = ["gemini-2.5-flash", "gemini-2.5-pro"];
   let lastError: any = null;
 
   for (const model of models) {
@@ -240,6 +269,7 @@ Przygotuj zwięzłą, konkretną analizę w języku polskim w formacie JSON:
       const payload = {
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
+          temperature: 0.2,
           response_mime_type: "application/json",
         },
       };
@@ -256,8 +286,7 @@ Przygotuj zwięzłą, konkretną analizę w języku polskim w formacie JSON:
       }
 
       const resultData = await res.json();
-      const rawText = resultData?.candidates?.[0]?.content?.parts?.[0]?.text;
-      return extractJson(rawText);
+      return extractJson(resultData);
     } catch (err: any) {
       console.warn(`Próba generowania porady z modelem ${model} nie powiodła się:`, err);
       lastError = err;
@@ -291,7 +320,7 @@ export async function scanReceiptWithAI(imageBase64: string, mimeType: string = 
   const clientKey = getStoredGeminiApiKey();
   if (!clientKey) {
     throw new Error(
-      "Klucz GEMINI_API_KEY nie został skonfigurowany. Dodaj swój klucz w ustawieniach lub zmiennych środowiskowych GitHub Pages."
+      "Klucz GEMINI_API_KEY nie został skonfigurowany. Kliknij przycisk 'Skonfiguruj Gemini API' i podaj swój klucz z Google AI Studio."
     );
   }
 
@@ -326,7 +355,7 @@ export async function getFinancialAdviceWithAI(params: {
   const clientKey = getStoredGeminiApiKey();
   if (!clientKey) {
     throw new Error(
-      "Klucz GEMINI_API_KEY nie został skonfigurowany. Dodaj swój klucz w ustawieniach lub zmiennych środowiskowych GitHub Pages."
+      "Klucz GEMINI_API_KEY nie został skonfigurowany. Podaj klucz w konfiguracji, aby skorzystać z analizy AI."
     );
   }
 

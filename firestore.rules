@@ -12,8 +12,8 @@ service cloud.firestore {
 
     function isValidHousehold(data) {
       return data.id is string && data.id.size() <= 128
-        && data.name is string && data.name.size() <= 100
-        && data.inviteCode is string && data.inviteCode.size() <= 60;
+        && data.name is string && data.name.size() <= 128
+        && data.inviteCode is string && data.inviteCode.size() <= 64;
     }
 
     // Connectivity test document
@@ -23,15 +23,18 @@ service cloud.firestore {
 
     // User Profile synchronization
     match /users/{userId} {
-      allow read: if isValidId(userId);
+      allow get: if isValidId(userId);
+      allow list: if true;
       allow create, update: if isValidId(userId);
       allow delete: if request.auth != null && request.auth.uid == userId;
     }
 
     // Households synchronization
     match /households/{householdId} {
-      allow read: if isValidId(householdId);
-      allow create, update: if isValidId(householdId) && isValidHousehold(request.resource.data);
+      allow get: if isValidId(householdId);
+      allow list: if true;
+      allow create: if isValidId(householdId) && isValidHousehold(request.resource.data);
+      allow update: if isValidId(householdId) && isValidHousehold(request.resource.data);
       allow delete: if request.auth != null;
     }
   }

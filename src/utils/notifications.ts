@@ -52,12 +52,38 @@ export function checkAndTriggerBillNotifications(bills: Bill[]): void {
   });
 }
 
+/**
+ * Tworzy nowe powiadomienie o aktywności domownika/użytkownika
+ */
+export function createActivityNotification(
+  title: string,
+  message: string,
+  authorName?: string,
+  type: AppNotification['type'] = 'activity'
+): AppNotification {
+  const notif: AppNotification = {
+    id: `notif-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+    title,
+    message,
+    type,
+    date: new Date().toISOString(),
+    read: false,
+    authorName,
+  };
+
+  // Wyślij także push przeglądarkowy
+  sendBrowserPushNotification(title, { body: message });
+
+  return notif;
+}
+
 export function generateAutomatedNotifications(
   bills: Bill[],
   transactions: Transaction[],
   budgetLimits: BudgetLimit[],
-  existingNotifications: AppNotification[]
+  existingNotifications: AppNotification[] = []
 ): AppNotification[] {
+  // Start with manual/activity notifications already recorded
   const newNotifications: AppNotification[] = [...existingNotifications];
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -163,5 +189,8 @@ export function generateAutomatedNotifications(
     }
   });
 
-  return newNotifications.slice(0, 30); // Keep latest 30
+  // Sort by date newest first
+  newNotifications.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  return newNotifications.slice(0, 50); // Keep latest 50
 }

@@ -94,6 +94,7 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
   const [joinCodeInput, setJoinCodeInput] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteName, setInviteName] = useState('');
+  const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
   const [activeTab, setActiveTab] = useState<'household' | 'firebase_config' | 'pwa' | 'delete_data'>(initialTab);
   const [authLoading, setAuthLoading] = useState(false);
@@ -186,9 +187,15 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
   const handleInviteSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inviteEmail.trim()) return;
-    onInviteMember(inviteEmail.trim(), inviteName.trim() || inviteEmail.split('@')[0]);
+    const email = inviteEmail.trim();
+    const name = inviteName.trim() || email.split('@')[0];
+    onInviteMember(email, name);
+    setInviteSuccess(`Zaproszono: ${name} (${email}). Gdy zaloguje się tym e-mailem lub wpisze kod domu, natychmiast zobaczy Wasze wspólne wydatki.`);
     setInviteEmail('');
     setInviteName('');
+    setTimeout(() => {
+      setInviteSuccess(null);
+    }, 6000);
   };
 
   const handleGoogleLoginClick = async () => {
@@ -713,6 +720,13 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
                       <UserPlus className="w-4 h-4 text-indigo-600" />
                       <span>Zaproś nowego członka (podaj dane lub wyślij kod {household.inviteCode})</span>
                     </h4>
+
+                    {inviteSuccess && (
+                      <div className="mb-2 p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-start space-x-2">
+                        <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                        <p className="text-[11px] font-medium leading-relaxed">{inviteSuccess}</p>
+                      </div>
+                    )}
 
                     <form onSubmit={handleInviteSubmit} className="space-y-2">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">

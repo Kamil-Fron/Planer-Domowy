@@ -119,11 +119,12 @@ export interface AppNotification {
   id: string;
   title: string;
   message: string;
-  type: 'bill_due' | 'bill_overdue' | 'budget_warning' | 'budget_exceeded' | 'info';
+  type: 'bill_due' | 'bill_overdue' | 'budget_warning' | 'budget_exceeded' | 'activity' | 'info';
   date: string;
   read: boolean;
   relatedId?: string;
   actionLink?: string;
+  authorName?: string;
 }
 
 export interface ReceiptScanResult {

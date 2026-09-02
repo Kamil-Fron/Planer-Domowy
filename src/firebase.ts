@@ -32,6 +32,7 @@ import {
   ShoppingList,
   Transaction,
   UserProfile,
+  AppNotification,
 } from './types';
 
 export enum OperationType {
@@ -396,6 +397,7 @@ export interface HouseholdFirestoreData {
   budgetLimits: BudgetLimit[];
   shoppingLists: ShoppingList[];
   shoppingItems: ShoppingItem[];
+  notifications?: AppNotification[];
   lastUpdatedAt: string;
   lastUpdatedBy?: string;
 }
@@ -450,7 +452,7 @@ export async function getHouseholdFromFirestore(
 }
 
 /**
- * Wyszukanie domu po kodzie zaproszenia (np. DOM-1234-PL)
+ * Wyszukanie domu po kodzie zaproszenia (np. DOM-1234-PL, DOM-4681-PL lub 4681)
  */
 export async function findHouseholdByInviteCode(
   code: string
@@ -459,18 +461,71 @@ export async function findHouseholdByInviteCode(
   if (!db || !code) return null;
 
   const cleanCode = code.trim().toUpperCase();
+  const normalizedInput = cleanCode.replace(/[^A-Z0-9]/g, '');
   const targetPath = `households`;
   try {
+    // 1. Bezpośrednie zapytanie indeksowane po kodzie
     const q = query(collection(db, 'households'), where('inviteCode', '==', cleanCode));
     const querySnapshot = await getDocs(q);
     if (!querySnapshot.empty) {
       const firstDoc = querySnapshot.docs[0];
       return firstDoc.data() as HouseholdFirestoreData;
     }
+
+    // 2. Elastyczne dopasowanie (np. jeśli użytkownik wpisał kod z myślnikami/bez myślników)
+    const allHouseholdsSnap = await getDocs(collection(db, 'households'));
+    for (const docSnap of allHouseholdsSnap.docs) {
+      const data = docSnap.data() as HouseholdFirestoreData;
+      if (data.inviteCode) {
+        const docCode = data.inviteCode.trim().toUpperCase();
+        const normalizedDocCode = docCode.replace(/[^A-Z0-9]/g, '');
+        if (
+          docCode === cleanCode ||
+          normalizedDocCode === normalizedInput ||
+          (normalizedInput.length >= 4 && normalizedDocCode.includes(normalizedInput)) ||
+          (normalizedDocCode.length >= 4 && normalizedInput.includes(normalizedDocCode))
+        ) {
+          return data;
+        }
+      }
+    }
     return null;
   } catch (error) {
     console.warn('Błąd wyszukiwania domu po kodzie:', error);
+    handleFirestoreError(error, OperationType.LIST, targetPath);
     return null;
+  }
+}
+
+/**
+ * Wyszukanie gospodarstw domowych, do których użytkownik został zaproszony po adresie e-mail
+ */
+export async function findHouseholdsByMemberEmail(
+  email: string
+): Promise<HouseholdFirestoreData[]> {
+  const db = getFirestoreDb();
+  if (!db || !email) return [];
+
+  const cleanEmail = email.trim().toLowerCase();
+  const targetPath = `households`;
+  try {
+    const allHouseholdsSnap = await getDocs(collection(db, 'households'));
+    const matched: HouseholdFirestoreData[] = [];
+    for (const docSnap of allHouseholdsSnap.docs) {
+      const data = docSnap.data() as HouseholdFirestoreData;
+      if (data.members && Array.isArray(data.members)) {
+        const isMember = data.members.some(
+          (m) => m.email && m.email.trim().toLowerCase() === cleanEmail
+        );
+        if (isMember) {
+          matched.push(data);
+        }
+      }
+    }
+    return matched;
+  } catch (error) {
+    console.warn('Błąd wyszukiwania gospodarstw po adresie email:', error);
+    return [];
   }
 }
 

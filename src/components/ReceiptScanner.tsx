@@ -110,20 +110,10 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
         throw new Error(resData.error || 'Nie udało się odczytać paragonu');
       }
     } catch (err: any) {
-      console.warn('API error, falling back to intelligent demo simulation:', err);
-      // Fallback simulation for seamless offline testing
-      const randomSample = SAMPLE_RECEIPTS[0];
-      setScanResult({
-        storeName: randomSample.storeName,
-        date: randomSample.date,
-        totalAmount: randomSample.totalAmount,
-        currency: randomSample.currency,
-        dominantCategory: randomSample.dominantCategory,
-        summary: randomSample.summary,
-        items: randomSample.items.map((i) => ({ ...i, selected: true })),
-      });
+      console.error('Błąd podczas skanowania paragonu AI:', err);
       setError(
-        'Uwaga: Serwer Gemini zwrócił błąd lub brak połączenia z kluczem API. Wygenerowano przykładową inteligentną analizę demonstracyjną.'
+        err?.message ||
+          'Wystąpił problem z przetworzeniem zdjęcia przez model Gemini AI. Upewnij się, że zdjęcie jest wyraźne i dobrze oświetlone lub spróbuj ponownie.'
       );
     } finally {
       setIsScanning(false);

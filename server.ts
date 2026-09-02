@@ -13,15 +13,22 @@ const PORT = 3000;
 app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 
-// Initialize Google Gemini AI SDK with required User-Agent header
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY || "",
-  httpOptions: {
-    headers: {
-      "User-Agent": "aistudio-build",
-    },
-  },
-});
+// Lazy initialization of Gemini client
+let genAIClient: GoogleGenAI | null = null;
+function getGenAI(): GoogleGenAI {
+  if (!genAIClient) {
+    const apiKey = process.env.GEMINI_API_KEY || "";
+    genAIClient = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
+      },
+    });
+  }
+  return genAIClient;
+}
 
 // API Routes
 app.get("/api/health", (req, res) => {
@@ -38,44 +45,46 @@ app.post("/api/scan-receipt", async (req, res) => {
     const { imageBase64, mimeType } = req.body;
 
     if (!imageBase64) {
-      return res.status(400).json({ error: "Brak danych obrazu paragonu." });
+      return res.status(400).json({ success: false, error: "Brak danych obrazu paragonu." });
     }
 
     if (!process.env.GEMINI_API_KEY) {
       return res.status(500).json({
+        success: false,
         error: "Klucz GEMINI_API_KEY nie został skonfigurowany w środowisku.",
       });
     }
 
-    // Clean base64 data if data-uri prefix is included
-    const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z0-9+]+;base64,/, "");
-    const mediaType = mimeType || "image/jpeg";
+    // Extract exact mime-type if embedded in data-uri
+    let detectedMime = mimeType || "image/jpeg";
+    const mimeMatch = imageBase64.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,/i);
+    if (mimeMatch) {
+      detectedMime = mimeMatch[1];
+    }
 
-    const prompt = `Jesteś ekspertem finansowym i precyzyjnym systemem OCR do analizy paragonów fiskalnych i faktur w Polsce.
+    // Clean base64 data
+    const cleanBase64 = imageBase64.replace(/^data:[^;]+;base64,/i, "").trim();
+
+    const prompt = `Jesteś precyzyjnym systemem OCR i asystentem finansowym do analizy paragonów fiskalnych i faktur w Polsce.
 Przeanalizuj dołączone zdjęcie paragonu i wyodrębnij:
-1. Nazwa sklepu / sprzedawcy (np. Biedronka, Lidl, Castorama, Maxi Zoo, PGNiG, itp.).
-2. Data transakcji (w formacie YYYY-MM-DD). Jeśli brak, użyj bieżącej daty.
-3. Łączna kwota do zapłaty (totalAmount w PLN jako liczba).
-4. Numer paragonu / NIP (jeśli widoczny, inaczej puste).
-5. Waluta (zwykle PLN).
-6. Lista pozycji zakupowych (items) - dla każdej pozycji:
-   - name: pełna nazwa produktu lub usługi
-   - price: cena całkowita za daną pozycję (liczba)
-   - quantity: ilość (opcjonalnie, domyślnie 1)
-   - category: przypisana kategoria wydatku z listy: ["Jedzenie i artykuły spożywcze", "Remont i dom", "Dla zwierząt i kotów", "Rachunki i media", "Zdrowie i kosmetyki", "Transport i paliwo", "Rozrywka i hobby", "Odzież i obuwie", "Inne"]
-   - notes: dodatkowa uwaga, np. "karma dla kota", "mleko", "farba"
-7. Dominująca kategoria całego paragonu (dominantCategory).
-8. Krótkie podsumowanie w języku polskim (summary, 1-2 zdania).
+1. storeName: Nazwa sklepu / sprzedawcy (np. Biedronka, Lidl, Castorama, Rossmann, PGNiG, itp.).
+2. date: Data transakcji (w formacie YYYY-MM-DD). Jeśli niewidoczna, użyj bieżącej daty.
+3. totalAmount: Łączna kwota do zapłaty (liczba w PLN).
+4. currency: Waluta (zwykle "PLN").
+5. receiptNumber: Numer paragonu lub NIP (jeśli widoczny, inaczej pusty ciąg "").
+6. dominantCategory: Dominująca kategoria całego paragonu spośród: ["Jedzenie i artykuły spożywcze", "Remont i dom", "Dla zwierząt i kotów", "Rachunki i media", "Zdrowie i kosmetyki", "Transport i paliwo", "Rozrywka i hobby", "Odzież i obuwie", "Inne"].
+7. summary: Krótkie podsumowanie w języku polskim (1-2 zdania).
+8. items: Lista pozycji zakupowych z paragonu (dla każdego produktu: name, price (liczba), quantity (liczba, domyślnie 1), category, notes).
 
-Zwróć wynik ściśle w formacie JSON zgodnym ze schematem.`;
+Zwróć wynik w formacie JSON zgodnym ze schematem.`;
 
-    const response = await ai.models.generateContent({
+    const response = await getGenAI().models.generateContent({
       model: "gemini-3.7-flash",
       contents: {
         parts: [
           {
             inlineData: {
-              mimeType: mediaType,
+              mimeType: detectedMime,
               data: cleanBase64,
             },
           },
@@ -117,7 +126,8 @@ Zwróć wynik ściśle w formacie JSON zgodnym ze schematem.`;
       },
     });
 
-    const responseText = response.text || "{}";
+    let responseText = response.text || "{}";
+    responseText = responseText.replace(/^```json\s*/i, "").replace(/\s*```$/i, "").trim();
     const parsedData = JSON.parse(responseText);
 
     return res.json({
@@ -136,36 +146,74 @@ Zwróć wynik ściśle w formacie JSON zgodnym ze schematem.`;
 // AI Financial Advisor Endpoint
 app.post("/api/financial-advice", async (req, res) => {
   try {
-    const { monthlyIncome, totalExpenses, categoryBreakdown, budgetLimits, bills } = req.body;
+    const {
+      transactions = [],
+      limits = [],
+      bills = [],
+      monthlyIncome,
+      totalExpenses,
+      categoryBreakdown,
+      budgetLimits,
+    } = req.body;
 
     if (!process.env.GEMINI_API_KEY) {
-      return res.status(500).json({ error: "Brak klucza API Gemini." });
+      return res.status(500).json({
+        success: false,
+        error: "Brak klucza API Gemini w konfiguracji serwera.",
+      });
     }
+
+    // Derive metrics if not explicitly passed
+    let income = typeof monthlyIncome === "number" ? monthlyIncome : 0;
+    let expenses = typeof totalExpenses === "number" ? totalExpenses : 0;
+    let categories = Array.isArray(categoryBreakdown) ? categoryBreakdown : [];
+
+    if (Array.isArray(transactions) && transactions.length > 0) {
+      if (typeof monthlyIncome !== "number") {
+        income = transactions
+          .filter((t: any) => t.type === "income")
+          .reduce((s: number, t: any) => s + (Number(t.amount) || 0), 0);
+      }
+      if (typeof totalExpenses !== "number") {
+        expenses = transactions
+          .filter((t: any) => t.type === "expense")
+          .reduce((s: number, t: any) => s + (Number(t.amount) || 0), 0);
+      }
+      if (categories.length === 0) {
+        const catMap: Record<string, number> = {};
+        transactions
+          .filter((t: any) => t.type === "expense")
+          .forEach((t: any) => {
+            const cat = t.category || "Inne";
+            catMap[cat] = (catMap[cat] || 0) + (Number(t.amount) || 0);
+          });
+        categories = Object.entries(catMap).map(([cat, sum]) => ({ category: cat, amount: sum }));
+      }
+    }
+
+    const effectiveLimits = budgetLimits || limits || [];
+    const effectiveBills = bills || [];
 
     const prompt = `Jesteś życzliwym, mądrym i pragmatycznym doradcą budżetu domowego.
 Przeanalizuj bieżący stan finansów użytkownika:
-- Łączne dochody w tym miesiącu: ${monthlyIncome} PLN
-- Łączne wydatki w tym miesiącu: ${totalExpenses} PLN
-- Podział wydatków na kategorie: ${JSON.stringify(categoryBreakdown || [])}
-- Ustawione limity budżetowe: ${JSON.stringify(budgetLimits || [])}
-- Zbliżające się rachunki domowe: ${JSON.stringify(bills || [])}
+- Łączne dochody w tym miesiącu: ${income.toFixed(2)} PLN
+- Łączne wydatki w tym miesiącu: ${expenses.toFixed(2)} PLN
+- Bilans netto: ${(income - expenses).toFixed(2)} PLN
+- Podział wydatków na kategorie: ${JSON.stringify(categories)}
+- Ustawione limity budżetowe: ${JSON.stringify(effectiveLimits)}
+- Zbliżające się rachunki domowe: ${JSON.stringify(effectiveBills)}
 
 Przygotuj zwięzłą, konkretną analizę w języku polskim:
-1. Ocena bieżącej kondycji finansowej (bilans, wskaźnik oszczędności).
-2. Kategorie, w których przekroczono budżet lub zbliżają się do limitu.
-3. 3 konkretne, praktyczne wskazówki jak zaoszczędzić (np. na rachunkach domowych, zakupach jedzeniowych, zwierzakach lub remontach).
-4. Podsumowanie jednym motywującym zdaniem.
+1. financialHealth: Ocena bieżącej kondycji finansowej ("Doskonała" | "Dobra" | "Umiarkowana" | "Wymaga uwagi").
+2. savingsRatePercent: Szacowany wskaźnik oszczędności jako liczba procentowa (np. 20).
+3. alerts: 1-3 alerty dotyczące przekroczeń budżetu, zbliżających się opłat lub ryzyk (tablica stringów).
+4. actionableTips: 3 konkretne, praktyczne wskazówki jak zaoszczędzić (np. na rachunkach domowych, zakupach jedzeniowych, zwierzakach lub remontach).
+5. summary: Podsumowanie jednym motywującym, profesjonalnym zdaniem.
+6. fullText: Całościowy czytelny tekst analizy w punktach (po polsku) gotowy do natychmiastowego wyświetlenia.
 
-Zwróć odpowiedź w formacie JSON ze schematem:
-{
-  "financialHealth": "Doskonała" | "Dobra" | "Umiarkowana" | "Wymaga uwagi",
-  "savingsRatePercent": number,
-  "alerts": string[],
-  "actionableTips": string[],
-  "summary": string
-}`;
+Zwróć odpowiedź ściśle w formacie JSON zgodnym ze schematem.`;
 
-    const response = await ai.models.generateContent({
+    const response = await getGenAI().models.generateContent({
       model: "gemini-3.7-flash",
       contents: prompt,
       config: {
@@ -178,13 +226,17 @@ Zwróć odpowiedź w formacie JSON ze schematem:
             alerts: { type: Type.ARRAY, items: { type: Type.STRING } },
             actionableTips: { type: Type.ARRAY, items: { type: Type.STRING } },
             summary: { type: Type.STRING },
+            fullText: { type: Type.STRING },
           },
           required: ["financialHealth", "savingsRatePercent", "alerts", "actionableTips", "summary"],
         },
       },
     });
 
-    const parsed = JSON.parse(response.text || "{}");
+    let rawText = response.text || "{}";
+    rawText = rawText.replace(/^```json\s*/i, "").replace(/\s*```$/i, "").trim();
+    const parsed = JSON.parse(rawText);
+
     return res.json({ success: true, advice: parsed });
   } catch (error: any) {
     console.error("Błąd generowania porad finansowych:", error);

@@ -44,6 +44,15 @@ interface DashboardProps {
   onQuickAddTransaction: (type: 'income' | 'expense') => void;
 }
 
+interface AiAdviceData {
+  financialHealth: string;
+  savingsRatePercent: number;
+  alerts: string[];
+  actionableTips: string[];
+  summary: string;
+  fullText?: string;
+}
+
 export const Dashboard: React.FC<DashboardProps> = ({
   transactions,
   bills,
@@ -54,8 +63,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onNavigate,
   onQuickAddTransaction,
 }) => {
-  const [aiAdvice, setAiAdvice] = useState<string | null>(null);
+  const [aiAdvice, setAiAdvice] = useState<AiAdviceData | string | null>(null);
   const [loadingAdvice, setLoadingAdvice] = useState(false);
+  const [adviceError, setAdviceError] = useState<string | null>(null);
 
   // Month transactions
   const monthTransactions = transactions.filter(
@@ -97,6 +107,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const fetchAdvice = async () => {
     try {
       setLoadingAdvice(true);
+      setAdviceError(null);
       const res = await fetch('/api/financial-advice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -107,11 +118,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
         }),
       });
       const data = await res.json();
-      if (data.advice) {
+      if (data.success && data.advice) {
         setAiAdvice(data.advice);
+      } else {
+        setAdviceError(data.error || 'Nie udało się pobrać analizy finansowej.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setAdviceError(err?.message || 'Błąd połączenia z usługą analizy AI.');
     } finally {
       setLoadingAdvice(false);
     }
@@ -280,7 +294,93 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </button>
         </div>
 
-        {aiAdvice && (
+        {adviceError && (
+          <div className="mt-4 p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-xs sm:text-sm text-rose-200 flex items-center justify-between gap-3 animate-in fade-in">
+            <span>{adviceError}</span>
+            <button
+              onClick={fetchAdvice}
+              className="px-2.5 py-1 bg-rose-800 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold shrink-0"
+            >
+              Spróbuj ponownie
+            </button>
+          </div>
+        )}
+
+        {aiAdvice && typeof aiAdvice === 'object' && (
+          <div className="mt-5 space-y-4 p-5 rounded-2xl bg-slate-800/80 border border-slate-700 text-slate-200 animate-in fade-in">
+            {/* Health & Savings Rate Header */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-700/80">
+              <div className="flex items-center space-x-2">
+                <span className="text-xs text-slate-400">Kondycja finansowa:</span>
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${
+                    aiAdvice.financialHealth === 'Doskonała'
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                      : aiAdvice.financialHealth === 'Dobra'
+                      ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+                      : aiAdvice.financialHealth === 'Umiarkowana'
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                      : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                  }`}
+                >
+                  {aiAdvice.financialHealth}
+                </span>
+              </div>
+
+              {typeof aiAdvice.savingsRatePercent === 'number' && (
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-xl bg-slate-700 text-slate-300">
+                  Wskaźnik oszczędności: <strong className="text-white">{aiAdvice.savingsRatePercent}%</strong>
+                </span>
+              )}
+            </div>
+
+            {/* Summary sentence */}
+            {aiAdvice.summary && (
+              <p className="text-sm text-slate-100 font-medium italic border-l-2 border-indigo-400 pl-3">
+                „{aiAdvice.summary}”
+              </p>
+            )}
+
+            {/* Alerts */}
+            {aiAdvice.alerts && aiAdvice.alerts.length > 0 && (
+              <div className="space-y-1.5">
+                <span className="text-xs font-bold uppercase tracking-wider text-amber-400 block">
+                  Uwagi i alerty budżetowe
+                </span>
+                <div className="space-y-1">
+                  {aiAdvice.alerts.map((alert, idx) => (
+                    <div key={idx} className="flex items-start space-x-2 text-xs text-slate-300">
+                      <span className="text-amber-400 font-bold">•</span>
+                      <span>{alert}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Actionable Tips */}
+            {aiAdvice.actionableTips && aiAdvice.actionableTips.length > 0 && (
+              <div className="space-y-1.5 pt-2 border-t border-slate-700/60">
+                <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 block">
+                  Praktyczne rekomendacje oszczędnościowe
+                </span>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-2">
+                  {aiAdvice.actionableTips.map((tip, idx) => (
+                    <div
+                      key={idx}
+                      className="p-3 rounded-xl bg-slate-900/60 border border-slate-700/50 text-xs text-slate-300 flex items-start space-x-2"
+                    >
+                      <span className="font-bold text-indigo-400 shrink-0">{idx + 1}.</span>
+                      <span className="leading-relaxed">{tip}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {aiAdvice && typeof aiAdvice === 'string' && (
           <div className="mt-4 p-4 rounded-xl bg-slate-800/80 border border-slate-700 text-xs sm:text-sm text-slate-200 leading-relaxed animate-in fade-in">
             <p className="whitespace-pre-line">{aiAdvice}</p>
           </div>

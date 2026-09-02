@@ -19,6 +19,7 @@ import {
   Home,
   Users,
   Smartphone,
+  LogIn,
 } from 'lucide-react';
 import { AppNotification, Bill, BudgetLimit, TabType, Transaction, Household, UserProfile } from '../types';
 import { generateAutomatedNotifications } from '../utils/notifications';
@@ -126,18 +127,38 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Right Action Buttons */}
             <div className="flex items-center space-x-1.5 sm:space-x-2">
-              {/* Household / Family Sync Button */}
-              <button
-                onClick={onOpenHouseholdModal}
-                className="flex items-center space-x-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50/70 hover:bg-indigo-100/80 text-indigo-800 text-xs font-semibold transition-colors"
-                title="Gospodarstwo domowe & Synchronizacja"
-              >
-                <Home className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
-                <span className="hidden sm:inline truncate max-w-[100px]">
-                  {household ? household.name : 'Mój Dom'}
-                </span>
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse hidden sm:inline-block" />
-              </button>
+              {/* Individual User / Household Status Button */}
+              {currentUser?.isLoggedIn ? (
+                <button
+                  onClick={onOpenHouseholdModal}
+                  className="flex items-center space-x-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50/80 hover:bg-indigo-100 text-indigo-900 text-xs font-semibold transition-colors"
+                  title={`Zalogowano jako: ${currentUser.name} (${currentUser.email})`}
+                >
+                  {currentUser.avatarUrl ? (
+                    <img
+                      src={currentUser.avatarUrl}
+                      alt={currentUser.name}
+                      referrerPolicy="no-referrer"
+                      className="w-4 h-4 rounded-full flex-shrink-0"
+                    />
+                  ) : (
+                    <Home className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+                  )}
+                  <span className="hidden sm:inline truncate max-w-[110px]">
+                    {household ? household.name : currentUser.name}
+                  </span>
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0" />
+                </button>
+              ) : (
+                <button
+                  onClick={onOpenHouseholdModal}
+                  className="flex items-center space-x-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition-colors"
+                  title="Zaloguj się swoim kontem Google"
+                >
+                  <LogIn className="w-3.5 h-3.5" />
+                  <span className="hidden xs:inline sm:inline">Zaloguj</span>
+                </button>
+              )}
 
               {/* Notification Bell Dropdown */}
               <div className="relative">

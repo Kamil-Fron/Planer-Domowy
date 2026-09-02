@@ -21,6 +21,13 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // User Profile synchronization
+    match /users/{userId} {
+      allow read: if isValidId(userId);
+      allow create, update: if isValidId(userId);
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+
     // Households synchronization
     match /households/{householdId} {
       allow read: if isValidId(householdId);

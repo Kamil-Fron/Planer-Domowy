@@ -32,6 +32,11 @@ import {
   subscribeToHouseholdFirestore,
   saveHouseholdToFirestore,
   isFirebaseConfigured,
+  getUserProfileFromFirestore,
+  saveUserProfileToFirestore,
+  getHouseholdFromFirestore,
+  findHouseholdByInviteCode,
+  logoutFromFirebase,
 } from './firebase';
 import { Navbar } from './components/Navbar';
 import { Dashboard } from './components/Dashboard';
@@ -65,17 +70,67 @@ export default function App() {
   // Ref to prevent echo update loops when Firestore snapshot triggers local state update
   const isIncomingFirestoreUpdate = useRef(false);
 
-  // 1. Subscribe to Firebase Auth state on mount
+  // 1. Subscribe to Firebase Auth state on mount (ensures independent user isolation)
   useEffect(() => {
-    const unsubAuth = subscribeToFirebaseAuthState((user) => {
+    const unsubAuth = subscribeToFirebaseAuthState(async (user) => {
       if (user) {
-        setCurrentUser((prev) => ({
-          ...prev,
+        setCurrentUser({
           ...user,
           isLoggedIn: true,
-        }));
+        });
+
+        // Pobierz profil użytkownika z Firestore i załaduj jego aktywny dom
+        if (isFirebaseConfigured()) {
+          try {
+            const profileData = await getUserProfileFromFirestore(user.id);
+            if (profileData?.activeHouseholdId) {
+              const cloudHousehold = await getHouseholdFromFirestore(profileData.activeHouseholdId);
+              if (cloudHousehold) {
+                setHousehold({
+                  id: cloudHousehold.id,
+                  name: cloudHousehold.name,
+                  inviteCode: cloudHousehold.inviteCode,
+                  createdAt: cloudHousehold.createdAt,
+                  createdBy: cloudHousehold.createdBy,
+                  members: cloudHousehold.members || [],
+                  syncStatus: 'synced',
+                  cloudProvider: 'firebase',
+                });
+                if (cloudHousehold.transactions && Array.isArray(cloudHousehold.transactions)) {
+                  setTransactions(cloudHousehold.transactions);
+                }
+                if (cloudHousehold.bills && Array.isArray(cloudHousehold.bills)) {
+                  setBills(cloudHousehold.bills);
+                }
+                if (cloudHousehold.budgetLimits && Array.isArray(cloudHousehold.budgetLimits)) {
+                  setBudgetLimits(cloudHousehold.budgetLimits);
+                }
+                if (cloudHousehold.shoppingLists && Array.isArray(cloudHousehold.shoppingLists)) {
+                  setShoppingLists(cloudHousehold.shoppingLists);
+                }
+                if (cloudHousehold.shoppingItems && Array.isArray(cloudHousehold.shoppingItems)) {
+                  setShoppingItems(cloudHousehold.shoppingItems);
+                }
+              }
+            } else {
+              // Użytkownik nie ma jeszcze przypisanego żadnego domu - izolacja konta
+              setHousehold(null);
+            }
+          } catch (e) {
+            console.warn('Błąd pobierania powiązanego profilu/domu:', e);
+          }
+        }
+      } else {
+        setCurrentUser({
+          id: '',
+          name: 'Gość',
+          email: '',
+          isLoggedIn: false,
+        });
+        setHousehold(null);
       }
     });
+
     return () => unsubAuth();
   }, []);
 
@@ -295,52 +350,69 @@ export default function App() {
   };
 
   // Household & Auth Handlers
-  const handleLoginSuccess = (user: UserProfile) => {
+  const handleLoginSuccess = async (user: UserProfile) => {
     setCurrentUser(user);
-    if (household) {
-      const exists = household.members.some((m) => m.email === user.email || m.id === user.id);
-      if (!exists && user.email) {
-        setHousehold({
-          ...household,
-          members: [
-            ...household.members,
-            {
-              id: user.id,
-              name: user.name,
-              email: user.email,
-              avatarUrl: user.avatarUrl,
-              role: 'member',
-              joinedAt: new Date().toISOString(),
-              isCurrentUser: true,
-            },
-          ],
-        });
+
+    if (isFirebaseConfigured()) {
+      try {
+        const profileData = await getUserProfileFromFirestore(user.id);
+        if (profileData?.activeHouseholdId) {
+          const cloudHousehold = await getHouseholdFromFirestore(profileData.activeHouseholdId);
+          if (cloudHousehold) {
+            setHousehold({
+              id: cloudHousehold.id,
+              name: cloudHousehold.name,
+              inviteCode: cloudHousehold.inviteCode,
+              createdAt: cloudHousehold.createdAt,
+              createdBy: cloudHousehold.createdBy,
+              members: cloudHousehold.members || [],
+              syncStatus: 'synced',
+              cloudProvider: 'firebase',
+            });
+            if (cloudHousehold.transactions) setTransactions(cloudHousehold.transactions);
+            if (cloudHousehold.bills) setBills(cloudHousehold.bills);
+            if (cloudHousehold.budgetLimits) setBudgetLimits(cloudHousehold.budgetLimits);
+            if (cloudHousehold.shoppingLists) setShoppingLists(cloudHousehold.shoppingLists);
+            if (cloudHousehold.shoppingItems) setShoppingItems(cloudHousehold.shoppingItems);
+          }
+        }
+      } catch (e) {
+        console.warn('Błąd po zalogowaniu:', e);
       }
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await logoutFromFirebase();
+    } catch (e) {
+      console.warn('Błąd podczas wylogowania:', e);
+    }
     setCurrentUser({
-      id: 'guest',
+      id: '',
       name: 'Gość',
       email: '',
       isLoggedIn: false,
     });
+    setHousehold(null);
   };
 
-  const handleCreateHousehold = (name: string) => {
+  const handleCreateHousehold = async (name: string) => {
+    const uniqueHouseId = `house-${currentUser.id || Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const inviteCode = `DOM-${Math.floor(1000 + Math.random() * 9000)}-PL`;
+
     const newHousehold: Household = {
-      id: `house-${Date.now()}`,
+      id: uniqueHouseId,
       name,
-      inviteCode: `DOM-${Math.floor(1000 + Math.random() * 9000)}-PL`,
+      inviteCode,
       createdAt: new Date().toISOString(),
-      createdBy: currentUser.id,
+      createdBy: currentUser.id || 'owner',
       syncStatus: 'synced',
       cloudProvider: 'firebase',
       members: [
         {
-          id: currentUser.id || `user-1`,
-          email: currentUser.email || 'rodzina@gmail.com',
+          id: currentUser.id || `user-${Date.now()}`,
+          email: currentUser.email || 'uzytkownik@gmail.com',
           name: currentUser.name || 'Właściciel',
           role: 'owner',
           joinedAt: new Date().toISOString(),
@@ -348,9 +420,11 @@ export default function App() {
         },
       ],
     };
+
     setHousehold(newHousehold);
+
     if (isFirebaseConfigured()) {
-      saveHouseholdToFirestore(newHousehold.id, {
+      await saveHouseholdToFirestore(newHousehold.id, {
         ...newHousehold,
         transactions,
         bills,
@@ -359,30 +433,92 @@ export default function App() {
         shoppingItems,
         lastUpdatedBy: currentUser.email || currentUser.name,
       });
+      if (currentUser.id) {
+        await saveUserProfileToFirestore(currentUser, newHousehold.id);
+      }
     }
   };
 
-  const handleJoinHousehold = (code: string) => {
-    const joinedHousehold: Household = {
-      id: `house-code-${code.toLowerCase()}`,
-      name: `Dom (${code})`,
-      inviteCode: code,
-      createdAt: new Date().toISOString(),
-      createdBy: 'cloud',
-      syncStatus: 'synced',
-      cloudProvider: 'firebase',
-      members: [
-        {
-          id: currentUser.id || `user-${Date.now()}`,
-          email: currentUser.email || 'domownik@gmail.com',
-          name: currentUser.name || 'Członek',
-          role: 'member',
-          joinedAt: new Date().toISOString(),
-          isCurrentUser: true,
-        },
-      ],
-    };
-    setHousehold(joinedHousehold);
+  const handleJoinHousehold = async (code: string): Promise<{ success: boolean; message?: string }> => {
+    const cleanCode = code.trim().toUpperCase();
+    if (!isFirebaseConfigured()) {
+      return {
+        success: false,
+        message: 'Baza Firebase nie jest skonfigurowana. Wklej konfigurację w oknie domu.',
+      };
+    }
+
+    try {
+      const cloudHousehold = await findHouseholdByInviteCode(cleanCode);
+      if (!cloudHousehold) {
+        return {
+          success: false,
+          message: `Nie znaleziono gospodarstwa domowego o kodzie "${cleanCode}". Sprawdź, czy kod jest poprawny.`,
+        };
+      }
+
+      // Sprawdź czy użytkownik jest już na liście członków
+      const existingMembers = cloudHousehold.members || [];
+      const alreadyMember = existingMembers.some(
+        (m) => m.id === currentUser.id || (currentUser.email && m.email === currentUser.email)
+      );
+
+      const updatedMembers = alreadyMember
+        ? existingMembers
+        : [
+            ...existingMembers,
+            {
+              id: currentUser.id || `user-${Date.now()}`,
+              email: currentUser.email || '',
+              name: currentUser.name || 'Domownik',
+              role: 'member' as const,
+              joinedAt: new Date().toISOString(),
+            },
+          ];
+
+      const joinedHousehold: Household = {
+        id: cloudHousehold.id,
+        name: cloudHousehold.name,
+        inviteCode: cloudHousehold.inviteCode,
+        createdAt: cloudHousehold.createdAt,
+        createdBy: cloudHousehold.createdBy,
+        syncStatus: 'synced',
+        cloudProvider: 'firebase',
+        members: updatedMembers,
+      };
+
+      setHousehold(joinedHousehold);
+      if (cloudHousehold.transactions) setTransactions(cloudHousehold.transactions);
+      if (cloudHousehold.bills) setBills(cloudHousehold.bills);
+      if (cloudHousehold.budgetLimits) setBudgetLimits(cloudHousehold.budgetLimits);
+      if (cloudHousehold.shoppingLists) setShoppingLists(cloudHousehold.shoppingLists);
+      if (cloudHousehold.shoppingItems) setShoppingItems(cloudHousehold.shoppingItems);
+
+      // Zapisz w Firestore
+      await saveHouseholdToFirestore(cloudHousehold.id, {
+        members: updatedMembers,
+        lastUpdatedBy: currentUser.email || currentUser.name,
+      });
+
+      if (currentUser.id) {
+        await saveUserProfileToFirestore(currentUser, cloudHousehold.id);
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Błąd dołączania do domu:', err);
+      return {
+        success: false,
+        message: err?.message || 'Wystąpił błąd podczas dołączania do gospodarstwa domowego.',
+      };
+    }
+  };
+
+  const handleLeaveHousehold = async () => {
+    if (currentUser.id && isFirebaseConfigured()) {
+      await saveUserProfileToFirestore(currentUser, '');
+    }
+    setHousehold(null);
   };
 
   const handleInviteMember = (email: string, name: string) => {
@@ -396,7 +532,7 @@ export default function App() {
     };
     const updated = {
       ...household,
-      members: [...household.members, newMember],
+      members: [...(household.members || []), newMember],
     };
     setHousehold(updated);
   };
@@ -405,7 +541,7 @@ export default function App() {
     if (!household) return;
     const updated = {
       ...household,
-      members: household.members.filter((m) => m.id !== memberId),
+      members: (household.members || []).filter((m) => m.id !== memberId),
     };
     setHousehold(updated);
   };
@@ -461,6 +597,7 @@ export default function App() {
         onLogout={handleLogout}
         onCreateHousehold={handleCreateHousehold}
         onJoinHousehold={handleJoinHousehold}
+        onLeaveHousehold={handleLeaveHousehold}
         onInviteMember={handleInviteMember}
         onRemoveMember={handleRemoveMember}
         onTriggerSync={handleTriggerManualSync}
@@ -478,7 +615,7 @@ export default function App() {
             shoppingItems={shoppingItems}
             selectedMonth={selectedMonth}
             onNavigate={setActiveTab}
-            onQuickAddTransaction={(type) => {
+            onQuickAddTransaction={() => {
               setActiveTab('transactions');
             }}
           />

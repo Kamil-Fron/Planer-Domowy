@@ -1,25 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Home,
+  X,
   Users,
-  UserPlus,
-  Mail,
   Copy,
   Check,
-  Smartphone,
-  Flame,
-  LogOut,
-  Sparkles,
-  ShieldCheck,
-  AlertTriangle,
-  Code,
-  X,
-  ExternalLink,
+  UserPlus,
   RefreshCw,
-  Database,
+  Home,
+  LogOut,
   LogIn,
+  AlertTriangle,
+  Flame,
+  Smartphone,
+  Database,
+  ArrowRight,
 } from 'lucide-react';
-import { Household, HouseholdMember, UserProfile } from '../types';
+import { Household, UserProfile } from '../types';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import {
   getActiveFirebaseConfig,
@@ -38,8 +34,9 @@ interface HouseholdModalProps {
   household: Household | null;
   onLoginSuccess: (user: UserProfile) => void;
   onLogout: () => void;
-  onCreateHousehold: (name: string) => void;
-  onJoinHousehold: (code: string) => void;
+  onCreateHousehold: (name: string) => Promise<void> | void;
+  onJoinHousehold: (code: string) => Promise<{ success: boolean; message?: string }> | void;
+  onLeaveHousehold?: () => Promise<void> | void;
   onInviteMember: (email: string, name: string) => void;
   onRemoveMember: (id: string) => void;
   onTriggerSync?: () => void;
@@ -55,6 +52,7 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
   onLogout,
   onCreateHousehold,
   onJoinHousehold,
+  onLeaveHousehold,
   onInviteMember,
   onRemoveMember,
   onTriggerSync,
@@ -68,6 +66,9 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
   const [activeTab, setActiveTab] = useState<'household' | 'firebase_config' | 'pwa'>('household');
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [joinLoading, setJoinLoading] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [createLoading, setCreateLoading] = useState(false);
 
   // Firebase Config Form State
   const [firebaseConfigForm, setFirebaseConfigForm] = useState(getActiveFirebaseConfig());
@@ -75,13 +76,14 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
   const [configSaveSuccess, setConfigSaveSuccess] = useState(false);
   const [isConfigured, setIsConfigured] = useState(isFirebaseConfigured());
 
-  const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
+  const { isInstallable, isInstalled, install } = usePWAInstall();
 
   useEffect(() => {
     if (isOpen) {
       setFirebaseConfigForm(getActiveFirebaseConfig());
       setIsConfigured(isFirebaseConfigured());
       setAuthError(null);
+      setJoinError(null);
     }
   }, [isOpen]);
 
@@ -94,18 +96,35 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
     setTimeout(() => setCopiedCode(false), 2500);
   };
 
-  const handleCreateHouseholdSubmit = (e: React.FormEvent) => {
+  const handleCreateHouseholdSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!householdNameInput.trim()) return;
-    onCreateHousehold(householdNameInput.trim());
-    setHouseholdNameInput('');
+    setCreateLoading(true);
+    try {
+      await onCreateHousehold(householdNameInput.trim());
+      setHouseholdNameInput('');
+    } finally {
+      setCreateLoading(false);
+    }
   };
 
-  const handleJoinHouseholdSubmit = (e: React.FormEvent) => {
+  const handleJoinHouseholdSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!joinCodeInput.trim()) return;
-    onJoinHousehold(joinCodeInput.trim().toUpperCase());
-    setJoinCodeInput('');
+    setJoinLoading(true);
+    setJoinError(null);
+    try {
+      const res = await onJoinHousehold(joinCodeInput.trim().toUpperCase());
+      if (res && typeof res === 'object' && res.success === false) {
+        setJoinError(res.message || 'Nie udało się dołączyć do domu.');
+      } else {
+        setJoinCodeInput('');
+      }
+    } catch (err: any) {
+      setJoinError(err?.message || 'Błąd podczas łączenia z domem.');
+    } finally {
+      setJoinLoading(false);
+    }
   };
 
   const handleInviteSubmit = (e: React.FormEvent) => {
@@ -134,7 +153,7 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
       console.error('Błąd logowania Firebase:', err);
       setAuthError(
         err.message ||
-          'Wystąpił błąd podczas logowania przez Google. Upewnij się, że w Firebase Console włączono logowanie Google oraz Firestore w trybie testowym.'
+          'Wystąpił błąd podczas logowania przez Google. Upewnij się, że w Firebase Console włączono logowanie Google.'
       );
     } finally {
       setAuthLoading(false);
@@ -207,12 +226,12 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <h2 className="text-base sm:text-lg font-bold">Dom & Baza Firestore</h2>
+                <h2 className="text-base sm:text-lg font-bold">Konto & Gospodarstwo Domowe</h2>
                 <span className="text-[10px] bg-amber-500/20 text-amber-300 font-bold px-2 py-0.5 rounded-full border border-amber-500/30">
-                  Firebase SDK v9
+                  Firebase Auth & Firestore
                 </span>
               </div>
-              <p className="text-xs text-slate-300">Wspólna synchronizacja rodzinna i Google Auth</p>
+              <p className="text-xs text-slate-300">Niezależne logowanie dla każdego użytkownika</p>
             </div>
           </div>
           <button
@@ -234,7 +253,7 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
             }`}
           >
             <Users className="w-4 h-4" />
-            <span>Członkowie Domu</span>
+            <span>Konto i Domownicy</span>
           </button>
 
           <button
@@ -267,10 +286,10 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
 
         {/* Body Content */}
         <div className="p-5 max-h-[75vh] overflow-y-auto space-y-5">
-          {/* TAB 1: HOUSEHOLD & SYNC */}
+          {/* TAB 1: HOUSEHOLD & AUTH */}
           {activeTab === 'household' && (
             <>
-              {/* Profile Card / Login State */}
+              {/* Profile Card / Individual Login State */}
               <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex items-center space-x-3">
@@ -279,27 +298,35 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
                         src={currentUser.avatarUrl}
                         alt={currentUser.name}
                         referrerPolicy="no-referrer"
-                        className="w-10 h-10 rounded-full border border-slate-200 shadow-xs"
+                        className="w-11 h-11 rounded-full border-2 border-indigo-200 shadow-xs object-cover"
                       />
                     ) : (
-                      <div className="w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-sm shadow-xs">
-                        {currentUser.name ? currentUser.name.charAt(0).toUpperCase() : 'U'}
+                      <div className="w-11 h-11 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-sm shadow-xs">
+                        {currentUser.name && currentUser.name !== 'Gość'
+                          ? currentUser.name.charAt(0).toUpperCase()
+                          : 'G'}
                       </div>
                     )}
                     <div>
                       <div className="flex items-center space-x-2">
-                        <p className="text-sm font-bold text-slate-900">{currentUser.name}</p>
+                        <p className="text-sm font-bold text-slate-900">
+                          {currentUser.isLoggedIn ? currentUser.name : 'Niezalogowany (Gość)'}
+                        </p>
                         {currentUser.isLoggedIn ? (
-                          <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded-sm">
+                          <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded-sm">
                             Konto Google
                           </span>
                         ) : (
-                          <span className="text-[10px] bg-slate-200 text-slate-700 font-semibold px-1.5 py-0.2 rounded-sm">
-                            Tryb gościa
+                          <span className="text-[10px] bg-slate-200 text-slate-700 font-semibold px-1.5 py-0.5 rounded-sm">
+                            Tryb lokalny
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-slate-500">{currentUser.email || 'Brak powiązanego konta Google'}</p>
+                      <p className="text-xs text-slate-500">
+                        {currentUser.isLoggedIn
+                          ? currentUser.email
+                          : 'Zaloguj się swoim kontem, aby mieć własny profil'}
+                      </p>
                     </div>
                   </div>
 
@@ -316,14 +343,26 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
                       <button
                         onClick={handleGoogleLoginClick}
                         disabled={authLoading}
-                        className="flex items-center space-x-2 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors"
+                        className="flex items-center space-x-2 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors"
                       >
-                        <LogIn className="w-3.5 h-3.5 text-amber-400" />
+                        <LogIn className="w-3.5 h-3.5" />
                         <span>{authLoading ? 'Logowanie...' : 'Zaloguj przez Google'}</span>
                       </button>
                     )}
                   </div>
                 </div>
+
+                {!currentUser.isLoggedIn && (
+                  <div className="mt-3 p-3 bg-indigo-50/70 border border-indigo-100 text-indigo-900 text-xs rounded-xl">
+                    <p className="font-semibold flex items-center space-x-1.5">
+                      <LogIn className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Każdy użytkownik loguje się osobno</span>
+                    </p>
+                    <p className="text-[11px] text-indigo-700 mt-0.5">
+                      Zaloguj się swoim adresem Google. Dzięki temu Twoje dane są bezpiecznie oddzielone od innych, a do wspólnego gospodarstwa domowego dołączasz za pomocą unikalnego kodu.
+                    </p>
+                  </div>
+                )}
 
                 {authError && (
                   <div className="mt-3 p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-xl flex items-start space-x-2">
@@ -344,11 +383,11 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
                   </div>
                   <div>
                     <div className="flex items-center space-x-1.5">
-                      <span className="text-xs font-bold text-slate-900">Baza Firestore:</span>
+                      <span className="text-xs font-bold text-slate-900">Chmura Firestore:</span>
                       {isConfigured ? (
                         <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full flex items-center space-x-1">
                           <Check className="w-2.5 h-2.5" />
-                          <span>Połączono z chmurą</span>
+                          <span>Połączono</span>
                         </span>
                       ) : (
                         <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full">
@@ -358,8 +397,8 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
                     </div>
                     <p className="text-[11px] text-slate-500">
                       {isConfigured
-                        ? 'Wszystkie wydatki i lista zakupów synchronizują się na żywo'
-                        : 'Wklej dane w zakładce „Konfiguracja Firebase”, aby włączyć bazę'}
+                        ? 'Wydatki i listy zakupów synchronizują się w czasie rzeczywistym'
+                        : 'Wklej dane w zakładce „Konfiguracja Firebase”, aby włączyć chmurę'}
                     </p>
                   </div>
                 </div>
@@ -376,22 +415,32 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
                 )}
               </div>
 
-              {/* Household Status or Creation */}
+              {/* Household Management */}
               {!household ? (
                 <div className="space-y-4">
                   <div className="text-center py-2">
                     <Home className="w-10 h-10 text-indigo-600 mx-auto mb-2" />
-                    <h3 className="text-base font-bold text-slate-900">Utwórz lub Dołącz do Domu</h3>
+                    <h3 className="text-base font-bold text-slate-900">Wybierz Gospodarstwo Domowe</h3>
                     <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                      Stwórz wspólne gospodarstwo domowe lub wpisz kod od partnera, aby widzieć wspólne wydatki i rachunki.
+                      Stwórz nowy Dom dla swojej rodziny lub dołącz do istniejącego wpisując kod zaproszenia.
                     </p>
                   </div>
+
+                  {joinError && (
+                    <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-xl flex items-start space-x-2">
+                      <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <p className="font-semibold">Błąd łączenia z Domem</p>
+                        <p className="text-[11px] mt-0.5 text-rose-700">{joinError}</p>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Option 1: Create Household */}
                   <form onSubmit={handleCreateHouseholdSubmit} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
                     <h4 className="text-xs font-bold text-slate-900 flex items-center space-x-1.5">
                       <Home className="w-3.5 h-3.5 text-indigo-600" />
-                      <span>Opcja A: Utwórz nowy Dom</span>
+                      <span>Opcja 1: Utwórz nowy Dom</span>
                     </h4>
                     <div>
                       <input
@@ -399,15 +448,17 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
                         required
                         value={householdNameInput}
                         onChange={(e) => setHouseholdNameInput(e.target.value)}
-                        placeholder="np. Dom Kowalskich, Mieszkanie Warszawa..."
+                        placeholder="np. Mieszkanie Warszawa, Dom Kowalskich..."
                         className="w-full px-3.5 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-900 focus:outline-hidden"
                       />
                     </div>
                     <button
                       type="submit"
-                      className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs rounded-xl transition-colors shadow-xs"
+                      disabled={createLoading}
+                      className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs rounded-xl transition-colors shadow-xs flex items-center justify-center space-x-1.5"
                     >
-                      Utwórz Dom
+                      <Home className="w-3.5 h-3.5" />
+                      <span>{createLoading ? 'Tworzenie...' : 'Utwórz i zostań Właścicielem'}</span>
                     </button>
                   </form>
 
@@ -415,8 +466,11 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
                   <form onSubmit={handleJoinHouseholdSubmit} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
                     <h4 className="text-xs font-bold text-slate-900 flex items-center space-x-1.5">
                       <Users className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>Opcja B: Dołącz do istniejącego Domu (wpisz kod)</span>
+                      <span>Opcja 2: Dołącz do istniejącego Domu (wpisz kod)</span>
                     </h4>
+                    <p className="text-[11px] text-slate-500">
+                      Poproś partnera lub współlokatora o kod zaproszenia (np. DOM-1234-PL).
+                    </p>
                     <div className="flex gap-2">
                       <input
                         type="text"
@@ -428,9 +482,11 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
                       />
                       <button
                         type="submit"
-                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl transition-colors shadow-xs"
+                        disabled={joinLoading}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl transition-colors shadow-xs flex items-center space-x-1"
                       >
-                        Dołącz
+                        <ArrowRight className="w-3.5 h-3.5" />
+                        <span>{joinLoading ? 'Szukanie...' : 'Dołącz'}</span>
                       </button>
                     </div>
                   </form>
@@ -447,7 +503,7 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
                       <div className="flex items-center space-x-2 mt-1">
                         <span className="inline-flex items-center space-x-1 text-[11px] text-emerald-700 font-semibold">
                           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                          <span>Baza Firestore: aktywna</span>
+                          <span>Wspólna baza Firestore aktywna</span>
                         </span>
                       </div>
                     </div>
@@ -455,7 +511,7 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
                     {/* Invite Code Badge */}
                     <div className="flex items-center space-x-2 bg-white px-3 py-1.5 rounded-xl border border-indigo-200 shadow-xs">
                       <div className="text-left">
-                        <span className="text-[9px] text-slate-400 uppercase font-bold block">Kod Domu</span>
+                        <span className="text-[9px] text-slate-400 uppercase font-bold block">Twój Kod Domu</span>
                         <span className="font-mono text-xs font-bold text-slate-800">{household.inviteCode}</span>
                       </div>
                       <button
@@ -471,48 +527,58 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
                   {/* Members List */}
                   <div>
                     <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2 flex items-center justify-between">
-                      <span>Członkowie Domu ({household.members.length})</span>
-                      <span className="text-[11px] text-indigo-600 font-normal">Wspólny dostęp</span>
+                      <span>Członkowie Domu ({household.members?.length || 1})</span>
+                      <span className="text-[11px] text-indigo-600 font-normal">Współdzielony budżet</span>
                     </h4>
 
                     <div className="space-y-2">
-                      {household.members.map((member) => (
-                        <div
-                          key={member.id}
-                          className="p-3 bg-white rounded-xl border border-slate-200 flex items-center justify-between"
-                        >
-                          <div className="flex items-center space-x-3">
-                            <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center font-bold text-xs border border-slate-200">
-                              {member.name ? member.name.charAt(0).toUpperCase() : 'U'}
-                            </div>
-                            <div>
-                              <div className="flex items-center space-x-1.5">
-                                <p className="text-xs font-bold text-slate-900">{member.name}</p>
-                                {member.role === 'owner' ? (
-                                  <span className="text-[10px] bg-indigo-50 text-indigo-700 font-semibold px-1.5 py-0.2 rounded-sm">
-                                    Właściciel
-                                  </span>
-                                ) : (
-                                  <span className="text-[10px] bg-slate-100 text-slate-600 font-semibold px-1.5 py-0.2 rounded-sm">
-                                    Członek
-                                  </span>
-                                )}
+                      {household.members?.map((member) => {
+                        const isMe = member.id === currentUser.id || (currentUser.email && member.email === currentUser.email);
+                        return (
+                          <div
+                            key={member.id}
+                            className={`p-3 rounded-xl border flex items-center justify-between ${
+                              isMe ? 'bg-indigo-50/40 border-indigo-200' : 'bg-white border-slate-200'
+                            }`}
+                          >
+                            <div className="flex items-center space-x-3">
+                              <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center font-bold text-xs border border-slate-200">
+                                {member.name ? member.name.charAt(0).toUpperCase() : 'U'}
                               </div>
-                              <p className="text-[11px] text-slate-400">{member.email}</p>
+                              <div>
+                                <div className="flex items-center space-x-1.5">
+                                  <p className="text-xs font-bold text-slate-900">{member.name}</p>
+                                  {isMe && (
+                                    <span className="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.2 rounded-sm">
+                                      Ty
+                                    </span>
+                                  )}
+                                  {member.role === 'owner' ? (
+                                    <span className="text-[10px] bg-slate-100 text-slate-700 font-semibold px-1.5 py-0.2 rounded-sm">
+                                      Właściciel
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] bg-slate-100 text-slate-600 font-semibold px-1.5 py-0.2 rounded-sm">
+                                      Członek
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-slate-400">{member.email}</p>
+                              </div>
                             </div>
-                          </div>
 
-                          {member.role !== 'owner' && (
-                            <button
-                              onClick={() => onRemoveMember(member.id)}
-                              className="text-xs text-rose-500 hover:text-rose-700 p-1"
-                              title="Usuń z domu"
-                            >
-                              Usuń
-                            </button>
-                          )}
-                        </div>
-                      ))}
+                            {member.role !== 'owner' && !isMe && (
+                              <button
+                                onClick={() => onRemoveMember(member.id)}
+                                className="text-xs text-rose-500 hover:text-rose-700 p-1"
+                                title="Usuń z domu"
+                              >
+                                Usuń
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -520,7 +586,7 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
                   <div className="pt-2 border-t border-slate-100">
                     <h4 className="text-xs font-bold text-slate-800 mb-2 flex items-center space-x-1.5">
                       <UserPlus className="w-4 h-4 text-indigo-600" />
-                      <span>Zaproś kolejnego członka rodziny (przez Gmail)</span>
+                      <span>Zaproś nowego członka (podaj dane lub wyślij kod {household.inviteCode})</span>
                     </h4>
 
                     <form onSubmit={handleInviteSubmit} className="space-y-2">
@@ -530,7 +596,7 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
                           required
                           value={inviteEmail}
                           onChange={(e) => setInviteEmail(e.target.value)}
-                          placeholder="Email (np. zona@gmail.com)..."
+                          placeholder="Email (np. partner@gmail.com)..."
                           className="px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-900 focus:outline-hidden"
                         />
                         <input
@@ -546,10 +612,23 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
                         className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs rounded-xl transition-colors flex items-center justify-center space-x-1.5 shadow-xs"
                       >
                         <UserPlus className="w-3.5 h-3.5" />
-                        <span>Dodaj członka do Domu</span>
+                        <span>Dodaj domownika</span>
                       </button>
                     </form>
                   </div>
+
+                  {/* Leave / Disconnect Household */}
+                  {onLeaveHousehold && (
+                    <div className="pt-3 border-t border-slate-100 flex justify-between items-center text-xs">
+                      <span className="text-slate-500">Chcesz zmienić lub opuścić ten Dom?</span>
+                      <button
+                        onClick={onLeaveHousehold}
+                        className="text-rose-600 hover:text-rose-700 font-semibold hover:underline"
+                      >
+                        Odłącz się od tego Domu
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </>
@@ -565,7 +644,7 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
                 </div>
                 <p className="text-xs text-amber-800 leading-relaxed">
                   Aplikacja korzysta z modularnego <strong>Firebase SDK v9</strong> (Firebase Auth + Cloud Firestore).
-                  Możesz wkleić dane swojego projektu z <strong>Firebase Console</strong> poniżej lub ustawić je bezpośrednio w pliku <code>src/firebase.ts</code>.
+                  Możesz wkleić dane swojego projektu z <strong>Firebase Console</strong> poniżej lub zaktualizować plik konfiguracyjny.
                 </p>
               </div>
 
@@ -719,7 +798,7 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
                 </p>
                 <ol className="list-decimal list-inside space-y-1.5 text-[11px] leading-relaxed">
                   <li>
-                    <strong>Firestore Database</strong>: W konsoli Firebase kliknij <em>Create database</em> -&gt; wybierz <em>Start in test mode</em> (tak jak na Twoim zrzucie ekranu) -&gt; <em>Create</em>.
+                    <strong>Firestore Database</strong>: W konsoli Firebase kliknij <em>Create database</em> -&gt; wybierz <em>Start in test mode</em> -&gt; <em>Create</em>.
                   </li>
                   <li>
                     <strong>Authentication</strong>: W sekcji <em>Build -&gt; Authentication</em> kliknij <em>Get started</em> -&gt; zakładka <em>Sign-in method</em> -&gt; włącz <strong>Google</strong>.

@@ -12,8 +12,13 @@ import {
   getFirestore,
   doc,
   setDoc,
+  getDoc,
   getDocFromServer,
   onSnapshot,
+  collection,
+  query,
+  where,
+  getDocs,
   Firestore,
   Unsubscribe,
 } from 'firebase/firestore';
@@ -22,6 +27,7 @@ import {
   Bill,
   BudgetLimit,
   Household,
+  HouseholdMember,
   ShoppingItem,
   ShoppingList,
   Transaction,
@@ -237,6 +243,9 @@ export async function loginWithGoogleFirebase(): Promise<UserProfile> {
     isLoggedIn: true,
   };
 
+  // Zapisz/zaktualizuj profil w Firestore
+  await saveUserProfileToFirestore(userProfile);
+
   return userProfile;
 }
 
@@ -279,6 +288,58 @@ export function subscribeToFirebaseAuthState(
 }
 
 /**
+ * Zapis profilu użytkownika w Firestore (/users/{userId})
+ */
+export async function saveUserProfileToFirestore(
+  user: UserProfile,
+  activeHouseholdId?: string
+): Promise<void> {
+  const db = getFirestoreDb();
+  if (!db || !user.id) return;
+
+  const targetPath = `users/${user.id}`;
+  try {
+    const userRef = doc(db, 'users', user.id);
+    const updatePayload: Record<string, any> = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      avatarUrl: user.avatarUrl || null,
+      lastLoginAt: new Date().toISOString(),
+    };
+    if (activeHouseholdId !== undefined) {
+      updatePayload.activeHouseholdId = activeHouseholdId;
+    }
+    await setDoc(userRef, updatePayload, { merge: true });
+  } catch (error) {
+    console.warn('Błąd zapisu profilu użytkownika do Firestore:', error);
+  }
+}
+
+/**
+ * Pobranie profilu użytkownika z Firestore (/users/{userId})
+ */
+export async function getUserProfileFromFirestore(
+  userId: string
+): Promise<{ id: string; name?: string; email?: string; avatarUrl?: string; activeHouseholdId?: string } | null> {
+  const db = getFirestoreDb();
+  if (!db || !userId) return null;
+
+  const targetPath = `users/${userId}`;
+  try {
+    const userRef = doc(db, 'users', userId);
+    const snap = await getDoc(userRef);
+    if (snap.exists()) {
+      return snap.data() as any;
+    }
+    return null;
+  } catch (error) {
+    console.warn('Błąd odczytu profilu użytkownika z Firestore:', error);
+    return null;
+  }
+}
+
+/**
  * Struktura danych domu synchronizowanych w Firestore
  */
 export interface HouseholdFirestoreData {
@@ -287,7 +348,7 @@ export interface HouseholdFirestoreData {
   inviteCode: string;
   createdAt: string;
   createdBy: string;
-  members: any[];
+  members: HouseholdMember[];
   transactions: Transaction[];
   bills: Bill[];
   budgetLimits: BudgetLimit[];
@@ -320,6 +381,54 @@ export async function saveHouseholdToFirestore(
     );
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, targetPath);
+  }
+}
+
+/**
+ * Pobranie danych gospodarstwa domowego po ID
+ */
+export async function getHouseholdFromFirestore(
+  householdId: string
+): Promise<HouseholdFirestoreData | null> {
+  const db = getFirestoreDb();
+  if (!db || !householdId) return null;
+
+  const targetPath = `households/${householdId}`;
+  try {
+    const householdRef = doc(db, 'households', householdId);
+    const snap = await getDoc(householdRef);
+    if (snap.exists()) {
+      return snap.data() as HouseholdFirestoreData;
+    }
+    return null;
+  } catch (error) {
+    console.warn('Błąd pobierania domu:', error);
+    return null;
+  }
+}
+
+/**
+ * Wyszukanie domu po kodzie zaproszenia (np. DOM-1234-PL)
+ */
+export async function findHouseholdByInviteCode(
+  code: string
+): Promise<HouseholdFirestoreData | null> {
+  const db = getFirestoreDb();
+  if (!db || !code) return null;
+
+  const cleanCode = code.trim().toUpperCase();
+  const targetPath = `households`;
+  try {
+    const q = query(collection(db, 'households'), where('inviteCode', '==', cleanCode));
+    const querySnapshot = await getDocs(q);
+    if (!querySnapshot.empty) {
+      const firstDoc = querySnapshot.docs[0];
+      return firstDoc.data() as HouseholdFirestoreData;
+    }
+    return null;
+  } catch (error) {
+    console.warn('Błąd wyszukiwania domu po kodzie:', error);
+    return null;
   }
 }
 

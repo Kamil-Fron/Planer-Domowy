@@ -1,5 +1,37 @@
 {
   "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile with reference to active household and personal settings",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "User Firebase UID"
+        },
+        "name": {
+          "type": "string",
+          "description": "User display name"
+        },
+        "email": {
+          "type": "string",
+          "description": "User email address"
+        },
+        "avatarUrl": {
+          "type": "string",
+          "description": "User profile picture URL"
+        },
+        "activeHouseholdId": {
+          "type": "string",
+          "description": "Active household ID"
+        },
+        "lastLoginAt": {
+          "type": "string",
+          "description": "Last login timestamp"
+        }
+      },
+      "required": ["id", "email"]
+    },
     "Household": {
       "title": "Household",
       "description": "A shared household budget and planner workspace containing transactions, bills, limits and shopping items",
@@ -67,6 +99,10 @@
     }
   },
   "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile document storing user details and their active household"
+    },
     "/households/{householdId}": {
       "schema": "Household",
       "description": "Household document storage for real-time family budget synchronization"

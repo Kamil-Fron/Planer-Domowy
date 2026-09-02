@@ -5,6 +5,8 @@ import {
   Bill,
   BudgetLimit,
   AppNotification,
+  Household,
+  UserProfile,
 } from './types';
 import {
   INITIAL_TRANSACTIONS,
@@ -67,38 +69,18 @@ export const saveNotifications = (data: AppNotification[]): void => setItemSafe(
 export const loadPushSetting = (): boolean => getItemSafe(KEYS.PUSH_ENABLED, false);
 export const savePushSetting = (enabled: boolean): void => setItemSafe(KEYS.PUSH_ENABLED, enabled);
 
-export const DEFAULT_USER = {
-  id: 'user-default-1',
-  name: 'Użytkownik',
-  email: 'rodzina@gmail.com',
-  isLoggedIn: true,
+export const DEFAULT_USER: UserProfile = {
+  id: '',
+  name: 'Gość',
+  email: '',
+  isLoggedIn: false,
 };
 
-export const DEFAULT_HOUSEHOLD = {
-  id: 'household-default-1',
-  name: 'Nasz Dom',
-  inviteCode: 'DOM-2026-PL',
-  createdAt: new Date().toISOString(),
-  createdBy: 'user-default-1',
-  syncStatus: 'synced' as const,
-  cloudProvider: 'firebase' as const,
-  members: [
-    {
-      id: 'user-default-1',
-      name: 'Użytkownik',
-      email: 'rodzina@gmail.com',
-      role: 'owner' as const,
-      joinedAt: new Date().toISOString(),
-      isCurrentUser: true,
-    },
-  ],
-};
+export const loadHousehold = (): Household | null => getItemSafe<Household | null>(KEYS.HOUSEHOLD, null);
+export const saveHousehold = (data: Household | null): void => setItemSafe(KEYS.HOUSEHOLD, data);
 
-export const loadHousehold = () => getItemSafe(KEYS.HOUSEHOLD, DEFAULT_HOUSEHOLD);
-export const saveHousehold = (data: any): void => setItemSafe(KEYS.HOUSEHOLD, data);
-
-export const loadUserProfile = () => getItemSafe(KEYS.USER_PROFILE, DEFAULT_USER);
-export const saveUserProfile = (data: any): void => setItemSafe(KEYS.USER_PROFILE, data);
+export const loadUserProfile = (): UserProfile => getItemSafe<UserProfile>(KEYS.USER_PROFILE, DEFAULT_USER);
+export const saveUserProfile = (data: UserProfile): void => setItemSafe(KEYS.USER_PROFILE, data);
 
 export const Storage = {
   getTransactions: loadTransactions,

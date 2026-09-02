@@ -20,6 +20,10 @@ import {
   Camera,
   Activity,
   Check,
+  Cloud,
+  ShieldCheck,
+  RefreshCw,
+  HardDrive,
 } from 'lucide-react';
 import { Bill, BudgetLimit, TabType, Transaction, Household, UserProfile, AppNotification } from '../types';
 import { generateAutomatedNotifications } from '../utils/notifications';
@@ -35,8 +39,11 @@ interface NavbarProps {
   notifications?: AppNotification[];
   household?: Household | null;
   currentUser?: UserProfile;
+  syncStatus?: 'synced' | 'saving' | 'error' | 'offline';
+  lastSyncedAt?: Date | null;
   onOpenHouseholdModal: () => void;
   onOpenDeleteDataModal?: () => void;
+  onOpenDataSafetyModal?: () => void;
   onClearNotifications?: () => void;
   onMarkNotificationRead?: (id: string) => void;
 }
@@ -52,8 +59,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   notifications = [],
   household = null,
   currentUser,
+  syncStatus = 'synced',
+  lastSyncedAt = null,
   onOpenHouseholdModal,
   onOpenDeleteDataModal,
+  onOpenDataSafetyModal,
   onClearNotifications,
   onMarkNotificationRead,
 }) => {
@@ -149,6 +159,57 @@ export const Navbar: React.FC<NavbarProps> = ({
                 ))}
               </select>
             </div>
+
+            {/* Sync Pill Indicator */}
+            {onOpenDataSafetyModal && (
+              <button
+                onClick={onOpenDataSafetyModal}
+                className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl border transition-all text-xs font-semibold shrink-0 active:scale-95 ${
+                  syncStatus === 'synced'
+                    ? 'border-emerald-200 bg-emerald-50/80 text-emerald-700 hover:bg-emerald-100/90 shadow-2xs'
+                    : syncStatus === 'saving'
+                    ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 shadow-2xs'
+                    : syncStatus === 'error'
+                    ? 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 font-bold animate-pulse shadow-2xs'
+                    : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 shadow-2xs'
+                }`}
+                title={
+                  syncStatus === 'synced'
+                    ? `Zapisano w chmurze ${lastSyncedAt ? `(${lastSyncedAt.toLocaleTimeString('pl-PL')})` : ''} - kliknij po kopię zapasową`
+                    : syncStatus === 'saving'
+                    ? 'Trwa zapisywanie do bazy Firestore...'
+                    : syncStatus === 'error'
+                    ? 'Błąd zapisu do chmury! Kliknij, aby naprawić lub pobrać kopię zapasową'
+                    : 'Tryb lokalny'
+                }
+              >
+                {syncStatus === 'synced' && (
+                  <>
+                    <Cloud className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
+                    <span className="hidden md:inline">Zapisano</span>
+                  </>
+                )}
+                {syncStatus === 'saving' && (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 text-blue-600 animate-spin shrink-0" />
+                    <span className="hidden md:inline">Zapisywanie...</span>
+                  </>
+                )}
+                {syncStatus === 'error' && (
+                  <>
+                    <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                    <span className="hidden sm:inline">Błąd zapisu!</span>
+                  </>
+                )}
+                {syncStatus === 'offline' && (
+                  <>
+                    <HardDrive className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                    <span className="hidden md:inline">Lokalnie</span>
+                  </>
+                )}
+              </button>
+            )}
 
             {/* Right Action Menu: Single Consolidated Button */}
             <div className="relative flex-shrink-0">
@@ -383,6 +444,35 @@ export const Navbar: React.FC<NavbarProps> = ({
                         )}
                       </button>
                     </div>
+
+                    {/* Centrum Bezpieczeństwa & Kopie Zapasowe */}
+                    {onOpenDataSafetyModal && (
+                      <div className="p-2 border-t border-slate-100">
+                        <button
+                          onClick={() => {
+                            setIsActionMenuOpen(false);
+                            onOpenDataSafetyModal();
+                          }}
+                          className="w-full text-left p-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-indigo-50/70 hover:text-indigo-800 transition-colors flex items-center justify-between"
+                        >
+                          <div className="flex items-center space-x-2 min-w-0">
+                            <ShieldCheck className="w-4 h-4 text-indigo-600 shrink-0" />
+                            <span className="truncate">Centrum Bezpieczeństwa & Kopie</span>
+                          </div>
+                          <span
+                            className={`w-2 h-2 rounded-full shrink-0 ${
+                              syncStatus === 'synced'
+                                ? 'bg-emerald-500'
+                                : syncStatus === 'saving'
+                                ? 'bg-blue-500 animate-pulse'
+                                : syncStatus === 'error'
+                                ? 'bg-rose-500'
+                                : 'bg-slate-400'
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    )}
 
                     {/* 4. Usuwanie Danych (Kosz) */}
                     {onOpenDeleteDataModal && (

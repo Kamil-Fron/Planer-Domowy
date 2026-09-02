@@ -4,6 +4,7 @@ import {
   ArrowUp,
   Search,
   Trash2,
+  Pencil,
   Calendar,
   MessageSquare,
   Receipt,
@@ -11,6 +12,7 @@ import {
   DollarSign,
   X,
   ListFilter,
+  Check,
 } from 'lucide-react';
 import { Transaction, TransactionType } from '../types';
 import { INITIAL_CATEGORIES, INITIAL_INCOME_CATEGORIES } from '../mockData';
@@ -19,6 +21,7 @@ interface TransactionsManagerProps {
   transactions: Transaction[];
   onAddTransaction: (transaction: Omit<Transaction, 'id' | 'createdAt'>) => void;
   onDeleteTransaction: (id: string) => void;
+  onUpdateTransaction?: (id: string, updates: Partial<Transaction>) => void;
   selectedMonth: string;
 }
 
@@ -26,6 +29,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
   transactions,
   onAddTransaction,
   onDeleteTransaction,
+  onUpdateTransaction,
   selectedMonth,
 }) => {
   const [filterType, setFilterType] = useState<'all' | 'expense' | 'income'>('all');
@@ -34,7 +38,18 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedReceiptDetails, setSelectedReceiptDetails] = useState<Transaction | null>(null);
 
-  // Form State
+  // Edit Modal State
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editAmount, setEditAmount] = useState('');
+  const [editType, setEditType] = useState<TransactionType>('expense');
+  const [editCategory, setEditCategory] = useState('');
+  const [editDate, setEditDate] = useState('');
+  const [editComment, setEditComment] = useState('');
+  const [editRecurring, setEditRecurring] = useState(false);
+  const [editStoreName, setEditStoreName] = useState('');
+
+  // Form State (Add)
   const [formType, setFormType] = useState<TransactionType>('income');
   const [formTitle, setFormTitle] = useState('');
   const [formAmount, setFormAmount] = useState('');
@@ -73,6 +88,41 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
       setFormCategory(INITIAL_CATEGORIES[0].name);
     }
     setShowAddModal(true);
+  };
+
+  const handleOpenEditModal = (t: Transaction) => {
+    setEditingTransaction(t);
+    setEditTitle(t.title);
+    setEditAmount(t.amount.toString());
+    setEditType(t.type);
+    setEditCategory(t.category);
+    setEditDate(t.date);
+    setEditComment(t.comment || '');
+    setEditRecurring(!!t.isRecurring);
+    setEditStoreName(t.receiptStoreName || '');
+  };
+
+  const handleSaveEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTransaction || !editTitle.trim() || !editAmount) return;
+
+    const parsedAmount = parseFloat(editAmount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) return;
+
+    if (onUpdateTransaction) {
+      onUpdateTransaction(editingTransaction.id, {
+        title: editTitle.trim(),
+        amount: parsedAmount,
+        type: editType,
+        category: editCategory,
+        date: editDate,
+        comment: editComment.trim() || undefined,
+        isRecurring: editRecurring,
+        receiptStoreName: editStoreName.trim() || undefined,
+      });
+    }
+
+    setEditingTransaction(null);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -323,8 +373,16 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                   </span>
 
                   <button
+                    onClick={() => handleOpenEditModal(item)}
+                    className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors rounded-lg"
+                    title="Edytuj transakcję"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+
+                  <button
                     onClick={() => onDeleteTransaction(item.id)}
-                    className="p-1.5 text-slate-300 hover:text-rose-600 transition-colors rounded-lg"
+                    className="p-1.5 text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-colors rounded-lg"
                     title="Usuń"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -335,6 +393,191 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
           })
         )}
       </div>
+
+      {/* Edit Transaction Modal */}
+      {editingTransaction && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 sm:p-6 border border-slate-200 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center space-x-2">
+                <div className="p-1.5 bg-indigo-100 text-indigo-700 rounded-lg">
+                  <Pencil className="w-4 h-4 stroke-[2.5]" />
+                </div>
+                <h3 className="font-bold text-base text-slate-900">Edycja transakcji</h3>
+              </div>
+              <button
+                onClick={() => setEditingTransaction(null)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="space-y-3.5">
+              {/* Type Switcher */}
+              <div className="flex bg-slate-100 p-1 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditType('income');
+                    setEditCategory(INITIAL_INCOME_CATEGORIES[0]);
+                  }}
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors flex items-center justify-center space-x-1.5 ${
+                    editType === 'income' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600'
+                  }`}
+                >
+                  <ArrowUp className="w-4 h-4 stroke-[2.5]" />
+                  <span>Wpłata</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditType('expense');
+                    setEditCategory(INITIAL_CATEGORIES[0].name);
+                  }}
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors flex items-center justify-center space-x-1.5 ${
+                    editType === 'expense' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-600'
+                  }`}
+                >
+                  <ArrowDown className="w-4 h-4 stroke-[2.5]" />
+                  <span>Wydatek</span>
+                </button>
+              </div>
+
+              {/* Title */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Tytuł / Nazwa <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  placeholder="np. Wypłata, Zakupy spożywcze"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                />
+              </div>
+
+              {/* Amount & Date */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Kwota (PLN) <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      min="0.01"
+                      value={editAmount}
+                      onChange={(e) => setEditAmount(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Data</label>
+                  <input
+                    type="date"
+                    required
+                    value={editDate}
+                    onChange={(e) => setEditDate(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                  />
+                </div>
+              </div>
+
+              {/* Category */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Kategoria</label>
+                <select
+                  value={editCategory}
+                  onChange={(e) => setEditCategory(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white cursor-pointer"
+                >
+                  {editType === 'income'
+                    ? INITIAL_INCOME_CATEGORIES.map((cat) => (
+                        <option key={cat} value={cat}>
+                          {cat}
+                        </option>
+                      ))
+                    : INITIAL_CATEGORIES.map((cat) => (
+                        <option key={cat.name} value={cat.name}>
+                          {cat.name}
+                        </option>
+                      ))}
+                </select>
+              </div>
+
+              {/* Store Name (if expense) */}
+              {editType === 'expense' && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Sklep / Miejsce zakupu (opcjonalnie)
+                  </label>
+                  <input
+                    type="text"
+                    value={editStoreName}
+                    onChange={(e) => setEditStoreName(e.target.value)}
+                    placeholder="np. Biedronka, Lidl, Orlen"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                  />
+                </div>
+              )}
+
+              {/* Comment */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Notatka / Komentarz (opcjonalnie)
+                </label>
+                <input
+                  type="text"
+                  value={editComment}
+                  onChange={(e) => setEditComment(e.target.value)}
+                  placeholder="np. Zakupy na cały tydzień"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                />
+              </div>
+
+              {/* Recurring */}
+              <div className="flex items-center space-x-2 pt-1">
+                <input
+                  type="checkbox"
+                  id="editRecurring"
+                  checked={editRecurring}
+                  onChange={(e) => setEditRecurring(e.target.checked)}
+                  className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                />
+                <label htmlFor="editRecurring" className="text-xs text-slate-700 select-none cursor-pointer">
+                  Cykliczny (np. comiesięczna pensja lub stały wydatek)
+                </label>
+              </div>
+
+              {/* Buttons */}
+              <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingTransaction(null)}
+                  className="px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-xl"
+                >
+                  Anuluj
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-xs flex items-center space-x-1.5"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Zapisz zmiany</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Add Transaction Modal */}
       {showAddModal && (

@@ -29,6 +29,8 @@ import {
   saveHousehold,
   loadUserProfile,
   saveUserProfile,
+  saveBackupSnapshot,
+  scanLocalStorageForLostData,
 } from './storage';
 import {
   subscribeToFirebaseAuthState,
@@ -52,6 +54,7 @@ import { BudgetLimits } from './components/BudgetLimits';
 import { ReportsView } from './components/ReportsView';
 import { HouseholdModal } from './components/HouseholdModal';
 import { DeleteDataModal, DeleteSelection } from './components/DeleteDataModal';
+import { DataSafetyModal } from './components/DataSafetyModal';
 import { LoginScreen } from './components/LoginScreen';
 import {
   checkAndTriggerBillNotifications,
@@ -76,9 +79,13 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<UserProfile>(loadUserProfile);
   const [isGuestMode, setIsGuestMode] = useState<boolean>(false);
   const [isHouseholdModalOpen, setIsHouseholdModalOpen] = useState(false);
+  const [isDataSafetyModalOpen, setIsDataSafetyModalOpen] = useState(false);
   const [householdModalTab, setHouseholdModalTab] = useState<'household' | 'firebase_config' | 'pwa' | 'delete_data'>('household');
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'synced' | 'saving' | 'error' | 'offline'>('synced');
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(() => new Date());
+  const [syncErrorMessage, setSyncErrorMessage] = useState<string | null>(null);
 
   // Ref to prevent echo update loops when Firestore snapshot triggers local state update
   const isIncomingFirestoreUpdate = useRef(false);
@@ -119,6 +126,42 @@ export default function App() {
       return updated;
     });
   };
+
+  // Emergency automatic recovery check on mount: scan for any lost transactions/bills
+  useEffect(() => {
+    try {
+      const recovery = scanLocalStorageForLostData();
+      if (recovery.recoveredTransactions.length > 0) {
+        setTransactions((prev) => {
+          if (prev.length <= 1 && recovery.recoveredTransactions.length > prev.length) {
+            console.log(`[Auto-Recovery] Przywracanie ${recovery.recoveredTransactions.length} transakcji z pamięci lokalnej...`);
+            const map = new Map<string, Transaction>();
+            recovery.recoveredTransactions.forEach((t) => map.set(t.id, t));
+            prev.forEach((t) => map.set(t.id, t));
+            const merged = Array.from(map.values());
+            saveTransactions(merged);
+            return merged;
+          }
+          return prev;
+        });
+      }
+      if (recovery.recoveredBills.length > 0) {
+        setBills((prev) => {
+          if (prev.length === 0 && recovery.recoveredBills.length > 0) {
+            const map = new Map<string, Bill>();
+            recovery.recoveredBills.forEach((b) => map.set(b.id, b));
+            prev.forEach((b) => map.set(b.id, b));
+            const merged = Array.from(map.values());
+            saveBills(merged);
+            return merged;
+          }
+          return prev;
+        });
+      }
+    } catch (e) {
+      console.warn('Auto-recovery check error:', e);
+    }
+  }, []);
 
   // 1. Subscribe to Firebase Auth state on mount (ensures independent user isolation)
   useEffect(() => {
@@ -185,13 +228,39 @@ export default function App() {
                   cloudProvider: 'firebase',
                 });
 
+                // Take safety snapshot of local data before cloud assimilation
+                saveBackupSnapshot('Przed pobraniem danych z chmury', {
+                  transactions: stateRef.current.transactions,
+                  bills: stateRef.current.bills,
+                  budgetLimits: stateRef.current.budgetLimits,
+                  shoppingLists: stateRef.current.shoppingLists,
+                  shoppingItems: stateRef.current.shoppingItems,
+                });
+
                 if (cloudHousehold.transactions && Array.isArray(cloudHousehold.transactions)) {
-                  setTransactions(cloudHousehold.transactions);
-                  saveTransactions(cloudHousehold.transactions);
+                  // Safe merge: keep local transactions that might not have synced yet
+                  const cloudTxMap = new Map(cloudHousehold.transactions.map((t: Transaction) => [t.id, t]));
+                  const currentLocal = stateRef.current.transactions;
+                  const merged = [...cloudHousehold.transactions];
+                  for (const localTx of currentLocal) {
+                    if (!cloudTxMap.has(localTx.id)) {
+                      merged.push(localTx);
+                    }
+                  }
+                  setTransactions(merged);
+                  saveTransactions(merged);
                 }
                 if (cloudHousehold.bills && Array.isArray(cloudHousehold.bills)) {
-                  setBills(cloudHousehold.bills);
-                  saveBills(cloudHousehold.bills);
+                  const cloudBillsMap = new Map(cloudHousehold.bills.map((b: Bill) => [b.id, b]));
+                  const currentLocalBills = stateRef.current.bills;
+                  const mergedBills = [...cloudHousehold.bills];
+                  for (const localBill of currentLocalBills) {
+                    if (!cloudBillsMap.has(localBill.id)) {
+                      mergedBills.push(localBill);
+                    }
+                  }
+                  setBills(mergedBills);
+                  saveBills(mergedBills);
                 }
                 if (cloudHousehold.budgetLimits && Array.isArray(cloudHousehold.budgetLimits)) {
                   setBudgetLimits(cloudHousehold.budgetLimits);
@@ -209,6 +278,8 @@ export default function App() {
                   setNotifications(cloudHousehold.notifications);
                   saveNotifications(cloudHousehold.notifications);
                 }
+                setSyncStatus('synced');
+                setLastSyncedAt(new Date());
 
                 if (memberChanged) {
                   await saveHouseholdToFirestore(cloudHousehold.id, {
@@ -255,12 +326,29 @@ export default function App() {
         isIncomingFirestoreUpdate.current = true;
 
         if (cloudData.transactions && Array.isArray(cloudData.transactions)) {
-          setTransactions(cloudData.transactions);
-          saveTransactions(cloudData.transactions);
+          // Safe merge so un-synced local transactions are never overwritten
+          const cloudTxMap = new Map(cloudData.transactions.map((t: Transaction) => [t.id, t]));
+          const currentLocal = stateRef.current.transactions;
+          const merged = [...cloudData.transactions];
+          for (const localTx of currentLocal) {
+            if (!cloudTxMap.has(localTx.id)) {
+              merged.push(localTx);
+            }
+          }
+          setTransactions(merged);
+          saveTransactions(merged);
         }
         if (cloudData.bills && Array.isArray(cloudData.bills)) {
-          setBills(cloudData.bills);
-          saveBills(cloudData.bills);
+          const cloudBillsMap = new Map(cloudData.bills.map((b: Bill) => [b.id, b]));
+          const currentLocalBills = stateRef.current.bills;
+          const mergedBills = [...cloudData.bills];
+          for (const localBill of currentLocalBills) {
+            if (!cloudBillsMap.has(localBill.id)) {
+              mergedBills.push(localBill);
+            }
+          }
+          setBills(mergedBills);
+          saveBills(mergedBills);
         }
         if (cloudData.budgetLimits && Array.isArray(cloudData.budgetLimits)) {
           setBudgetLimits(cloudData.budgetLimits);
@@ -282,12 +370,17 @@ export default function App() {
           setHousehold((prev) => (prev ? { ...prev, members: cloudData.members } : null));
         }
 
+        setSyncStatus('synced');
+        setLastSyncedAt(new Date());
+
         setTimeout(() => {
           isIncomingFirestoreUpdate.current = false;
         }, 300);
       },
       (error) => {
         console.warn('Firestore subscription status:', error.message);
+        setSyncStatus('error');
+        setSyncErrorMessage(error.message);
       }
     );
 
@@ -301,6 +394,7 @@ export default function App() {
 
     const timer = setTimeout(async () => {
       setIsSyncing(true);
+      setSyncStatus('saving');
       try {
         const current = stateRef.current;
         await saveHouseholdToFirestore(household.id, {
@@ -318,8 +412,13 @@ export default function App() {
           notifications: current.notifications,
           lastUpdatedBy: currentUser.email || currentUser.name,
         });
-      } catch (err) {
+        setSyncStatus('synced');
+        setLastSyncedAt(new Date());
+        setSyncErrorMessage(null);
+      } catch (err: any) {
         console.warn('Błąd synchronizacji z Firestore:', err);
+        setSyncStatus('error');
+        setSyncErrorMessage(err?.message || 'Błąd zapisu do Firestore');
       } finally {
         setIsSyncing(false);
       }
@@ -408,6 +507,26 @@ export default function App() {
         `Usunięto "${deletedTx.title}" (${deletedTx.amount.toFixed(2)} PLN)`
       );
     }
+  };
+
+  const handleUpdateTransaction = (id: string, updates: Partial<Transaction>) => {
+    lastLocalMutationTime.current = Date.now();
+    let updatedTitle = '';
+    setTransactions((prev) => {
+      const updated = prev.map((t) => {
+        if (t.id === id) {
+          updatedTitle = updates.title || t.title;
+          return { ...t, ...updates };
+        }
+        return t;
+      });
+      saveTransactions(updated);
+      return updated;
+    });
+    logActivity(
+      'Zaktualizowano transakcję',
+      `Zmieniono szczegóły transakcji "${updatedTitle || 'transakcja'}"`
+    );
   };
 
   const handleScannedReceipt = (extracted: {
@@ -992,10 +1111,20 @@ export default function App() {
     }
   };
 
-  const handleTriggerManualSync = async () => {
-    if (!household?.id || !isFirebaseConfigured()) return;
+  const handleForceSync = async (): Promise<boolean> => {
+    if (!household?.id || !isFirebaseConfigured()) return false;
     setIsSyncing(true);
+    setSyncStatus('saving');
     try {
+      const current = stateRef.current;
+      saveBackupSnapshot('Przed ręczną synchronizacją z chmurą', {
+        transactions: current.transactions,
+        bills: current.bills,
+        budgetLimits: current.budgetLimits,
+        shoppingLists: current.shoppingLists,
+        shoppingItems: current.shoppingItems,
+      });
+
       await saveHouseholdToFirestore(household.id, {
         id: household.id,
         name: household.name,
@@ -1003,19 +1132,61 @@ export default function App() {
         createdAt: household.createdAt,
         createdBy: household.createdBy,
         members: household.members,
-        transactions,
-        bills,
-        budgetLimits,
-        shoppingLists,
-        shoppingItems,
-        notifications,
+        transactions: current.transactions,
+        bills: current.bills,
+        budgetLimits: current.budgetLimits,
+        shoppingLists: current.shoppingLists,
+        shoppingItems: current.shoppingItems,
+        notifications: current.notifications,
         lastUpdatedBy: currentUser.email || currentUser.name,
       });
-    } catch (e) {
+      setSyncStatus('synced');
+      setLastSyncedAt(new Date());
+      setSyncErrorMessage(null);
+      return true;
+    } catch (e: any) {
       console.warn('Manual sync failed:', e);
+      setSyncStatus('error');
+      setSyncErrorMessage(e?.message || 'Błąd zapisu do bazy Firestore');
+      return false;
     } finally {
-      setTimeout(() => setIsSyncing(false), 600);
+      setIsSyncing(false);
     }
+  };
+
+  const handleTriggerManualSync = async () => {
+    await handleForceSync();
+  };
+
+  const handleRestoreData = (data: {
+    transactions?: Transaction[];
+    bills?: Bill[];
+    budgetLimits?: BudgetLimit[];
+    shoppingLists?: ShoppingList[];
+    shoppingItems?: ShoppingItem[];
+  }) => {
+    lastLocalMutationTime.current = Date.now();
+    if (data.transactions) {
+      setTransactions(data.transactions);
+      saveTransactions(data.transactions);
+    }
+    if (data.bills) {
+      setBills(data.bills);
+      saveBills(data.bills);
+    }
+    if (data.budgetLimits) {
+      setBudgetLimits(data.budgetLimits);
+      saveBudgetLimits(data.budgetLimits);
+    }
+    if (data.shoppingLists) {
+      setShoppingLists(data.shoppingLists);
+      saveShoppingLists(data.shoppingLists);
+    }
+    if (data.shoppingItems) {
+      setShoppingItems(data.shoppingItems);
+      saveShoppingItems(data.shoppingItems);
+    }
+    logActivity('Przywrócono kopię danych', 'Dane zostały przywrócone z bezpiecznej kopii zapasowej');
   };
 
   const handleClearNotifications = () => {
@@ -1083,11 +1254,14 @@ export default function App() {
         notifications={notifications}
         household={household}
         currentUser={currentUser}
+        syncStatus={syncStatus}
+        lastSyncedAt={lastSyncedAt}
         onOpenHouseholdModal={() => {
           setHouseholdModalTab('household');
           setIsHouseholdModalOpen(true);
         }}
         onOpenDeleteDataModal={() => setIsDeleteModalOpen(true)}
+        onOpenDataSafetyModal={() => setIsDataSafetyModalOpen(true)}
         onClearNotifications={handleClearNotifications}
         onMarkNotificationRead={handleMarkNotificationRead}
       />
@@ -1129,6 +1303,23 @@ export default function App() {
         onConfirmDelete={handleDeleteSelectedData}
       />
 
+      {/* Data Safety & Backups Modal */}
+      <DataSafetyModal
+        isOpen={isDataSafetyModalOpen}
+        onClose={() => setIsDataSafetyModalOpen(false)}
+        household={household}
+        transactions={transactions}
+        bills={bills}
+        budgetLimits={budgetLimits}
+        shoppingLists={shoppingLists}
+        shoppingItems={shoppingItems}
+        syncStatus={syncStatus}
+        lastSyncedAt={lastSyncedAt}
+        syncErrorMessage={syncErrorMessage}
+        onForceSync={handleForceSync}
+        onRestoreData={handleRestoreData}
+      />
+
       {/* Dynamic Views Viewport */}
       <main className="flex-1 pb-24 md:pb-12">
         {activeTab === 'dashboard' && (
@@ -1151,6 +1342,7 @@ export default function App() {
             transactions={transactions}
             onAddTransaction={handleAddTransaction}
             onDeleteTransaction={handleDeleteTransaction}
+            onUpdateTransaction={handleUpdateTransaction}
             selectedMonth={selectedMonth}
           />
         )}

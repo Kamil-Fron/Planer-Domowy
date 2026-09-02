@@ -26,7 +26,27 @@ const KEYS = {
   PUSH_ENABLED: 'budget_planner_push_enabled_v1',
   HOUSEHOLD: 'budget_planner_household_v1',
   USER_PROFILE: 'budget_planner_user_v1',
+  SNAPSHOTS: 'budget_planner_snapshots_history_v1',
 };
+
+export interface DataSnapshot {
+  id: string;
+  timestamp: string;
+  label: string;
+  counts: {
+    transactions: number;
+    bills: number;
+    budgetLimits: number;
+    shoppingItems: number;
+  };
+  data: {
+    transactions: Transaction[];
+    bills: Bill[];
+    budgetLimits: BudgetLimit[];
+    shoppingLists: ShoppingList[];
+    shoppingItems: ShoppingItem[];
+  };
+}
 
 function getItemSafe<T>(key: string, defaultValue: T): T {
   try {
@@ -46,6 +66,157 @@ function setItemSafe<T>(key: string, value: T): void {
     console.error(`Error writing to localStorage (${key}):`, err);
   }
 }
+
+// Snapshot Backup Management
+const MAX_SNAPSHOTS = 20;
+
+export const loadBackupSnapshots = (): DataSnapshot[] => {
+  return getItemSafe<DataSnapshot[]>(KEYS.SNAPSHOTS, []);
+};
+
+export const saveBackupSnapshot = (
+  label: string,
+  data: {
+    transactions: Transaction[];
+    bills: Bill[];
+    budgetLimits: BudgetLimit[];
+    shoppingLists: ShoppingList[];
+    shoppingItems: ShoppingItem[];
+  }
+): void => {
+  try {
+    const existing = loadBackupSnapshots();
+    const newSnapshot: DataSnapshot = {
+      id: `snap-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      timestamp: new Date().toISOString(),
+      label,
+      counts: {
+        transactions: data.transactions?.length || 0,
+        bills: data.bills?.length || 0,
+        budgetLimits: data.budgetLimits?.length || 0,
+        shoppingItems: data.shoppingItems?.length || 0,
+      },
+      data: {
+        transactions: data.transactions || [],
+        bills: data.bills || [],
+        budgetLimits: data.budgetLimits || [],
+        shoppingLists: data.shoppingLists || [],
+        shoppingItems: data.shoppingItems || [],
+      },
+    };
+
+    // Prepend new snapshot, limit to MAX_SNAPSHOTS
+    const updated = [newSnapshot, ...existing.slice(0, MAX_SNAPSHOTS - 1)];
+    setItemSafe(KEYS.SNAPSHOTS, updated);
+  } catch (e) {
+    console.warn('Nie udało się zapisać migawki lokalnej:', e);
+  }
+};
+
+export const deleteBackupSnapshot = (snapshotId: string): void => {
+  const existing = loadBackupSnapshots();
+  const filtered = existing.filter((s) => s.id !== snapshotId);
+  setItemSafe(KEYS.SNAPSHOTS, filtered);
+};
+
+// JSON File Export & Import
+export const exportDataToJsonFile = (payload: {
+  transactions: Transaction[];
+  bills: Bill[];
+  budgetLimits: BudgetLimit[];
+  shoppingLists: ShoppingList[];
+  shoppingItems: ShoppingItem[];
+  householdName?: string;
+}): void => {
+  try {
+    const exportObject = {
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      appName: 'Planer Budżetu Domowego',
+      householdName: payload.householdName || 'Mój Dom',
+      ...payload,
+    };
+    const jsonStr = JSON.stringify(exportObject, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const dateStr = new Date().toISOString().split('T')[0];
+    a.href = url;
+    a.download = `kopia-planer-budzetu-${dateStr}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    console.error('Błąd eksportu kopii JSON:', e);
+  }
+};
+
+export const scanLocalStorageForLostData = (): {
+  recoveredTransactions: Transaction[];
+  recoveredBills: Bill[];
+  details: string[];
+} => {
+  const recoveredTransactions: Transaction[] = [];
+  const recoveredBills: Bill[] = [];
+  const details: string[] = [];
+
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+
+      try {
+        const val = localStorage.getItem(key);
+        if (!val || val.length < 10) continue;
+
+        const parsed = JSON.parse(val);
+
+        // Check if snapshot array
+        if (Array.isArray(parsed)) {
+          parsed.forEach((item: any) => {
+            // Check if transaction
+            if (item && item.id && item.amount !== undefined && item.category && item.date && (item.type === 'income' || item.type === 'expense')) {
+              recoveredTransactions.push(item);
+            }
+            // Check if snapshot containing transactions
+            if (item && item.data && Array.isArray(item.data.transactions)) {
+              item.data.transactions.forEach((tx: any) => {
+                if (tx && tx.id && tx.amount) recoveredTransactions.push(tx);
+              });
+            }
+            if (item && item.data && Array.isArray(item.data.bills)) {
+              item.data.bills.forEach((b: any) => {
+                if (b && b.id && b.name) recoveredBills.push(b);
+              });
+            }
+            // Check if bill
+            if (item && item.id && item.name && item.amount !== undefined && item.dueDate) {
+              recoveredBills.push(item);
+            }
+          });
+        }
+      } catch {
+        // Not JSON, ignore
+      }
+    }
+
+    // Deduplicate by ID
+    const uniqueTxMap = new Map<string, Transaction>();
+    recoveredTransactions.forEach((t) => uniqueTxMap.set(t.id, t));
+    const uniqueBillsMap = new Map<string, Bill>();
+    recoveredBills.forEach((b) => uniqueBillsMap.set(b.id, b));
+
+    return {
+      recoveredTransactions: Array.from(uniqueTxMap.values()),
+      recoveredBills: Array.from(uniqueBillsMap.values()),
+      details,
+    };
+  } catch (e) {
+    console.warn('Błąd skanera pamięci podręcznej:', e);
+    return { recoveredTransactions: [], recoveredBills: [], details: [] };
+  }
+};
 
 // Named export functions
 export const loadTransactions = (): Transaction[] => getItemSafe(KEYS.TRANSACTIONS, INITIAL_TRANSACTIONS);

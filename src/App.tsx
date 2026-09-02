@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   TabType,
   Transaction,
@@ -27,6 +27,12 @@ import {
   loadUserProfile,
   saveUserProfile,
 } from './storage';
+import {
+  subscribeToFirebaseAuthState,
+  subscribeToHouseholdFirestore,
+  saveHouseholdToFirestore,
+  isFirebaseConfigured,
+} from './firebase';
 import { Navbar } from './components/Navbar';
 import { Dashboard } from './components/Dashboard';
 import { TransactionsManager } from './components/TransactionsManager';
@@ -54,8 +60,101 @@ export default function App() {
   const [household, setHousehold] = useState<Household | null>(loadHousehold);
   const [currentUser, setCurrentUser] = useState<UserProfile>(loadUserProfile);
   const [isHouseholdModalOpen, setIsHouseholdModalOpen] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
-  // Sync back to local storage whenever states change
+  // Ref to prevent echo update loops when Firestore snapshot triggers local state update
+  const isIncomingFirestoreUpdate = useRef(false);
+
+  // 1. Subscribe to Firebase Auth state on mount
+  useEffect(() => {
+    const unsubAuth = subscribeToFirebaseAuthState((user) => {
+      if (user) {
+        setCurrentUser((prev) => ({
+          ...prev,
+          ...user,
+          isLoggedIn: true,
+        }));
+      }
+    });
+    return () => unsubAuth();
+  }, []);
+
+  // 2. Real-time sync with Cloud Firestore when household is present
+  useEffect(() => {
+    if (!household?.id || !isFirebaseConfigured()) return;
+
+    const unsubscribe = subscribeToHouseholdFirestore(
+      household.id,
+      (cloudData) => {
+        if (!cloudData) return;
+        isIncomingFirestoreUpdate.current = true;
+
+        if (cloudData.transactions && Array.isArray(cloudData.transactions)) {
+          setTransactions(cloudData.transactions);
+        }
+        if (cloudData.bills && Array.isArray(cloudData.bills)) {
+          setBills(cloudData.bills);
+        }
+        if (cloudData.budgetLimits && Array.isArray(cloudData.budgetLimits)) {
+          setBudgetLimits(cloudData.budgetLimits);
+        }
+        if (cloudData.shoppingLists && Array.isArray(cloudData.shoppingLists)) {
+          setShoppingLists(cloudData.shoppingLists);
+        }
+        if (cloudData.shoppingItems && Array.isArray(cloudData.shoppingItems)) {
+          setShoppingItems(cloudData.shoppingItems);
+        }
+        if (cloudData.name || cloudData.members) {
+          setHousehold((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              name: cloudData.name || prev.name,
+              members: cloudData.members || prev.members,
+              inviteCode: cloudData.inviteCode || prev.inviteCode,
+              syncStatus: 'synced',
+            };
+          });
+        }
+
+        setTimeout(() => {
+          isIncomingFirestoreUpdate.current = false;
+        }, 300);
+      },
+      (err) => {
+        console.warn('Firestore subscription status:', err);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [household?.id]);
+
+  // 3. Sync local changes back to Cloud Firestore
+  useEffect(() => {
+    if (!household?.id || !isFirebaseConfigured()) return;
+    if (isIncomingFirestoreUpdate.current) return;
+
+    const timer = setTimeout(() => {
+      saveHouseholdToFirestore(household.id, {
+        id: household.id,
+        name: household.name,
+        inviteCode: household.inviteCode,
+        createdAt: household.createdAt,
+        createdBy: household.createdBy,
+        members: household.members,
+        transactions,
+        bills,
+        budgetLimits,
+        shoppingLists,
+        shoppingItems,
+        lastUpdatedBy: currentUser.email || currentUser.name,
+      }).catch((e) => console.warn('Błąd autosave do Firestore:', e));
+    }, 600);
+
+    return () => clearTimeout(timer);
+  }, [transactions, bills, budgetLimits, shoppingLists, shoppingItems, household, currentUser]);
+
+  // Sync to local storage for offline responsiveness
   useEffect(() => {
     saveTransactions(transactions);
   }, [transactions]);
@@ -87,26 +186,6 @@ export default function App() {
   useEffect(() => {
     saveUserProfile(currentUser);
   }, [currentUser]);
-
-  useEffect(() => {
-    saveBills(bills);
-  }, [bills]);
-
-  useEffect(() => {
-    saveBudgetLimits(budgetLimits);
-  }, [budgetLimits]);
-
-  useEffect(() => {
-    saveShoppingLists(shoppingLists);
-  }, [shoppingLists]);
-
-  useEffect(() => {
-    saveShoppingItems(shoppingItems);
-  }, [shoppingItems]);
-
-  useEffect(() => {
-    savePushSetting(pushEnabled);
-  }, [pushEnabled]);
 
   // Periodic and on-mount push notification check
   useEffect(() => {
@@ -216,16 +295,28 @@ export default function App() {
   };
 
   // Household & Auth Handlers
-  const handleLoginWithGoogle = (email?: string, name?: string) => {
-    const finalEmail = email || 'rodzina@gmail.com';
-    const finalName = name || 'Użytkownik Domu';
-    setCurrentUser({
-      id: `user-${Date.now()}`,
-      name: finalName,
-      email: finalEmail,
-      isLoggedIn: true,
-      householdId: household?.id,
-    });
+  const handleLoginSuccess = (user: UserProfile) => {
+    setCurrentUser(user);
+    if (household) {
+      const exists = household.members.some((m) => m.email === user.email || m.id === user.id);
+      if (!exists && user.email) {
+        setHousehold({
+          ...household,
+          members: [
+            ...household.members,
+            {
+              id: user.id,
+              name: user.name,
+              email: user.email,
+              avatarUrl: user.avatarUrl,
+              role: 'member',
+              joinedAt: new Date().toISOString(),
+              isCurrentUser: true,
+            },
+          ],
+        });
+      }
+    }
   };
 
   const handleLogout = () => {
@@ -258,6 +349,40 @@ export default function App() {
       ],
     };
     setHousehold(newHousehold);
+    if (isFirebaseConfigured()) {
+      saveHouseholdToFirestore(newHousehold.id, {
+        ...newHousehold,
+        transactions,
+        bills,
+        budgetLimits,
+        shoppingLists,
+        shoppingItems,
+        lastUpdatedBy: currentUser.email || currentUser.name,
+      });
+    }
+  };
+
+  const handleJoinHousehold = (code: string) => {
+    const joinedHousehold: Household = {
+      id: `house-code-${code.toLowerCase()}`,
+      name: `Dom (${code})`,
+      inviteCode: code,
+      createdAt: new Date().toISOString(),
+      createdBy: 'cloud',
+      syncStatus: 'synced',
+      cloudProvider: 'firebase',
+      members: [
+        {
+          id: currentUser.id || `user-${Date.now()}`,
+          email: currentUser.email || 'domownik@gmail.com',
+          name: currentUser.name || 'Członek',
+          role: 'member',
+          joinedAt: new Date().toISOString(),
+          isCurrentUser: true,
+        },
+      ],
+    };
+    setHousehold(joinedHousehold);
   };
 
   const handleInviteMember = (email: string, name: string) => {
@@ -269,18 +394,45 @@ export default function App() {
       role: 'member' as const,
       joinedAt: new Date().toISOString(),
     };
-    setHousehold({
+    const updated = {
       ...household,
       members: [...household.members, newMember],
-    });
+    };
+    setHousehold(updated);
   };
 
   const handleRemoveMember = (memberId: string) => {
     if (!household) return;
-    setHousehold({
+    const updated = {
       ...household,
       members: household.members.filter((m) => m.id !== memberId),
-    });
+    };
+    setHousehold(updated);
+  };
+
+  const handleTriggerManualSync = async () => {
+    if (!household?.id || !isFirebaseConfigured()) return;
+    setIsSyncing(true);
+    try {
+      await saveHouseholdToFirestore(household.id, {
+        id: household.id,
+        name: household.name,
+        inviteCode: household.inviteCode,
+        createdAt: household.createdAt,
+        createdBy: household.createdBy,
+        members: household.members,
+        transactions,
+        bills,
+        budgetLimits,
+        shoppingLists,
+        shoppingItems,
+        lastUpdatedBy: currentUser.email || currentUser.name,
+      });
+    } catch (e) {
+      console.warn('Manual sync failed:', e);
+    } finally {
+      setTimeout(() => setIsSyncing(false), 600);
+    }
   };
 
   return (
@@ -305,11 +457,14 @@ export default function App() {
         onClose={() => setIsHouseholdModalOpen(false)}
         currentUser={currentUser}
         household={household}
-        onLoginWithGoogle={handleLoginWithGoogle}
+        onLoginSuccess={handleLoginSuccess}
         onLogout={handleLogout}
         onCreateHousehold={handleCreateHousehold}
+        onJoinHousehold={handleJoinHousehold}
         onInviteMember={handleInviteMember}
         onRemoveMember={handleRemoveMember}
+        onTriggerSync={handleTriggerManualSync}
+        isSyncing={isSyncing}
       />
 
       {/* Dynamic Views Viewport */}

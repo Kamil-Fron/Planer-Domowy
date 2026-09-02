@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Home,
   Users,
@@ -7,28 +7,43 @@ import {
   Copy,
   Check,
   Smartphone,
-  Cloud,
+  Flame,
   LogOut,
   Sparkles,
   ShieldCheck,
-  ExternalLink,
-  HelpCircle,
+  AlertTriangle,
+  Code,
   X,
-  Share2,
+  ExternalLink,
+  RefreshCw,
+  Database,
+  LogIn,
 } from 'lucide-react';
 import { Household, HouseholdMember, UserProfile } from '../types';
 import { usePWAInstall } from '../hooks/usePWAInstall';
+import {
+  getActiveFirebaseConfig,
+  saveActiveFirebaseConfig,
+  clearActiveFirebaseConfig,
+  isFirebaseConfigured,
+  loginWithGoogleFirebase,
+  logoutFromFirebase,
+  defaultFirebaseConfig,
+} from '../firebase';
 
 interface HouseholdModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentUser: UserProfile;
   household: Household | null;
-  onLoginWithGoogle: (email?: string, name?: string) => void;
+  onLoginSuccess: (user: UserProfile) => void;
   onLogout: () => void;
   onCreateHousehold: (name: string) => void;
+  onJoinHousehold: (code: string) => void;
   onInviteMember: (email: string, name: string) => void;
   onRemoveMember: (id: string) => void;
+  onTriggerSync?: () => void;
+  isSyncing?: boolean;
 }
 
 export const HouseholdModal: React.FC<HouseholdModalProps> = ({
@@ -36,22 +51,39 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
   onClose,
   currentUser,
   household,
-  onLoginWithGoogle,
+  onLoginSuccess,
   onLogout,
   onCreateHousehold,
+  onJoinHousehold,
   onInviteMember,
   onRemoveMember,
+  onTriggerSync,
+  isSyncing = false,
 }) => {
   const [householdNameInput, setHouseholdNameInput] = useState('');
+  const [joinCodeInput, setJoinCodeInput] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteName, setInviteName] = useState('');
-  const [loginEmailInput, setLoginEmailInput] = useState('');
-  const [loginNameInput, setLoginNameInput] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
-  const [activeTab, setActiveTab] = useState<'household' | 'pwa' | 'github_info'>('household');
-  const [showIOSGuide, setShowIOSGuide] = useState(false);
+  const [activeTab, setActiveTab] = useState<'household' | 'firebase_config' | 'pwa'>('household');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  // Firebase Config Form State
+  const [firebaseConfigForm, setFirebaseConfigForm] = useState(getActiveFirebaseConfig());
+  const [rawConfigText, setRawConfigText] = useState('');
+  const [configSaveSuccess, setConfigSaveSuccess] = useState(false);
+  const [isConfigured, setIsConfigured] = useState(isFirebaseConfigured());
 
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
+
+  useEffect(() => {
+    if (isOpen) {
+      setFirebaseConfigForm(getActiveFirebaseConfig());
+      setIsConfigured(isFirebaseConfigured());
+      setAuthError(null);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -69,6 +101,13 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
     setHouseholdNameInput('');
   };
 
+  const handleJoinHouseholdSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!joinCodeInput.trim()) return;
+    onJoinHousehold(joinCodeInput.trim().toUpperCase());
+    setJoinCodeInput('');
+  };
+
   const handleInviteSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inviteEmail.trim()) return;
@@ -77,15 +116,89 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
     setInviteName('');
   };
 
-  const handleCustomLogin = (e: React.FormEvent) => {
+  const handleGoogleLoginClick = async () => {
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      if (!isConfigured) {
+        setActiveTab('firebase_config');
+        setAuthError(
+          'Najpierw wklej konfigurację Firebase (firebaseConfig) w zakładce poniżej.'
+        );
+        setAuthLoading(false);
+        return;
+      }
+      const user = await loginWithGoogleFirebase();
+      onLoginSuccess(user);
+    } catch (err: any) {
+      console.error('Błąd logowania Firebase:', err);
+      setAuthError(
+        err.message ||
+          'Wystąpił błąd podczas logowania przez Google. Upewnij się, że w Firebase Console włączono logowanie Google oraz Firestore w trybie testowym.'
+      );
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogoutClick = async () => {
+    try {
+      await logoutFromFirebase();
+      onLogout();
+    } catch (err) {
+      console.error('Błąd wylogowania:', err);
+      onLogout();
+    }
+  };
+
+  // Helper to parse pasted Firebase config object snippet
+  const handleParseRawConfig = (text: string) => {
+    setRawConfigText(text);
+    try {
+      const apiKeyMatch = text.match(/apiKey:\s*["']([^"']+)["']/);
+      const authDomainMatch = text.match(/authDomain:\s*["']([^"']+)["']/);
+      const projectIdMatch = text.match(/projectId:\s*["']([^"']+)["']/);
+      const storageBucketMatch = text.match(/storageBucket:\s*["']([^"']+)["']/);
+      const messagingSenderIdMatch = text.match(/messagingSenderId:\s*["']([^"']+)["']/);
+      const appIdMatch = text.match(/appId:\s*["']([^"']+)["']/);
+
+      if (apiKeyMatch || projectIdMatch) {
+        setFirebaseConfigForm({
+          apiKey: apiKeyMatch ? apiKeyMatch[1] : firebaseConfigForm.apiKey,
+          authDomain: authDomainMatch ? authDomainMatch[1] : firebaseConfigForm.authDomain,
+          projectId: projectIdMatch ? projectIdMatch[1] : firebaseConfigForm.projectId,
+          storageBucket: storageBucketMatch ? storageBucketMatch[1] : firebaseConfigForm.storageBucket,
+          messagingSenderId: messagingSenderIdMatch
+            ? messagingSenderIdMatch[1]
+            : firebaseConfigForm.messagingSenderId,
+          appId: appIdMatch ? appIdMatch[1] : firebaseConfigForm.appId,
+        });
+      }
+    } catch (e) {
+      console.warn('Nie udało się automatycznie sparsować tekstu', e);
+    }
+  };
+
+  const handleSaveConfig = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!loginEmailInput.trim()) return;
-    onLoginWithGoogle(loginEmailInput.trim(), loginNameInput.trim() || loginEmailInput.split('@')[0]);
+    saveActiveFirebaseConfig(firebaseConfigForm);
+    setIsConfigured(isFirebaseConfigured());
+    setConfigSaveSuccess(true);
+    setAuthError(null);
+    setTimeout(() => {
+      setConfigSaveSuccess(false);
+    }, 3000);
+  };
+
+  const handleResetConfig = () => {
+    clearActiveFirebaseConfig();
+    setFirebaseConfigForm(defaultFirebaseConfig);
+    setIsConfigured(isFirebaseConfigured());
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4 overflow-y-auto">
-      <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto">
+      <div className="bg-white w-full max-w-xl rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto">
         {/* Header */}
         <div className="px-5 py-4 bg-slate-900 text-white flex items-center justify-between">
           <div className="flex items-center space-x-3">
@@ -93,8 +206,13 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
               <Home className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base sm:text-lg font-bold">Dom & Synchronizacja Rodzinna</h2>
-              <p className="text-xs text-slate-300">Wspólny budżet i listy zakupów dla całej rodziny</p>
+              <div className="flex items-center space-x-2">
+                <h2 className="text-base sm:text-lg font-bold">Dom & Baza Firestore</h2>
+                <span className="text-[10px] bg-amber-500/20 text-amber-300 font-bold px-2 py-0.5 rounded-full border border-amber-500/30">
+                  Firebase SDK v9
+                </span>
+              </div>
+              <p className="text-xs text-slate-300">Wspólna synchronizacja rodzinna i Google Auth</p>
             </div>
           </div>
           <button
@@ -120,6 +238,21 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
           </button>
 
           <button
+            onClick={() => setActiveTab('firebase_config')}
+            className={`pb-2.5 px-3 border-b-2 transition-all flex items-center space-x-1.5 ${
+              activeTab === 'firebase_config'
+                ? 'border-amber-600 text-amber-600 font-bold'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Flame className="w-4 h-4 text-amber-500" />
+            <span>Konfiguracja Firebase</span>
+            {!isConfigured && (
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+            )}
+          </button>
+
+          <button
             onClick={() => setActiveTab('pwa')}
             className={`pb-2.5 px-3 border-b-2 transition-all flex items-center space-x-1.5 ${
               activeTab === 'pwa'
@@ -130,83 +263,176 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
             <Smartphone className="w-4 h-4" />
             <span>Telefon (PWA)</span>
           </button>
-
-          <button
-            onClick={() => setActiveTab('github_info')}
-            className={`pb-2.5 px-3 border-b-2 transition-all flex items-center space-x-1.5 ${
-              activeTab === 'github_info'
-                ? 'border-indigo-600 text-indigo-600 font-bold'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Cloud className="w-4 h-4" />
-            <span>GitHub Pages & Serwer</span>
-          </button>
         </div>
 
         {/* Body Content */}
         <div className="p-5 max-h-[75vh] overflow-y-auto space-y-5">
+          {/* TAB 1: HOUSEHOLD & SYNC */}
           {activeTab === 'household' && (
             <>
               {/* Profile Card / Login State */}
               <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-sm shadow-xs">
-                      {currentUser.name.charAt(0).toUpperCase()}
-                    </div>
+                    {currentUser.avatarUrl ? (
+                      <img
+                        src={currentUser.avatarUrl}
+                        alt={currentUser.name}
+                        referrerPolicy="no-referrer"
+                        className="w-10 h-10 rounded-full border border-slate-200 shadow-xs"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-sm shadow-xs">
+                        {currentUser.name ? currentUser.name.charAt(0).toUpperCase() : 'U'}
+                      </div>
+                    )}
                     <div>
                       <div className="flex items-center space-x-2">
                         <p className="text-sm font-bold text-slate-900">{currentUser.name}</p>
-                        <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded-sm">
-                          Zalogowany
-                        </span>
+                        {currentUser.isLoggedIn ? (
+                          <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded-sm">
+                            Konto Google
+                          </span>
+                        ) : (
+                          <span className="text-[10px] bg-slate-200 text-slate-700 font-semibold px-1.5 py-0.2 rounded-sm">
+                            Tryb gościa
+                          </span>
+                        )}
                       </div>
-                      <p className="text-xs text-slate-500">{currentUser.email}</p>
+                      <p className="text-xs text-slate-500">{currentUser.email || 'Brak powiązanego konta Google'}</p>
                     </div>
                   </div>
 
-                  <button
-                    onClick={onLogout}
-                    className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
-                    title="Wyloguj"
-                  >
-                    <LogOut className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center space-x-2">
+                    {currentUser.isLoggedIn ? (
+                      <button
+                        onClick={handleLogoutClick}
+                        className="flex items-center space-x-1.5 px-3 py-1.5 text-xs text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-xl border border-slate-200 transition-colors font-medium"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        <span>Wyloguj</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handleGoogleLoginClick}
+                        disabled={authLoading}
+                        className="flex items-center space-x-2 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors"
+                      >
+                        <LogIn className="w-3.5 h-3.5 text-amber-400" />
+                        <span>{authLoading ? 'Logowanie...' : 'Zaloguj przez Google'}</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
+
+                {authError && (
+                  <div className="mt-3 p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-xl flex items-start space-x-2">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="font-semibold">Błąd uwierzytelniania</p>
+                      <p className="text-[11px] mt-0.5 text-rose-700">{authError}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Status bazy Firestore */}
+              <div className="p-3 rounded-2xl bg-white border border-slate-200 flex items-center justify-between">
+                <div className="flex items-center space-x-2.5">
+                  <div className={`p-2 rounded-xl ${isConfigured ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
+                    <Database className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center space-x-1.5">
+                      <span className="text-xs font-bold text-slate-900">Baza Firestore:</span>
+                      {isConfigured ? (
+                        <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full flex items-center space-x-1">
+                          <Check className="w-2.5 h-2.5" />
+                          <span>Połączono z chmurą</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full">
+                          Wymaga konfiguracji
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      {isConfigured
+                        ? 'Wszystkie wydatki i lista zakupów synchronizują się na żywo'
+                        : 'Wklej dane w zakładce „Konfiguracja Firebase”, aby włączyć bazę'}
+                    </p>
+                  </div>
+                </div>
+
+                {onTriggerSync && isConfigured && (
+                  <button
+                    onClick={onTriggerSync}
+                    disabled={isSyncing}
+                    className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-slate-50 rounded-xl transition-colors"
+                    title="Wymuś synchronizację"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-indigo-600' : ''}`} />
+                  </button>
+                )}
               </div>
 
               {/* Household Status or Creation */}
               {!household ? (
                 <div className="space-y-4">
-                  <div className="text-center py-3">
+                  <div className="text-center py-2">
                     <Home className="w-10 h-10 text-indigo-600 mx-auto mb-2" />
-                    <h3 className="text-base font-bold text-slate-900">Utwórz swój Dom</h3>
+                    <h3 className="text-base font-bold text-slate-900">Utwórz lub Dołącz do Domu</h3>
                     <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                      Stwórz wspólne gospodarstwo domowe i zaproś partnera lub rodzinę do wspólnego zarządzania wydatkami i listą zakupów.
+                      Stwórz wspólne gospodarstwo domowe lub wpisz kod od partnera, aby widzieć wspólne wydatki i rachunki.
                     </p>
                   </div>
 
-                  <form onSubmit={handleCreateHouseholdSubmit} className="space-y-3">
+                  {/* Option 1: Create Household */}
+                  <form onSubmit={handleCreateHouseholdSubmit} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                    <h4 className="text-xs font-bold text-slate-900 flex items-center space-x-1.5">
+                      <Home className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Opcja A: Utwórz nowy Dom</span>
+                    </h4>
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
-                        Nazwa Gospodarstwa Domowego
-                      </label>
                       <input
                         type="text"
                         required
                         value={householdNameInput}
                         onChange={(e) => setHouseholdNameInput(e.target.value)}
-                        placeholder="np. Dom Kowalskich, Nasze Mieszkanie..."
-                        className="w-full px-3.5 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-900 focus:outline-hidden"
+                        placeholder="np. Dom Kowalskich, Mieszkanie Warszawa..."
+                        className="w-full px-3.5 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-900 focus:outline-hidden"
                       />
                     </div>
                     <button
                       type="submit"
-                      className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs sm:text-sm rounded-xl transition-colors shadow-xs"
+                      className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs rounded-xl transition-colors shadow-xs"
                     >
-                      Utwórz i włącz synchronizację
+                      Utwórz Dom
                     </button>
+                  </form>
+
+                  {/* Option 2: Join by Code */}
+                  <form onSubmit={handleJoinHouseholdSubmit} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                    <h4 className="text-xs font-bold text-slate-900 flex items-center space-x-1.5">
+                      <Users className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Opcja B: Dołącz do istniejącego Domu (wpisz kod)</span>
+                    </h4>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        required
+                        value={joinCodeInput}
+                        onChange={(e) => setJoinCodeInput(e.target.value)}
+                        placeholder="np. DOM-1234-PL"
+                        className="flex-1 px-3.5 py-2 text-xs font-mono uppercase bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-900 focus:outline-hidden"
+                      />
+                      <button
+                        type="submit"
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl transition-colors shadow-xs"
+                      >
+                        Dołącz
+                      </button>
+                    </div>
                   </form>
                 </div>
               ) : (
@@ -221,13 +447,13 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
                       <div className="flex items-center space-x-2 mt-1">
                         <span className="inline-flex items-center space-x-1 text-[11px] text-emerald-700 font-semibold">
                           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                          <span>Synchronizacja w czasie rzeczywistym aktywna</span>
+                          <span>Baza Firestore: aktywna</span>
                         </span>
                       </div>
                     </div>
 
                     {/* Invite Code Badge */}
-                    <div className="flex items-center space-x-2 bg-white px-3 py-1.5 rounded-xl border border-indigo-200">
+                    <div className="flex items-center space-x-2 bg-white px-3 py-1.5 rounded-xl border border-indigo-200 shadow-xs">
                       <div className="text-left">
                         <span className="text-[9px] text-slate-400 uppercase font-bold block">Kod Domu</span>
                         <span className="font-mono text-xs font-bold text-slate-800">{household.inviteCode}</span>
@@ -257,7 +483,7 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
                         >
                           <div className="flex items-center space-x-3">
                             <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center font-bold text-xs border border-slate-200">
-                              {member.name.charAt(0).toUpperCase()}
+                              {member.name ? member.name.charAt(0).toUpperCase() : 'U'}
                             </div>
                             <div>
                               <div className="flex items-center space-x-1.5">
@@ -329,6 +555,184 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
             </>
           )}
 
+          {/* TAB 2: FIREBASE CONFIGURATION */}
+          {activeTab === 'firebase_config' && (
+            <div className="space-y-4">
+              <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-2xl space-y-2">
+                <div className="flex items-center space-x-2 text-amber-900 font-bold text-sm">
+                  <Flame className="w-4 h-4 text-amber-600" />
+                  <span>Połączenie z Google Firebase SDK (v9/modular)</span>
+                </div>
+                <p className="text-xs text-amber-800 leading-relaxed">
+                  Aplikacja korzysta z modularnego <strong>Firebase SDK v9</strong> (Firebase Auth + Cloud Firestore).
+                  Możesz wkleić dane swojego projektu z <strong>Firebase Console</strong> poniżej lub ustawić je bezpośrednio w pliku <code>src/firebase.ts</code>.
+                </p>
+              </div>
+
+              {/* Quick Paste Area */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-800 flex items-center justify-between">
+                  <span>Szybkie wklejenie całego kodu (Snippet z Firebase Console):</span>
+                  <span className="text-[11px] text-slate-400 font-normal">np. const firebaseConfig = {'{ ... }'};</span>
+                </label>
+                <textarea
+                  rows={3}
+                  value={rawConfigText}
+                  onChange={(e) => handleParseRawConfig(e.target.value)}
+                  placeholder={`const firebaseConfig = {\n  apiKey: "AIzaSy...",\n  authDomain: "twoj-projekt.firebaseapp.com",\n  projectId: "twoj-projekt",\n  ...\n};`}
+                  className="w-full p-2.5 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-600 focus:outline-hidden"
+                />
+              </div>
+
+              {/* Individual Form Fields */}
+              <form onSubmit={handleSaveConfig} className="space-y-3 pt-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      apiKey
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={firebaseConfigForm.apiKey}
+                      onChange={(e) =>
+                        setFirebaseConfigForm({ ...firebaseConfigForm, apiKey: e.target.value })
+                      }
+                      placeholder="AIzaSy..."
+                      className="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-600 focus:outline-hidden"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      projectId
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={firebaseConfigForm.projectId}
+                      onChange={(e) =>
+                        setFirebaseConfigForm({ ...firebaseConfigForm, projectId: e.target.value })
+                      }
+                      placeholder="project-42971582045"
+                      className="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-600 focus:outline-hidden"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      authDomain
+                    </label>
+                    <input
+                      type="text"
+                      value={firebaseConfigForm.authDomain}
+                      onChange={(e) =>
+                        setFirebaseConfigForm({ ...firebaseConfigForm, authDomain: e.target.value })
+                      }
+                      placeholder="twoj-projekt.firebaseapp.com"
+                      className="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-600 focus:outline-hidden"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      storageBucket (opcjonalne)
+                    </label>
+                    <input
+                      type="text"
+                      value={firebaseConfigForm.storageBucket}
+                      onChange={(e) =>
+                        setFirebaseConfigForm({
+                          ...firebaseConfigForm,
+                          storageBucket: e.target.value,
+                        })
+                      }
+                      placeholder="twoj-projekt.appspot.com"
+                      className="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-600 focus:outline-hidden"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      messagingSenderId
+                    </label>
+                    <input
+                      type="text"
+                      value={firebaseConfigForm.messagingSenderId}
+                      onChange={(e) =>
+                        setFirebaseConfigForm({
+                          ...firebaseConfigForm,
+                          messagingSenderId: e.target.value,
+                        })
+                      }
+                      placeholder="42971582045"
+                      className="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-600 focus:outline-hidden"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      appId
+                    </label>
+                    <input
+                      type="text"
+                      value={firebaseConfigForm.appId}
+                      onChange={(e) =>
+                        setFirebaseConfigForm({ ...firebaseConfigForm, appId: e.target.value })
+                      }
+                      placeholder="1:42971582045:web:..."
+                      className="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-600 focus:outline-hidden"
+                    />
+                  </div>
+                </div>
+
+                {configSaveSuccess && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center space-x-2">
+                    <Check className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                    <span>Zapisano konfigurację Firebase! Baza jest teraz aktywna.</span>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between pt-2">
+                  <button
+                    type="button"
+                    onClick={handleResetConfig}
+                    className="text-xs text-slate-400 hover:text-rose-600 transition-colors"
+                  >
+                    Wyczyść konfigurację
+                  </button>
+
+                  <button
+                    type="submit"
+                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors flex items-center space-x-1.5"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Zapisz konfigurację Firebase</span>
+                  </button>
+                </div>
+              </form>
+
+              {/* Quick Setup instructions */}
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-600 space-y-2">
+                <p className="font-bold text-slate-900">
+                  📋 3 szybkie kroki w konsoli Firebase:
+                </p>
+                <ol className="list-decimal list-inside space-y-1.5 text-[11px] leading-relaxed">
+                  <li>
+                    <strong>Firestore Database</strong>: W konsoli Firebase kliknij <em>Create database</em> -&gt; wybierz <em>Start in test mode</em> (tak jak na Twoim zrzucie ekranu) -&gt; <em>Create</em>.
+                  </li>
+                  <li>
+                    <strong>Authentication</strong>: W sekcji <em>Build -&gt; Authentication</em> kliknij <em>Get started</em> -&gt; zakładka <em>Sign-in method</em> -&gt; włącz <strong>Google</strong>.
+                  </li>
+                  <li>
+                    <strong>Web App Config</strong>: W <em>Project Settings</em> kliknij ikonę <strong>&lt;/&gt; (Web)</strong>, nazwij aplikację i skopiuj obiekt <code>firebaseConfig</code> do formularza powyżej.
+                  </li>
+                </ol>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: PWA MOBILE */}
           {activeTab === 'pwa' && (
             <div className="space-y-4">
               <div className="text-center py-2">
@@ -388,42 +792,6 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
                     <li>Dotknij menu (trzy kropki w prawym górnym rogu).</li>
                     <li>Wybierz <strong>„Zainstaluj aplikację”</strong> lub <strong>„Dodaj do ekranu głównego”</strong>.</li>
                   </ol>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'github_info' && (
-            <div className="space-y-4">
-              <div className="p-4 bg-indigo-50/70 border border-indigo-100 rounded-2xl space-y-2.5">
-                <div className="flex items-center space-x-2 text-indigo-900 font-bold text-sm">
-                  <Cloud className="w-5 h-5 text-indigo-600" />
-                  <span>Jak działa GitHub Pages a baza w chmurze?</span>
-                </div>
-                <p className="text-xs text-slate-700 leading-relaxed">
-                  <strong>GitHub Pages</strong> to darmowy hosting plików statycznych (HTML, JavaScript, grafika). <strong>Sam GitHub Pages nie posiada bazy danych ani serwera backendowego.</strong>
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                <div className="p-3.5 bg-white rounded-2xl border border-slate-200 space-y-1.5">
-                  <h4 className="text-xs font-bold text-slate-900 flex items-center space-x-1.5">
-                    <span className="w-2 h-2 rounded-full bg-rose-500"></span>
-                    <span>1. Tylko GitHub Pages (Pamięć lokalna localStorage)</span>
-                  </h4>
-                  <p className="text-xs text-slate-600 leading-relaxed">
-                    Jeśli aplikacja działa tylko na GitHub Pages bez zewnętrznej bazy, dane zapisują się w pamięci danej przeglądarki. <strong>Wtedy drugi telefon lub inna przeglądarka nie widzi tych samych danych.</strong>
-                  </p>
-                </div>
-
-                <div className="p-3.5 bg-white rounded-2xl border border-emerald-200 bg-emerald-50/30 space-y-1.5">
-                  <h4 className="text-xs font-bold text-emerald-900 flex items-center space-x-1.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                    <span>2. GitHub Pages + Firebase (Zalecane rozwiązanie!)</span>
-                  </h4>
-                  <p className="text-xs text-slate-700 leading-relaxed">
-                    Strona może być hostowana na <strong>GitHub Pages</strong>, a dane i logowanie przez Gmail łączą się z darmową bazą <strong>Google Firebase (Firestore)</strong>. Wtedy Ty i członek rodziny logujecie się mailem i natychmiast macie dostęp do tego samego Domu z każdego telefonu i komputera!
-                  </p>
                 </div>
               </div>
             </div>

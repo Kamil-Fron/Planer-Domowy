@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Upload,
   Camera,
@@ -16,9 +16,18 @@ import {
   ArrowRight,
   RefreshCw,
   HelpCircle,
+  Key,
+  ShieldCheck,
 } from 'lucide-react';
 import { ReceiptItemDetail, ReceiptScanResult, Transaction, ShoppingItem } from '../types';
 import { INITIAL_CATEGORIES, SAMPLE_RECEIPTS } from '../mockData';
+import {
+  checkAiAvailability,
+  scanReceiptWithAI,
+  getStoredGeminiApiKey,
+  saveStoredGeminiApiKey,
+  AiStatusResult,
+} from '../services/aiService';
 
 interface ReceiptScannerProps {
   onAddTransaction: (transaction: Omit<Transaction, 'id' | 'createdAt'>) => void;
@@ -40,25 +49,34 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [splitByCategory, setSplitByCategory] = useState(false);
-  const [apiHealth, setApiHealth] = useState<{ hasApiKey: boolean; checked: boolean }>({
-    hasApiKey: true,
-    checked: false,
+  
+  const [aiStatus, setAiStatus] = useState<AiStatusResult>({
+    isConfigured: false,
+    source: 'none',
+    message: 'Sprawdzanie połączenia z AI...',
   });
+  const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
+  const [inputApiKey, setInputApiKey] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
-  // Check backend health on mount
-  React.useEffect(() => {
-    fetch('/api/health')
-      .then((r) => r.json())
-      .then((data) => {
-        setApiHealth({ hasApiKey: Boolean(data.hasApiKey), checked: true });
-      })
-      .catch(() => {
-        setApiHealth({ hasApiKey: false, checked: true });
-      });
+  // Check AI availability on mount & when key changes
+  const refreshAiStatus = async () => {
+    const status = await checkAiAvailability();
+    setAiStatus(status);
+    setInputApiKey(getStoredGeminiApiKey());
+  };
+
+  useEffect(() => {
+    refreshAiStatus();
   }, []);
+
+  const handleSaveKey = () => {
+    saveStoredGeminiApiKey(inputApiKey);
+    setIsKeyModalOpen(false);
+    refreshAiStatus();
+  };
 
   // Handle file select
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -77,7 +95,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
     }
   };
 
-  // Perform AI scan using Gemini API
+  // Perform AI scan using Gemini API (Hybrid server + client for GitHub Pages)
   const handleScanReceipt = async (base64Img?: string, mimeType?: string) => {
     const dataToSend = base64Img || imagePreview;
     if (!dataToSend) {
@@ -90,46 +108,37 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
     setSuccessMessage(null);
 
     try {
-      const response = await fetch('/api/scan-receipt', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageBase64: dataToSend,
-          mimeType: mimeType || 'image/jpeg',
-        }),
-      });
+      const data = await scanReceiptWithAI(dataToSend, mimeType || 'image/jpeg');
 
-      const resData = await response.json();
-
-      if (resData.success && resData.data) {
+      if (data) {
         // Initialize selection status
-        const itemsWithSelection: ReceiptItemDetail[] = (resData.data.items || []).map((item: any) => ({
+        const itemsWithSelection: ReceiptItemDetail[] = (data.items || []).map((item: any) => ({
           name: item.name,
           price: Number(item.price) || 0,
           quantity: Number(item.quantity) || 1,
-          category: item.category || resData.data.dominantCategory || 'Jedzenie i artykuły spożywcze',
+          category: item.category || data.dominantCategory || 'Jedzenie i artykuły spożywcze',
           notes: item.notes || '',
           selected: true,
         }));
 
         setScanResult({
-          storeName: resData.data.storeName || 'Sklep',
-          date: resData.data.date || new Date().toISOString().split('T')[0],
-          totalAmount: Number(resData.data.totalAmount) || itemsWithSelection.reduce((s, i) => s + i.price, 0),
-          currency: resData.data.currency || 'PLN',
-          receiptNumber: resData.data.receiptNumber || '',
-          dominantCategory: resData.data.dominantCategory || 'Jedzenie i artykuły spożywcze',
-          summary: resData.data.summary || 'Pomyślnie przeanalizowano pozycje paragonu.',
+          storeName: data.storeName || 'Sklep',
+          date: data.date || new Date().toISOString().split('T')[0],
+          totalAmount: Number(data.totalAmount) || itemsWithSelection.reduce((s, i) => s + i.price, 0),
+          currency: data.currency || 'PLN',
+          receiptNumber: data.receiptNumber || '',
+          dominantCategory: data.dominantCategory || 'Jedzenie i artykuły spożywcze',
+          summary: data.summary || 'Pomyślnie przeanalizowano pozycje paragonu.',
           items: itemsWithSelection,
         });
       } else {
-        throw new Error(resData.error || 'Nie udało się odczytać paragonu');
+        throw new Error('Model AI nie zwrócił danych paragonu.');
       }
     } catch (err: any) {
       console.error('Błąd podczas skanowania paragonu AI:', err);
       setError(
         err?.message ||
-          'Wystąpił problem z przetworzeniem zdjęcia przez model Gemini AI. Upewnij się, że zdjęcie jest wyraźne i dobrze oświetlone lub spróbuj ponownie.'
+          'Wystąpił problem z przetworzeniem zdjęcia przez model Gemini AI. Upewnij się, że zdjęcie jest wyraźne i dobrze oświetlone lub podaj poprawny klucz GEMINI_API_KEY.'
       );
     } finally {
       setIsScanning(false);
@@ -228,22 +237,38 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
       {/* Header */}
       <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="p-2 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-100">
               <Receipt className="w-5 h-5" />
             </span>
             <h1 className="text-xl font-bold text-slate-900">Inteligentny Skaner Paragonów AI</h1>
-            {apiHealth.checked && (
-              <span
-                className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
-                  apiHealth.hasApiKey
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                    : 'bg-amber-50 text-amber-700 border-amber-200'
-                }`}
-              >
-                {apiHealth.hasApiKey ? 'Gemini AI Połączony' : 'Wymaga GEMINI_API_KEY'}
-              </span>
-            )}
+            <button
+              onClick={() => setIsKeyModalOpen(true)}
+              className={`px-2.5 py-1 rounded-full text-xs font-semibold border flex items-center space-x-1.5 transition-all cursor-pointer ${
+                aiStatus.isConfigured
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                  : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+              }`}
+              title="Kliknij, aby zarządzać kluczem Gemini API"
+            >
+              {aiStatus.isConfigured ? (
+                <>
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>
+                    {aiStatus.source === 'server'
+                      ? 'Gemini AI Połączony (Backend)'
+                      : aiStatus.source === 'client_env'
+                      ? 'Gemini AI Połączony (GitHub Pages)'
+                      : 'Gemini AI Połączony (Klucz własny)'}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Key className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Skonfiguruj Gemini API</span>
+                </>
+              )}
+            </button>
           </div>
           <p className="text-sm text-slate-600 mt-1">
             Zrób zdjęcie lub wgraj paragon. Model Gemini AI automatycznie odczyta pozycje, ceny i przypisze kategorie
@@ -268,16 +293,84 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
         </div>
       </div>
 
-      {/* API Key Missing Notice */}
-      {apiHealth.checked && !apiHealth.hasApiKey && (
-        <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-amber-800 text-xs sm:text-sm flex items-start space-x-3">
-          <AlertCircle className="w-5 h-5 flex-shrink-0 text-amber-600 mt-0.5" />
-          <div className="space-y-1">
-            <p className="font-bold">Klucz GEMINI_API_KEY nie został wykryty w środowisku.</p>
-            <p className="text-amber-700">
-              Aby skanować własne zdjęcia z paragonami za pomocą Gemini AI, upewnij się, że w panelu ustawień projektu (Settings -&gt; Secrets) dodano zmienną <strong>GEMINI_API_KEY</strong> z ważnym kluczem API Google AI Studio. W międzyczasie możesz przetestować pełny proces za pomocą powyższych gotowych przykładów.
+      {/* API Key Modal */}
+      {isKeyModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center space-x-2">
+                <Key className="w-5 h-5 text-indigo-600" />
+                <h3 className="font-bold text-slate-900 text-base">Konfiguracja Gemini API</h3>
+              </div>
+              <button
+                onClick={() => setIsKeyModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 text-sm font-bold p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Wprowadź swój bezpłatny klucz API z Google AI Studio, aby korzystać ze skanera paragonów bezpośrednio na stronie GitHub Pages lub w przeglądarce.
             </p>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Klucz GEMINI_API_KEY
+              </label>
+              <input
+                type="password"
+                value={inputApiKey}
+                onChange={(e) => setInputApiKey(e.target.value)}
+                placeholder="AIzaSy..."
+                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-mono"
+              />
+            </div>
+
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-[11px] text-slate-600 space-y-1">
+              <p className="font-semibold text-slate-800">Skąd wziąć darmowy klucz?</p>
+              <p>
+                1. Wejdź na <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-indigo-600 underline font-semibold">aistudio.google.com/app/apikey</a>.
+              </p>
+              <p>2. Wygeneruj klucz i wklej go tutaj (klucz zapisze się lokalnie w Twojej przeglądarce).</p>
+            </div>
+
+            <div className="flex items-center justify-end space-x-2 pt-2">
+              <button
+                onClick={() => setIsKeyModalOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+              >
+                Anuluj
+              </button>
+              <button
+                onClick={handleSaveKey}
+                className="px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs transition-colors"
+              >
+                Zapisz klucz
+              </button>
+            </div>
           </div>
+        </div>
+      )}
+
+      {/* API Key Missing Notice */}
+      {!aiStatus.isConfigured && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-amber-800 text-xs sm:text-sm flex items-start justify-between gap-4">
+          <div className="flex items-start space-x-3">
+            <AlertCircle className="w-5 h-5 flex-shrink-0 text-amber-600 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-bold">Klucz GEMINI_API_KEY nie został skonfigurowany w środowisku.</p>
+              <p className="text-amber-700 text-xs">
+                Aby skanować własne zdjęcia z paragonami za pomocą Gemini AI na GitHub Pages, kliknij przycisk obok i wklej swój klucz API lub użyj gotowych przykładów testowych.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setIsKeyModalOpen(true)}
+            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl flex-shrink-0 shadow-xs transition-colors"
+          >
+            Wpisz klucz
+          </button>
         </div>
       )}
 

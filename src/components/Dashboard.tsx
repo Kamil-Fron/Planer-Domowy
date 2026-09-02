@@ -32,6 +32,7 @@ import {
 } from '../types';
 import { INITIAL_CATEGORIES } from '../mockData';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip } from 'recharts';
+import { getFinancialAdviceWithAI } from '../services/aiService';
 
 interface DashboardProps {
   transactions: Transaction[];
@@ -108,24 +109,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
     try {
       setLoadingAdvice(true);
       setAdviceError(null);
-      const res = await fetch('/api/financial-advice', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          transactions: monthTransactions,
-          limits: budgetLimits,
-          bills: pendingBills,
-        }),
+      const advice = await getFinancialAdviceWithAI({
+        transactions: monthTransactions,
+        limits: budgetLimits,
+        bills: pendingBills,
       });
-      const data = await res.json();
-      if (data.success && data.advice) {
-        setAiAdvice(data.advice);
+      if (advice) {
+        setAiAdvice(advice);
       } else {
-        setAdviceError(data.error || 'Nie udało się pobrać analizy finansowej.');
+        setAdviceError('Nie udało się pobrać analizy finansowej.');
       }
     } catch (err: any) {
       console.error(err);
-      setAdviceError(err?.message || 'Błąd połączenia z usługą analizy AI.');
+      setAdviceError(err?.message || 'Błąd połączenia z usługą analizy AI. Upewnij się, że klucz GEMINI_API_KEY jest skonfigurowany.');
     } finally {
       setLoadingAdvice(false);
     }

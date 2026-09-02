@@ -13,28 +13,83 @@ const PORT = 3000;
 app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 
-// Lazy initialization of Gemini client
-let genAIClient: GoogleGenAI | null = null;
+// Dynamic initialization of Gemini client (never caches an empty key)
 function getGenAI(): GoogleGenAI {
-  if (!genAIClient) {
-    const apiKey = process.env.GEMINI_API_KEY || "";
-    genAIClient = new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        headers: {
-          "User-Agent": "aistudio-build",
-        },
-      },
-    });
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey.trim() === "" || apiKey === "MY_GEMINI_API_KEY") {
+    throw new Error(
+      "Klucz GEMINI_API_KEY nie został skonfigurowany w środowisku. Aby korzystać z funkcji AI (skaner paragonów i doradca), dodaj poprawny klucz GEMINI_API_KEY w panelu Settings -> Secrets."
+    );
   }
-  return genAIClient;
+  return new GoogleGenAI({
+    apiKey: apiKey.trim(),
+    httpOptions: {
+      headers: {
+        "User-Agent": "aistudio-build",
+      },
+    },
+  });
+}
+
+// Resilient fallback across model aliases
+async function generateWithFallback(
+  ai: GoogleGenAI,
+  params: {
+    contents: any;
+    config?: any;
+    preferredModel?: string;
+  }
+) {
+  const modelsToTry = [
+    params.preferredModel || "gemini-2.5-flash",
+    "gemini-3.7-flash",
+    "gemini-flash-latest",
+  ].filter((v, i, a) => a.indexOf(v) === i);
+
+  let lastError: any = null;
+  for (const modelName of modelsToTry) {
+    try {
+      const result = await ai.models.generateContent({
+        model: modelName,
+        contents: params.contents,
+        config: params.config,
+      });
+      if (result && (result.text || (result as any).candidates)) {
+        return result;
+      }
+    } catch (err: any) {
+      console.warn(`Próba modelu ${modelName} nie powiodła się:`, err?.message || err);
+      lastError = err;
+    }
+  }
+  throw lastError || new Error("Wszystkie próby połączenia z modelami Gemini zakończyły się niepowodzeniem.");
+}
+
+// Clean JSON extraction from AI response
+function extractJsonFromText(rawText: string | undefined): any {
+  if (!rawText) throw new Error("Model AI zwrócił pustą treść.");
+  let cleaned = rawText.trim();
+  if (cleaned.includes("```")) {
+    const match = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (match && match[1]) {
+      cleaned = match[1].trim();
+    } else {
+      cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    }
+  }
+  return JSON.parse(cleaned);
 }
 
 // API Routes
 app.get("/api/health", (req, res) => {
+  const rawKey = process.env.GEMINI_API_KEY;
+  const isConfigured = Boolean(rawKey && rawKey.trim() !== "" && rawKey !== "MY_GEMINI_API_KEY");
   res.json({
     status: "ok",
-    hasApiKey: Boolean(process.env.GEMINI_API_KEY),
+    hasApiKey: isConfigured,
+    message: isConfigured
+      ? "Klucz GEMINI_API_KEY jest poprawnie skonfigurowany."
+      : "Brak klucza GEMINI_API_KEY w zmiennych środowiskowych.",
     timestamp: new Date().toISOString(),
   });
 });
@@ -48,12 +103,7 @@ app.post("/api/scan-receipt", async (req, res) => {
       return res.status(400).json({ success: false, error: "Brak danych obrazu paragonu." });
     }
 
-    if (!process.env.GEMINI_API_KEY) {
-      return res.status(500).json({
-        success: false,
-        error: "Klucz GEMINI_API_KEY nie został skonfigurowany w środowisku.",
-      });
-    }
+    const ai = getGenAI();
 
     // Extract exact mime-type if embedded in data-uri
     let detectedMime = mimeType || "image/jpeg";
@@ -78,8 +128,8 @@ Przeanalizuj dołączone zdjęcie paragonu i wyodrębnij:
 
 Zwróć wynik w formacie JSON zgodnym ze schematem.`;
 
-    const response = await getGenAI().models.generateContent({
-      model: "gemini-3.7-flash",
+    const response = await generateWithFallback(ai, {
+      preferredModel: "gemini-2.5-flash",
       contents: {
         parts: [
           {
@@ -126,9 +176,7 @@ Zwróć wynik w formacie JSON zgodnym ze schematem.`;
       },
     });
 
-    let responseText = response.text || "{}";
-    responseText = responseText.replace(/^```json\s*/i, "").replace(/\s*```$/i, "").trim();
-    const parsedData = JSON.parse(responseText);
+    const parsedData = extractJsonFromText(response.text);
 
     return res.json({
       success: true,
@@ -156,12 +204,7 @@ app.post("/api/financial-advice", async (req, res) => {
       budgetLimits,
     } = req.body;
 
-    if (!process.env.GEMINI_API_KEY) {
-      return res.status(500).json({
-        success: false,
-        error: "Brak klucza API Gemini w konfiguracji serwera.",
-      });
-    }
+    const ai = getGenAI();
 
     // Derive metrics if not explicitly passed
     let income = typeof monthlyIncome === "number" ? monthlyIncome : 0;
@@ -213,8 +256,8 @@ Przygotuj zwięzłą, konkretną analizę w języku polskim:
 
 Zwróć odpowiedź ściśle w formacie JSON zgodnym ze schematem.`;
 
-    const response = await getGenAI().models.generateContent({
-      model: "gemini-3.7-flash",
+    const response = await generateWithFallback(ai, {
+      preferredModel: "gemini-2.5-flash",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -233,9 +276,7 @@ Zwróć odpowiedź ściśle w formacie JSON zgodnym ze schematem.`;
       },
     });
 
-    let rawText = response.text || "{}";
-    rawText = rawText.replace(/^```json\s*/i, "").replace(/\s*```$/i, "").trim();
-    const parsed = JSON.parse(rawText);
+    const parsed = extractJsonFromText(response.text);
 
     return res.json({ success: true, advice: parsed });
   } catch (error: any) {

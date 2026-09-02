@@ -242,7 +242,6 @@ export const INITIAL_BILLS: Bill[] = [
     billingCycle: 'miesięcznie',
     pricingType: 'variable', // Opłata zmienna (wg licznika)
     status: 'pending',
-    invoiceNumber: 'FV/2026/08/TAU-9821',
     meterReading: {
       previous: 1420,
       current: 1565,
@@ -271,7 +270,6 @@ export const INITIAL_BILLS: Bill[] = [
     billingCycle: 'co 2 miesiące',
     pricingType: 'variable', // Opłata zmienna
     status: 'pending',
-    invoiceNumber: 'PGN-8812/08/2026',
     meterReading: {
       previous: 820.4,
       current: 845.2,
@@ -290,7 +288,6 @@ export const INITIAL_BILLS: Bill[] = [
     billingCycle: 'miesięcznie',
     pricingType: 'fixed', // Opłata stała
     status: 'pending',
-    invoiceNumber: 'CZYNSZ-2026-09-LOK14',
     notes: 'Zawiera zaliczkę na CO i wywóz śmieci',
     paymentHistory: [
       {
@@ -314,7 +311,6 @@ export const INITIAL_BILLS: Bill[] = [
     status: 'paid',
     paymentDate: formatDate(-3),
     lastPaidAmount: 142.5,
-    invoiceNumber: 'WOD/2026/08/4412',
     meterReading: {
       previous: 124.5,
       current: 135.2,
@@ -333,7 +329,6 @@ export const INITIAL_BILLS: Bill[] = [
     billingCycle: 'miesięcznie',
     pricingType: 'fixed', // Opłata stała
     status: 'pending',
-    invoiceNumber: 'ORG/INV/2026/09/1',
     paymentHistory: [
       {
         id: 'hist-5',

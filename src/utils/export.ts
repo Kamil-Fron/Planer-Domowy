@@ -32,7 +32,7 @@ export function exportTransactionsToCSV(transactions: Transaction[], selectedMon
 }
 
 export function exportBillsToCSV(bills: Bill[]) {
-  const headers = ['Nazwa rachunku', 'Usługa', 'Dostawca', 'Kwota (PLN)', 'Termin płatności', 'Cykl', 'Status', 'Nr faktury', 'Notatki'];
+  const headers = ['Nazwa rachunku', 'Usługa', 'Dostawca', 'Kwota (PLN)', 'Termin płatności', 'Cykl', 'Typ opłaty', 'Status', 'Notatki'];
   
   const rows = bills.map((b) => [
     `"${b.name.replace(/"/g, '""')}"`,
@@ -41,8 +41,8 @@ export function exportBillsToCSV(bills: Bill[]) {
     b.amount.toFixed(2),
     b.dueDate,
     b.billingCycle,
+    b.pricingType === 'variable' ? 'Zmienna' : 'Stała',
     b.status === 'paid' ? 'Opłacony' : b.status === 'overdue' ? 'Przeterminowany' : 'Oczekuje',
-    `"${(b.invoiceNumber || '').replace(/"/g, '""')}"`,
     `"${(b.notes || '').replace(/"/g, '""')}"`,
   ]);
 

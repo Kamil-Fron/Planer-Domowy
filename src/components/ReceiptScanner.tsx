@@ -40,9 +40,25 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [splitByCategory, setSplitByCategory] = useState(false);
+  const [apiHealth, setApiHealth] = useState<{ hasApiKey: boolean; checked: boolean }>({
+    hasApiKey: true,
+    checked: false,
+  });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  // Check backend health on mount
+  React.useEffect(() => {
+    fetch('/api/health')
+      .then((r) => r.json())
+      .then((data) => {
+        setApiHealth({ hasApiKey: Boolean(data.hasApiKey), checked: true });
+      })
+      .catch(() => {
+        setApiHealth({ hasApiKey: false, checked: true });
+      });
+  }, []);
 
   // Handle file select
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -217,6 +233,17 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
               <Receipt className="w-5 h-5" />
             </span>
             <h1 className="text-xl font-bold text-slate-900">Inteligentny Skaner Paragonów AI</h1>
+            {apiHealth.checked && (
+              <span
+                className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+                  apiHealth.hasApiKey
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-amber-50 text-amber-700 border-amber-200'
+                }`}
+              >
+                {apiHealth.hasApiKey ? 'Gemini AI Połączony' : 'Wymaga GEMINI_API_KEY'}
+              </span>
+            )}
           </div>
           <p className="text-sm text-slate-600 mt-1">
             Zrób zdjęcie lub wgraj paragon. Model Gemini AI automatycznie odczyta pozycje, ceny i przypisze kategorie
@@ -240,6 +267,19 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
           </div>
         </div>
       </div>
+
+      {/* API Key Missing Notice */}
+      {apiHealth.checked && !apiHealth.hasApiKey && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-amber-800 text-xs sm:text-sm flex items-start space-x-3">
+          <AlertCircle className="w-5 h-5 flex-shrink-0 text-amber-600 mt-0.5" />
+          <div className="space-y-1">
+            <p className="font-bold">Klucz GEMINI_API_KEY nie został wykryty w środowisku.</p>
+            <p className="text-amber-700">
+              Aby skanować własne zdjęcia z paragonami za pomocą Gemini AI, upewnij się, że w panelu ustawień projektu (Settings -&gt; Secrets) dodano zmienną <strong>GEMINI_API_KEY</strong> z ważnym kluczem API Google AI Studio. W międzyczasie możesz przetestować pełny proces za pomocą powyższych gotowych przykładów.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Main Upload / Scan Area */}
       {!scanResult && (

@@ -113,7 +113,6 @@ export interface Bill {
   status: 'pending' | 'paid' | 'overdue';
   paymentDate?: string;
   lastPaidAmount?: number;
-  invoiceNumber?: string;
   meterReading?: MeterReading;
   notes?: string;
   autoExpenseId?: string;

@@ -75,7 +75,6 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   const [amount, setAmount] = useState('');
   const [dueDate, setDueDate] = useState(new Date().toISOString().split('T')[0]);
   const [billingCycle, setBillingCycle] = useState<Bill['billingCycle']>('miesięcznie');
-  const [invoiceNumber, setInvoiceNumber] = useState('');
   const [notes, setNotes] = useState('');
   const [hasMeterReading, setHasMeterReading] = useState(false);
   const [meterPrev, setMeterPrev] = useState('');
@@ -189,9 +188,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
       category: 'Rachunki i media',
       date: payDate,
       title: `Rachunek: ${bill.name}`,
-      comment: `Opłacono opłatę stałą (${bill.provider}) za okres ${periodName}. Faktura: ${
-        bill.invoiceNumber || 'b.d.'
-      }`,
+      comment: `Opłacono opłatę stałą (${bill.provider}) za okres ${periodName}.`,
     });
 
     const newHistoryItem = {
@@ -394,7 +391,6 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
       dueDate,
       billingCycle,
       status: 'pending',
-      invoiceNumber: invoiceNumber.trim() || undefined,
       notes: notes.trim() || undefined,
       meterReading:
         hasMeterReading && meterCurr
@@ -411,7 +407,6 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
     setName('');
     setProvider('');
     setAmount('');
-    setInvoiceNumber('');
     setNotes('');
     setPricingType('fixed');
     setHasMeterReading(false);
@@ -840,8 +835,8 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
 
               {/* Bottom Action Area: Prominent Green Pay Button */}
               <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-                <span className="text-[10px] text-slate-400 truncate max-w-[120px]">
-                  {bill.invoiceNumber ? `FV: ${bill.invoiceNumber}` : 'Brak nr FV'}
+                <span className="text-[10px] text-slate-400 font-medium">
+                  {meta.label} • {bill.billingCycle}
                 </span>
 
                 {bill.status === 'paid' ? (
@@ -1105,19 +1100,6 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                     <option value="jednorazowo">Jednorazowo</option>
                   </select>
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Numer faktury / Identyfikator płatności
-                </label>
-                <input
-                  type="text"
-                  value={invoiceNumber}
-                  onChange={(e) => setInvoiceNumber(e.target.value)}
-                  placeholder="np. FV/2026/09/TAU-123"
-                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-emerald-500 focus:outline-hidden"
-                />
               </div>
 
               {/* Meter Readings Option */}

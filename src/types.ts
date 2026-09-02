@@ -1,0 +1,176 @@
+export type TransactionType = 'expense' | 'income';
+
+export type TabType = 'dashboard' | 'scanner' | 'shopping' | 'bills' | 'transactions' | 'limits' | 'reports';
+
+export type ExpenseCategory =
+  | 'Jedzenie i artykuły spożywcze'
+  | 'Remont i dom'
+  | 'Dla kotów i zwierząt'
+  | 'Rachunki i media'
+  | 'Zdrowie i kosmetyki'
+  | 'Transport i paliwo'
+  | 'Rozrywka i hobby'
+  | 'Odzież i obuwie'
+  | 'Edukacja i książki'
+  | 'Inne wydatki';
+
+export type IncomeCategory =
+  | 'Wypłata z etatu'
+  | 'Premia / Bonus'
+  | 'Freelance / Dodatkowe zlecenia'
+  | 'Świadczenia / 800+'
+  | 'Zwrot podatku / Inwestycje'
+  | 'Inne dochody';
+
+export interface ReceiptItemDetail {
+  name: string;
+  price: number;
+  quantity?: number;
+  category: ExpenseCategory | string;
+  notes?: string;
+  selected?: boolean;
+}
+
+export interface Transaction {
+  id: string;
+  type: TransactionType;
+  amount: number;
+  category: string;
+  date: string; // YYYY-MM-DD
+  title: string;
+  comment?: string;
+  isRecurring?: boolean;
+  receiptId?: string;
+  receiptItems?: ReceiptItemDetail[];
+  receiptStoreName?: string;
+  createdAt: string;
+}
+
+export interface ShoppingItem {
+  id: string;
+  listId: string;
+  name: string;
+  estimatedPrice?: number;
+  quantity: number;
+  unit: string; // np. 'szt.', 'kg', 'opak.'
+  isCompleted: boolean;
+  category: string;
+  notes?: string;
+  addedToExpenses?: boolean;
+  assignedTo?: string;
+  createdAt: string;
+}
+
+export interface ShoppingList {
+  id: string;
+  name: string;
+  category: string; // np. "Obiad", "Remont", "Koty", "Chemia"
+  icon: string;
+  color: string;
+  description?: string;
+  createdAt: string;
+}
+
+export type UtilityServiceType =
+  | 'woda'
+  | 'prąd'
+  | 'gaz'
+  | 'czynsz'
+  | 'internet'
+  | 'ogrzewanie'
+  | 'śmieci'
+  | 'telefon'
+  | 'subskrypcje'
+  | 'inne';
+
+export interface MeterReading {
+  previous: number;
+  current: number;
+  unit: string; // 'm³', 'kWh', 'GJ'
+  readingDate?: string;
+}
+
+export interface Bill {
+  id: string;
+  name: string;
+  serviceType: UtilityServiceType;
+  provider: string;
+  amount: number;
+  dueDate: string; // YYYY-MM-DD
+  billingCycle: 'miesięcznie' | 'co 2 miesiące' | 'kwartalnie' | 'rocznie' | 'jednorazowo';
+  status: 'pending' | 'paid' | 'overdue';
+  paymentDate?: string;
+  invoiceNumber?: string;
+  meterReading?: MeterReading;
+  notes?: string;
+  autoExpenseId?: string;
+  createdAt: string;
+}
+
+export interface BudgetLimit {
+  id: string;
+  category: string;
+  monthlyLimit: number;
+  notifyAtPercent?: number; // default 80%
+  color: string;
+}
+
+export interface AppNotification {
+  id: string;
+  title: string;
+  message: string;
+  type: 'bill_due' | 'bill_overdue' | 'budget_warning' | 'budget_exceeded' | 'info';
+  date: string;
+  read: boolean;
+  relatedId?: string;
+  actionLink?: string;
+}
+
+export interface ReceiptScanResult {
+  storeName: string;
+  date: string;
+  totalAmount: number;
+  currency?: string;
+  receiptNumber?: string;
+  dominantCategory: string;
+  summary?: string;
+  items: ReceiptItemDetail[];
+}
+
+export interface FinancialAdvice {
+  financialHealth: 'Doskonała' | 'Dobra' | 'Umiarkowana' | 'Wymaga uwagi';
+  savingsRatePercent: number;
+  alerts: string[];
+  actionableTips: string[];
+  summary: string;
+}
+
+export interface HouseholdMember {
+  id: string;
+  email: string;
+  name: string;
+  avatarUrl?: string;
+  role: 'owner' | 'member';
+  joinedAt: string;
+  isCurrentUser?: boolean;
+}
+
+export interface Household {
+  id: string;
+  name: string;
+  inviteCode: string;
+  createdAt: string;
+  createdBy: string;
+  members: HouseholdMember[];
+  syncStatus: 'synced' | 'syncing' | 'offline';
+  cloudProvider?: 'firebase' | 'local';
+}
+
+export interface UserProfile {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl?: string;
+  householdId?: string;
+  isLoggedIn: boolean;
+}

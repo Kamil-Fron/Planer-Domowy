@@ -1,0 +1,20 @@
+{
+  "id": "/",
+  "name": "Planer Budżetu Domowego & Paragon AI",
+  "short_name": "Budżet Domowy",
+  "description": "Planer budżetu domowego, rachunków i listy zakupów dla całej rodziny",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F8FAFC",
+  "theme_color": "#4f46e5",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

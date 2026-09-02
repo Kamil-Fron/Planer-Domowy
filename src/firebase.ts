@@ -12,11 +12,12 @@ import {
   getFirestore,
   doc,
   setDoc,
-  getDoc,
+  getDocFromServer,
   onSnapshot,
   Firestore,
   Unsubscribe,
 } from 'firebase/firestore';
+import appletConfig from '../firebase-applet-config.json';
 import {
   Bill,
   BudgetLimit,
@@ -27,21 +28,73 @@ import {
   UserProfile,
 } from './types';
 
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  };
+}
+
+export function handleFirestoreError(
+  error: unknown,
+  operationType: OperationType,
+  path: string | null
+) {
+  const auth = getFirebaseAuth();
+  const currentUser = auth?.currentUser;
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: currentUser?.uid,
+      email: currentUser?.email,
+      emailVerified: currentUser?.emailVerified,
+      isAnonymous: currentUser?.isAnonymous,
+      tenantId: currentUser?.tenantId,
+      providerInfo:
+        currentUser?.providerData?.map((provider) => ({
+          providerId: provider.providerId,
+          email: provider.email,
+        })) || [],
+    },
+    operationType,
+    path,
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
 /**
  * =========================================================================
  * 🔑 KONFIGURACJA GOOGLE FIREBASE (v9/v10/v11 Modular SDK)
  * =========================================================================
- * Tutaj możesz wkleić swoje dane z Firebase Console:
- * Firebase Console -> Project Settings -> General -> Twoje aplikacje -> Web App (</>)
- * =========================================================================
  */
 export const defaultFirebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '',
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || '',
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '',
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || '',
+  apiKey: appletConfig.apiKey || import.meta.env.VITE_FIREBASE_API_KEY || '',
+  authDomain: appletConfig.authDomain || import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '',
+  projectId: appletConfig.projectId || import.meta.env.VITE_FIREBASE_PROJECT_ID || '',
+  storageBucket: appletConfig.storageBucket || import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '',
+  messagingSenderId: appletConfig.messagingSenderId || import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
+  appId: appletConfig.appId || import.meta.env.VITE_FIREBASE_APP_ID || '',
+  firestoreDatabaseId: (appletConfig as any).firestoreDatabaseId || undefined,
 };
 
 const LOCAL_CONFIG_KEY = 'budget_planner_custom_firebase_config_v1';
@@ -52,7 +105,10 @@ export function getActiveFirebaseConfig() {
     if (saved) {
       const parsed = JSON.parse(saved);
       if (parsed && typeof parsed === 'object' && parsed.apiKey) {
-        return parsed;
+        return {
+          ...defaultFirebaseConfig,
+          ...parsed,
+        };
       }
     }
   } catch (e) {
@@ -64,7 +120,6 @@ export function getActiveFirebaseConfig() {
 export function saveActiveFirebaseConfig(config: typeof defaultFirebaseConfig) {
   try {
     localStorage.setItem(LOCAL_CONFIG_KEY, JSON.stringify(config));
-    // Reinitialize or reload
   } catch (e) {
     console.error('Błąd zapisu konfiguracji Firebase', e);
   }
@@ -74,7 +129,7 @@ export function clearActiveFirebaseConfig() {
   localStorage.removeItem(LOCAL_CONFIG_KEY);
 }
 
-// Lazy / Safe initialization of Firebase
+// Lazy initialization of Firebase
 let firebaseAppInstance: FirebaseApp | null = null;
 let firebaseAuthInstance: Auth | null = null;
 let firestoreDbInstance: Firestore | null = null;
@@ -118,7 +173,12 @@ export function getFirestoreDb(): Firestore | null {
   const app = getFirebaseApp();
   if (!app) return null;
   if (!firestoreDbInstance) {
-    firestoreDbInstance = getFirestore(app);
+    const config = getActiveFirebaseConfig();
+    if (config.firestoreDatabaseId) {
+      firestoreDbInstance = getFirestore(app, config.firestoreDatabaseId);
+    } else {
+      firestoreDbInstance = getFirestore(app);
+    }
   }
   return firestoreDbInstance;
 }
@@ -133,6 +193,27 @@ export function getGoogleProvider(): GoogleAuthProvider {
   return googleAuthProvider;
 }
 
+// Startup connection verification
+export async function testFirestoreConnection(): Promise<boolean> {
+  const db = getFirestoreDb();
+  if (!db) return false;
+  try {
+    await getDocFromServer(doc(db, 'test', 'connection'));
+    console.log('Firebase Firestore connection successful!');
+    return true;
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.warn('Firebase client is offline or connecting...');
+    }
+    return false;
+  }
+}
+
+// Automatically test connection if configured
+if (isFirebaseConfigured()) {
+  testFirestoreConnection().catch(() => {});
+}
+
 /**
  * Logowanie przez konto Google (Firebase Auth - Popup)
  */
@@ -140,7 +221,7 @@ export async function loginWithGoogleFirebase(): Promise<UserProfile> {
   const auth = getFirebaseAuth();
   if (!auth) {
     throw new Error(
-      'Firebase nie jest jeszcze skonfigurowany. Wklej dane firebaseConfig w zakładce konfiguracji.'
+      'Firebase nie jest jeszcze skonfigurowany. Sprawdź konfigurację Firebase w oknie domu.'
     );
   }
 
@@ -226,6 +307,7 @@ export async function saveHouseholdToFirestore(
   const db = getFirestoreDb();
   if (!db || !householdId) return;
 
+  const targetPath = `households/${householdId}`;
   try {
     const householdRef = doc(db, 'households', householdId);
     await setDoc(
@@ -237,8 +319,7 @@ export async function saveHouseholdToFirestore(
       { merge: true }
     );
   } catch (error) {
-    console.error('Błąd zapisu danych do Firestore:', error);
-    throw error;
+    handleFirestoreError(error, OperationType.WRITE, targetPath);
   }
 }
 
@@ -255,6 +336,7 @@ export function subscribeToHouseholdFirestore(
     return () => {};
   }
 
+  const targetPath = `households/${householdId}`;
   const householdRef = doc(db, 'households', householdId);
   return onSnapshot(
     householdRef,
@@ -267,6 +349,7 @@ export function subscribeToHouseholdFirestore(
     (err) => {
       console.warn('Błąd odczytu w czasie rzeczywistym z Firestore:', err);
       if (onError) onError(err);
+      handleFirestoreError(err, OperationType.GET, targetPath);
     }
   );
 }

@@ -1,0 +1,31 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128;
+    }
+
+    function isValidHousehold(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() <= 100
+        && data.inviteCode is string && data.inviteCode.size() <= 60;
+    }
+
+    // Connectivity test document
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+
+    // Households synchronization
+    match /households/{householdId} {
+      allow read: if isValidId(householdId);
+      allow create, update: if isValidId(householdId) && isValidHousehold(request.resource.data);
+      allow delete: if request.auth != null;
+    }
+  }
+}

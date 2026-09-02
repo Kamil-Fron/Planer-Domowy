@@ -1,0 +1,75 @@
+{
+  "entities": {
+    "Household": {
+      "title": "Household",
+      "description": "A shared household budget and planner workspace containing transactions, bills, limits and shopping items",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Household unique identifier",
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the household",
+          "maxLength": 100
+        },
+        "inviteCode": {
+          "type": "string",
+          "description": "Invitation code for family members",
+          "maxLength": 30
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation ISO date"
+        },
+        "createdBy": {
+          "type": "string",
+          "description": "Creator identifier or email",
+          "maxLength": 100
+        },
+        "members": {
+          "type": "array",
+          "description": "List of household members"
+        },
+        "transactions": {
+          "type": "array",
+          "description": "List of household transactions"
+        },
+        "bills": {
+          "type": "array",
+          "description": "List of recurring bills"
+        },
+        "budgetLimits": {
+          "type": "array",
+          "description": "Budget category limits"
+        },
+        "shoppingLists": {
+          "type": "array",
+          "description": "Shopping lists"
+        },
+        "shoppingItems": {
+          "type": "array",
+          "description": "Shopping list items"
+        },
+        "lastUpdatedAt": {
+          "type": "string",
+          "description": "Last update ISO timestamp"
+        },
+        "lastUpdatedBy": {
+          "type": "string",
+          "description": "User who made the latest change",
+          "maxLength": 100
+        }
+      },
+      "required": ["id", "name", "inviteCode"]
+    }
+  },
+  "firestore": {
+    "/households/{householdId}": {
+      "schema": "Household",
+      "description": "Household document storage for real-time family budget synchronization"
+    }
+  }
+}

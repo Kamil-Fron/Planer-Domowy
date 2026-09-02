@@ -1,13 +1,8 @@
-import { defineConfig } from 'vite'
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import fs from 'fs';
 import path from 'path';
-import {defineConfig, Plugin} from 'vite';
-
-export default defineConfig({
-  base: '/Planer-Domowy/',
-  
+import { defineConfig, Plugin } from 'vite';
 // LINT.IfChange(aistudio_media_plugin)
 function aistudioMediaPlugin(): Plugin {
   return {

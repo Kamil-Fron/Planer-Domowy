@@ -223,35 +223,34 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
       {/* Header Banner */}
-      <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2.5">
             <span className="p-2 rounded-xl bg-blue-100 text-blue-700">
               <Zap className="w-5 h-5" />
             </span>
-            <h1 className="text-xl font-bold text-slate-900">Rachunki Domowe & Opłaty za Media</h1>
+            <h1 className="text-lg sm:text-xl font-bold text-slate-900">Rachunki i Media</h1>
           </div>
-          <p className="text-sm text-slate-600 mt-1">
-            Rejestruj rachunki za poszczególne usługi (woda, prąd, gaz, czynsz, internet, śmieci), monitoruj stany liczników
-            i otrzymuj powiadomienia przed terminem płatności.
+          <p className="text-xs text-slate-500 mt-1 max-w-xl">
+            Monitoruj opłaty (woda, prąd, gaz, czynsz, internet, śmieci) i stany liczników.
           </p>
         </div>
 
-        <div className="flex items-center space-x-3 w-full md:w-auto">
+        <div className="flex items-center space-x-2 w-full sm:w-auto justify-end shrink-0">
           {!pushEnabled && (
             <button
               onClick={handleEnablePush}
-              className="px-3.5 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs sm:text-sm font-semibold rounded-xl flex items-center space-x-2 transition-colors shadow-xs"
+              className="p-2.5 sm:px-3 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-semibold rounded-xl flex items-center space-x-1.5 transition-colors shadow-xs"
               title="Włącz powiadomienia push w przeglądarce"
             >
               <Bell className="w-4 h-4 text-amber-600" />
-              <span>Włącz przypomnienia push</span>
+              <span className="hidden sm:inline">Powiadomienia</span>
             </button>
           )}
 
           <button
             onClick={() => setShowAddModal(true)}
-            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs sm:text-sm font-semibold rounded-xl flex items-center space-x-2 transition-colors shadow-xs"
+            className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs sm:text-sm font-semibold rounded-xl flex items-center space-x-1.5 transition-colors shadow-xs"
           >
             <Plus className="w-4 h-4" />
             <span>Dodaj rachunek</span>

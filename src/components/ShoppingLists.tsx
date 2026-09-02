@@ -7,6 +7,7 @@ import {
   Trash2,
   Search,
   CheckCheck,
+  X,
 } from 'lucide-react';
 import { ShoppingList, ShoppingItem, Transaction } from '../types';
 import confetti from 'canvas-confetti';
@@ -60,7 +61,8 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
 
-  // Streamlined Top Add Form State
+  // Hidden under plus button state
+  const [isAddFormOpen, setIsAddFormOpen] = useState(false);
   const [newItemName, setNewItemName] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Spożywcze');
   const [customCategory, setCustomCategory] = useState('');
@@ -218,12 +220,9 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
   // Flat list of items for the current tab, sorted alphabetically
   const flatItemsForCurrentTab = useMemo(() => {
     const items = shoppingItems.filter((item) => {
-      // In active tab: only uncompleted
       if (activeTab === 'active' && item.isCompleted) return false;
-      // In completed tab: only completed
       if (activeTab === 'completed' && !item.isCompleted) return false;
 
-      // Search filter
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase();
         const matchesName = item.name.toLowerCase().includes(query);
@@ -244,114 +243,121 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
   }, [selectedCategoryFilter, currentTabCategories]);
 
   return (
-    <div className="max-w-4xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4 sm:space-y-5">
-      {/* Top Header */}
+    <div className="max-w-4xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-3 sm:space-y-4 w-full overflow-hidden">
+      {/* Top Header with prominent Plus button */}
       <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center justify-between gap-3">
-        <div className="flex items-center space-x-3">
-          <div className="p-2.5 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-100 flex-shrink-0">
+        <div className="flex items-center space-x-3 min-w-0 flex-1">
+          <div className="p-2.5 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-100 shrink-0">
             <ShoppingCart className="w-5 h-5" />
           </div>
-          <div>
-            <h1 className="text-lg sm:text-xl font-bold text-slate-900 leading-tight">Lista Zakupów</h1>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Szybkie wpisywanie pozycji i automatyczny podział na kategorie
+          <div className="min-w-0">
+            <h1 className="text-lg sm:text-xl font-bold text-slate-900 truncate">Lista Zakupów</h1>
+            <p className="text-xs text-slate-500 truncate mt-0.5">
+              {totalPendingItems > 0 ? `${totalPendingItems} do kupienia` : 'Wszystko kupione!'}
             </p>
           </div>
         </div>
 
-        {/* Counter Badges */}
-        <div className="flex items-center space-x-2">
-          <span className="text-xs font-semibold px-2.5 py-1 rounded-xl bg-slate-100 text-slate-700">
-            Do kupienia: <strong className="text-slate-900">{totalPendingItems}</strong>
-          </span>
-          {totalCompletedItems > 0 && (
-            <span className="text-xs font-semibold px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100 hidden sm:inline-block">
-              Kupione: <strong className="text-emerald-800">{totalCompletedItems}</strong>
-            </span>
-          )}
+        {/* Plus button to open product entry */}
+        <div className="flex items-center space-x-2 shrink-0">
+          <button
+            onClick={() => setIsAddFormOpen((prev) => !prev)}
+            className={`h-11 w-11 sm:h-10 sm:w-10 rounded-xl flex items-center justify-center transition-all shadow-xs ${
+              isAddFormOpen
+                ? 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                : 'bg-slate-900 hover:bg-slate-800 text-white'
+            }`}
+            title={isAddFormOpen ? 'Zamknij' : 'Dodaj produkt do listy'}
+            aria-label="Dodaj produkt"
+          >
+            {isAddFormOpen ? <X className="w-5 h-5" /> : <Plus className="w-5 h-5 stroke-[2.5]" />}
+          </button>
         </div>
       </div>
 
-      {/* STREAMLINED TOP INPUT BAR (Maximal simplicity with just + button) */}
-      <div className="bg-white rounded-2xl p-3 sm:p-4 border border-slate-200 shadow-xs">
-        <form onSubmit={handleCreateItem} className="space-y-2 sm:space-y-0 sm:flex sm:items-center sm:gap-2">
-          {/* Product Name Input */}
-          <div className="flex-1">
-            <input
-              type="text"
-              required
-              value={newItemName}
-              onChange={(e) => setNewItemName(e.target.value)}
-              placeholder="Wpisz produkt (np. Mleko, Chleb, Żwirek, Farba)..."
-              className="w-full px-3.5 py-3 text-base sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-900 focus:outline-hidden text-slate-900 placeholder:text-slate-400 font-medium"
-            />
-          </div>
+      {/* EXPANDABLE INPUT FORM: ONLY REVEALED ON CLICKING THE PLUS BUTTON */}
+      {isAddFormOpen && (
+        <div className="bg-white rounded-2xl p-3 sm:p-4 border border-indigo-200 shadow-md animate-in fade-in slide-in-from-top-2 duration-150">
+          <form onSubmit={handleCreateItem} className="space-y-2 sm:space-y-0 sm:flex sm:items-center sm:gap-2">
+            {/* Product Name Input */}
+            <div className="flex-1 min-w-0">
+              <input
+                type="text"
+                required
+                autoFocus
+                value={newItemName}
+                onChange={(e) => setNewItemName(e.target.value)}
+                placeholder="Wpisz produkt (np. Mleko, Chleb, Karma)..."
+                className="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-900 focus:outline-hidden text-slate-900 placeholder:text-slate-400 font-medium"
+              />
+            </div>
 
-          {/* Category Selector / Creator */}
-          <div className="flex items-center gap-2">
-            {!isCreatingCustomCategory ? (
-              <div className="flex-1 sm:w-48">
-                <select
-                  value={selectedCategory}
-                  onChange={(e) => {
-                    if (e.target.value === '__NEW__') {
-                      setIsCreatingCustomCategory(true);
-                    } else {
-                      setSelectedCategory(e.target.value);
-                    }
-                  }}
-                  className="w-full px-3 py-3 text-base sm:text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-900 focus:outline-hidden text-slate-700 font-semibold cursor-pointer"
-                >
-                  {allKnownCategories.map((cat) => (
-                    <option key={cat} value={cat}>
-                      {cat}
-                    </option>
-                  ))}
-                  <option value="__NEW__">+ Nowa kategoria...</option>
-                </select>
-              </div>
-            ) : (
-              <div className="flex-1 sm:w-48 flex items-center space-x-1">
-                <input
-                  type="text"
-                  value={customCategory}
-                  onChange={(e) => setCustomCategory(e.target.value)}
-                  placeholder="Nazwa nowej kategorii..."
-                  autoFocus
-                  className="w-full px-3 py-3 text-base sm:text-xs bg-slate-50 border border-indigo-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden text-slate-900 font-semibold"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsCreatingCustomCategory(false);
-                    setCustomCategory('');
-                  }}
-                  className="px-2 py-3 text-xs text-slate-400 hover:text-slate-600"
-                >
-                  ✕
-                </button>
-              </div>
-            )}
+            {/* Category Selector / Creator */}
+            <div className="flex items-center gap-2 shrink-0">
+              {!isCreatingCustomCategory ? (
+                <div className="w-40 sm:w-44">
+                  <select
+                    value={selectedCategory}
+                    onChange={(e) => {
+                      if (e.target.value === '__NEW__') {
+                        setIsCreatingCustomCategory(true);
+                      } else {
+                        setSelectedCategory(e.target.value);
+                      }
+                    }}
+                    className="w-full px-3 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-900 focus:outline-hidden text-slate-700 font-semibold cursor-pointer"
+                  >
+                    {allKnownCategories.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                    <option value="__NEW__">+ Nowa...</option>
+                  </select>
+                </div>
+              ) : (
+                <div className="w-40 sm:w-44 flex items-center space-x-1">
+                  <input
+                    type="text"
+                    value={customCategory}
+                    onChange={(e) => setCustomCategory(e.target.value)}
+                    placeholder="Nowa kategoria..."
+                    autoFocus
+                    className="w-full px-2.5 py-2.5 text-xs bg-slate-50 border border-indigo-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden text-slate-900 font-semibold"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCreatingCustomCategory(false);
+                      setCustomCategory('');
+                    }}
+                    className="p-1 text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
 
-            {/* ONLY + BUTTON */}
-            <button
-              type="submit"
-              disabled={!newItemName.trim()}
-              className="h-12 w-12 sm:h-11 sm:w-11 bg-slate-900 hover:bg-slate-800 active:bg-slate-950 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl flex items-center justify-center transition-colors shadow-xs flex-shrink-0"
-              title="Dodaj produkt"
-            >
-              <Plus className="w-5 h-5 stroke-[2.5]" />
-            </button>
-          </div>
-        </form>
-      </div>
+              {/* Submit + Button */}
+              <button
+                type="submit"
+                disabled={!newItemName.trim()}
+                className="h-10 w-10 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl flex items-center justify-center transition-colors shadow-xs shrink-0"
+                title="Dodaj"
+              >
+                <Plus className="w-5 h-5 stroke-[2.5]" />
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
-      {/* Main Tabs: "Do kupienia" vs "Kupione" */}
-      <div className="flex items-center justify-between border-b border-slate-200 pb-2">
-        <div className="flex items-center space-x-2">
+      {/* Main Tabs: "Do kupienia" vs "Kupione" & Search */}
+      <div className="flex items-center justify-between border-b border-slate-200 pb-2 gap-2">
+        <div className="flex items-center space-x-1.5 shrink-0">
           <button
             onClick={() => setActiveTab('active')}
-            className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center space-x-2 ${
+            className={`px-3 py-1.5 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center space-x-1.5 ${
               activeTab === 'active'
                 ? 'bg-slate-900 text-white shadow-xs'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -359,7 +365,7 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
           >
             <span>Do kupienia</span>
             <span
-              className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+              className={`text-[11px] px-1.5 py-0.2 rounded-full font-bold ${
                 activeTab === 'active' ? 'bg-slate-800 text-slate-200' : 'bg-slate-200 text-slate-700'
               }`}
             >
@@ -369,16 +375,16 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
 
           <button
             onClick={() => setActiveTab('completed')}
-            className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center space-x-2 ${
+            className={`px-3 py-1.5 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center space-x-1.5 ${
               activeTab === 'completed'
                 ? 'bg-slate-900 text-white shadow-xs'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
-            <CheckCheck className="w-4 h-4 text-emerald-500" />
+            <CheckCheck className="w-3.5 h-3.5 text-emerald-500" />
             <span>Kupione</span>
             <span
-              className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+              className={`text-[11px] px-1.5 py-0.2 rounded-full font-bold ${
                 activeTab === 'completed' ? 'bg-slate-800 text-slate-200' : 'bg-slate-200 text-slate-700'
               }`}
             >
@@ -388,30 +394,30 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
         </div>
 
         {/* Quick Search */}
-        <div className="relative w-36 sm:w-56">
-          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <div className="relative w-32 sm:w-48 shrink-0">
+          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Szukaj..."
-            className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+            className="w-full pl-7 pr-2.5 py-1 text-xs bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-slate-900"
           />
         </div>
       </div>
 
-      {/* CATEGORY FILTER CHIPS: Only show categories that have items in the current active/completed view */}
+      {/* CATEGORY FILTER CHIPS: Compact overflow-protected row */}
       {currentTabCategories.length > 0 && (
-        <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-none">
+        <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 max-w-full scrollbar-none">
           <button
             onClick={() => setSelectedCategoryFilter('all')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
+            className={`px-3 py-1 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors shrink-0 ${
               selectedCategoryFilter === 'all'
                 ? 'bg-slate-900 text-white shadow-xs'
                 : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
             }`}
           >
-            Wszystkie kategorie
+            Wszystkie
           </button>
           {currentTabCategories.map((catGroup) => {
             const isSelected = selectedCategoryFilter === catGroup.category;
@@ -422,15 +428,15 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
               <button
                 key={catGroup.category}
                 onClick={() => setSelectedCategoryFilter(catGroup.category)}
-                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
+                className={`flex items-center space-x-1 px-2.5 py-1 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors shrink-0 ${
                   isSelected
                     ? 'bg-slate-900 text-white shadow-xs'
                     : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
                 }`}
               >
-                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
-                <span>{catGroup.category}</span>
-                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                <span className="truncate max-w-[120px]">{catGroup.category}</span>
+                <span className={`text-[10px] px-1 py-0.2 rounded-full font-bold ${
                   isSelected ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-600'
                 }`}>
                   {count}
@@ -441,135 +447,107 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
         </div>
       )}
 
-      {/* PRODUCTS DISPLAY */}
-      <div className="space-y-4">
-        {/* Scenario 1: Empty state */}
+      {/* PRODUCTS DISPLAY - Max focus on items */}
+      <div className="space-y-3 w-full">
         {(selectedCategoryFilter === 'all' && flatItemsForCurrentTab.length === 0) ||
         (selectedCategoryFilter !== 'all' && (!singleSelectedCatGroup || singleSelectedCatGroup.items.length === 0)) ? (
           <div className="bg-white rounded-2xl p-8 text-center border border-slate-200 shadow-xs space-y-2">
-            <ShoppingCart className="w-10 h-10 text-slate-300 mx-auto" />
-            <p className="font-bold text-slate-700 text-sm sm:text-base">
-              {activeTab === 'active'
-                ? 'Brak produktów do kupienia'
-                : 'Brak kupionych pozycji'}
+            <ShoppingCart className="w-8 h-8 text-slate-300 mx-auto" />
+            <p className="font-bold text-slate-700 text-sm">
+              {activeTab === 'active' ? 'Brak pozycji do kupienia' : 'Brak kupionych pozycji'}
             </p>
-            <p className="text-xs text-slate-400 max-w-sm mx-auto">
-              {activeTab === 'active'
-                ? 'Wszystko kupione lub lista jest pusta! Wpisz nowy produkt u góry.'
-                : 'Gdy kupisz wszystkie produkty z danej kategorii, pojawi się ona w tej zakładce.'}
+            <p className="text-xs text-slate-400">
+              {activeTab === 'active' ? 'Kliknij "+" u góry, aby dopisać nowy produkt.' : ''}
             </p>
           </div>
         ) : selectedCategoryFilter === 'all' ? (
-          /* Scenario 2: "Wszystkie kategorie" -> Display all products alphabetically without category divider cards */
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-            <div className="px-4 py-3 bg-slate-50/80 border-b border-slate-100 flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-600">
-                Wszystkie pozycje alfabetycznie ({flatItemsForCurrentTab.length})
-              </span>
-              <span className="text-[11px] text-slate-400">
-                Kliknij produkt, aby {activeTab === 'active' ? 'oznaczyć jako kupiony' : 'przywrócić do listy'}
-              </span>
-            </div>
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden divide-y divide-slate-100 w-full">
+            {flatItemsForCurrentTab.map((item) => {
+              const itemCat = item.category || 'Spożywcze';
+              const catColor = CATEGORY_COLORS[itemCat] || '#4f46e5';
 
-            <div className="divide-y divide-slate-100">
-              {flatItemsForCurrentTab.map((item) => {
-                const itemCat = item.category || 'Spożywcze';
-                const catColor = CATEGORY_COLORS[itemCat] || '#4f46e5';
-
-                return (
-                  <div
-                    key={item.id}
-                    onClick={() => handleToggle(item.id, itemCat)}
-                    className={`px-4 py-3.5 flex items-center justify-between gap-3 cursor-pointer select-none transition-colors active:bg-slate-100 ${
-                      item.isCompleted ? 'bg-slate-50/50 hover:bg-slate-100/60' : 'hover:bg-slate-50'
-                    }`}
-                  >
-                    {/* Checkbox & Product Name */}
-                    <div className="flex items-center space-x-3.5 flex-1 min-w-0">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToggle(item.id, itemCat);
-                        }}
-                        className="p-1 -m-1 text-slate-400 hover:text-emerald-600 transition-colors flex-shrink-0"
-                      >
-                        {item.isCompleted ? (
-                          <CheckCircle2 className="w-5 h-5 text-emerald-600 fill-emerald-100" />
-                        ) : (
-                          <Circle className="w-5 h-5 text-slate-300" />
-                        )}
-                      </button>
-
-                      <div className="flex items-center space-x-2.5 min-w-0 truncate">
-                        <span
-                          className={`text-sm sm:text-base font-medium transition-all truncate ${
-                            item.isCompleted
-                              ? 'line-through text-slate-400'
-                              : 'text-slate-900 font-semibold'
-                          }`}
-                        >
-                          {item.name}
-                        </span>
-
-                        {/* Category Pill Tag */}
-                        <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-slate-100 text-[11px] font-medium text-slate-600 flex-shrink-0 border border-slate-200/60">
-                          <span
-                            className="w-1.5 h-1.5 rounded-full"
-                            style={{ backgroundColor: catColor }}
-                          />
-                          <span>{itemCat}</span>
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Delete Action */}
+              return (
+                <div
+                  key={item.id}
+                  onClick={() => handleToggle(item.id, itemCat)}
+                  className={`px-3.5 py-3 flex items-center justify-between gap-3 cursor-pointer select-none transition-colors active:bg-slate-100 max-w-full overflow-hidden ${
+                    item.isCompleted ? 'bg-slate-50/50 hover:bg-slate-100/60' : 'hover:bg-slate-50'
+                  }`}
+                >
+                  {/* Checkbox & Product Name */}
+                  <div className="flex items-center space-x-3 min-w-0 flex-1">
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        onDeleteItem(item.id);
+                        handleToggle(item.id, itemCat);
                       }}
-                      className="p-2 text-slate-300 hover:text-rose-600 transition-colors rounded-lg flex-shrink-0"
-                      title="Usuń pozycję"
+                      className="p-1 -m-1 text-slate-400 hover:text-emerald-600 transition-colors shrink-0"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      {item.isCompleted ? (
+                        <CheckCircle2 className="w-5 h-5 text-emerald-600 fill-emerald-100" />
+                      ) : (
+                        <Circle className="w-5 h-5 text-slate-300" />
+                      )}
                     </button>
+
+                    <div className="flex items-center space-x-2 min-w-0 flex-1 truncate">
+                      <span
+                        className={`text-xs sm:text-sm font-medium transition-all truncate ${
+                          item.isCompleted
+                            ? 'line-through text-slate-400'
+                            : 'text-slate-900 font-semibold'
+                        }`}
+                      >
+                        {item.name}
+                      </span>
+
+                      <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded-md bg-slate-100 text-[10px] font-medium text-slate-600 shrink-0 border border-slate-200/60 max-w-[100px] truncate">
+                        <span
+                          className="w-1.5 h-1.5 rounded-full shrink-0"
+                          style={{ backgroundColor: catColor }}
+                        />
+                        <span className="truncate">{itemCat}</span>
+                      </span>
+                    </div>
                   </div>
-                );
-              })}
-            </div>
+
+                  {/* Delete Action */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteItem(item.id);
+                    }}
+                    className="p-1.5 text-slate-300 hover:text-rose-600 transition-colors rounded-lg shrink-0"
+                    title="Usuń"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              );
+            })}
           </div>
         ) : (
-          /* Scenario 3: Specific category selected -> Display that category's card */
           singleSelectedCatGroup && (
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden transition-all">
-              {/* Category Card Header */}
-              <div className="px-4 py-3 bg-slate-50/80 border-b border-slate-100 flex items-center justify-between">
-                <div className="flex items-center space-x-2.5">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden w-full divide-y divide-slate-100">
+              <div className="px-3.5 py-2.5 bg-slate-50/80 flex items-center justify-between">
+                <div className="flex items-center space-x-2 min-w-0 truncate">
                   <span
-                    className="w-3 h-3 rounded-full flex-shrink-0"
+                    className="w-2.5 h-2.5 rounded-full shrink-0"
                     style={{ backgroundColor: CATEGORY_COLORS[singleSelectedCatGroup.category] || '#4f46e5' }}
                   />
-                  <h2 className="font-bold text-sm sm:text-base text-slate-900">
+                  <h2 className="font-bold text-xs sm:text-sm text-slate-900 truncate">
                     {singleSelectedCatGroup.category}
                   </h2>
-                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-200/80 text-slate-700">
-                    {activeTab === 'active'
-                      ? `${singleSelectedCatGroup.pendingCount} do kupienia`
-                      : `${singleSelectedCatGroup.completedCount} kupione`}
-                  </span>
                 </div>
-
-                {activeTab === 'completed' && (
-                  <span className="text-xs text-emerald-700 font-semibold flex items-center space-x-1">
-                    <CheckCheck className="w-3.5 h-3.5 text-emerald-600" />
-                    <span className="hidden sm:inline">100% Kupione</span>
-                  </span>
-                )}
+                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-200/80 text-slate-700 shrink-0">
+                  {activeTab === 'active'
+                    ? singleSelectedCatGroup.pendingCount
+                    : singleSelectedCatGroup.completedCount}
+                </span>
               </div>
 
-              {/* Items in this category */}
               <div className="divide-y divide-slate-100">
                 {singleSelectedCatGroup.items
                   .filter((item) => {
@@ -583,19 +561,18 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
                     <div
                       key={item.id}
                       onClick={() => handleToggle(item.id, singleSelectedCatGroup.category)}
-                      className={`px-4 py-3.5 flex items-center justify-between gap-3 cursor-pointer select-none transition-colors active:bg-slate-100 ${
+                      className={`px-3.5 py-3 flex items-center justify-between gap-3 cursor-pointer select-none transition-colors active:bg-slate-100 max-w-full overflow-hidden ${
                         item.isCompleted ? 'bg-slate-50/50 hover:bg-slate-100/60' : 'hover:bg-slate-50'
                       }`}
                     >
-                      {/* Checkbox & Product Name */}
-                      <div className="flex items-center space-x-3.5 flex-1 min-w-0">
+                      <div className="flex items-center space-x-3 min-w-0 flex-1">
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleToggle(item.id, singleSelectedCatGroup.category);
                           }}
-                          className="p-1 -m-1 text-slate-400 hover:text-emerald-600 transition-colors flex-shrink-0"
+                          className="p-1 -m-1 text-slate-400 hover:text-emerald-600 transition-colors shrink-0"
                         >
                           {item.isCompleted ? (
                             <CheckCircle2 className="w-5 h-5 text-emerald-600 fill-emerald-100" />
@@ -605,7 +582,7 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
                         </button>
 
                         <span
-                          className={`text-sm sm:text-base font-medium transition-all truncate ${
+                          className={`text-xs sm:text-sm font-medium transition-all truncate ${
                             item.isCompleted
                               ? 'line-through text-slate-400'
                               : 'text-slate-900 font-semibold'
@@ -615,15 +592,14 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
                         </span>
                       </div>
 
-                      {/* Delete Action */}
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           onDeleteItem(item.id);
                         }}
-                        className="p-2 text-slate-300 hover:text-rose-600 transition-colors rounded-lg flex-shrink-0"
-                        title="Usuń pozycję"
+                        className="p-1.5 text-slate-300 hover:text-rose-600 transition-colors rounded-lg shrink-0"
+                        title="Usuń"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -637,3 +613,4 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
     </div>
   );
 };
+

@@ -14,8 +14,24 @@ import {
   Smartphone,
   Database,
   ArrowRight,
+  Trash2,
+  CheckSquare,
+  Square,
+  DollarSign,
+  Calendar,
+  Layers,
+  ShoppingCart,
+  ExternalLink,
 } from 'lucide-react';
-import { Household, UserProfile } from '../types';
+import {
+  Household,
+  UserProfile,
+  Transaction,
+  Bill,
+  BudgetLimit,
+  ShoppingList,
+  ShoppingItem,
+} from '../types';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import {
   getActiveFirebaseConfig,
@@ -26,12 +42,14 @@ import {
   logoutFromFirebase,
   defaultFirebaseConfig,
 } from '../firebase';
+import { DeleteSelection } from './DeleteDataModal';
 
 interface HouseholdModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentUser: UserProfile;
   household: Household | null;
+  initialTab?: 'household' | 'firebase_config' | 'pwa' | 'delete_data';
   onLoginSuccess: (user: UserProfile) => void;
   onLogout: () => void;
   onCreateHousehold: (name: string) => Promise<void> | void;
@@ -41,6 +59,13 @@ interface HouseholdModalProps {
   onRemoveMember: (id: string) => void;
   onTriggerSync?: () => void;
   isSyncing?: boolean;
+  // Data for selective delete
+  transactions?: Transaction[];
+  bills?: Bill[];
+  budgetLimits?: BudgetLimit[];
+  shoppingLists?: ShoppingList[];
+  shoppingItems?: ShoppingItem[];
+  onDeleteSelectedData?: (selection: DeleteSelection) => void;
 }
 
 export const HouseholdModal: React.FC<HouseholdModalProps> = ({
@@ -48,6 +73,7 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
   onClose,
   currentUser,
   household,
+  initialTab = 'household',
   onLoginSuccess,
   onLogout,
   onCreateHousehold,
@@ -57,15 +83,23 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
   onRemoveMember,
   onTriggerSync,
   isSyncing = false,
+  transactions = [],
+  bills = [],
+  budgetLimits = [],
+  shoppingLists = [],
+  shoppingItems = [],
+  onDeleteSelectedData,
 }) => {
   const [householdNameInput, setHouseholdNameInput] = useState('');
   const [joinCodeInput, setJoinCodeInput] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteName, setInviteName] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
-  const [activeTab, setActiveTab] = useState<'household' | 'firebase_config' | 'pwa'>('household');
+  const [activeTab, setActiveTab] = useState<'household' | 'firebase_config' | 'pwa' | 'delete_data'>(initialTab);
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [unauthorizedDomain, setUnauthorizedDomain] = useState<string | null>(null);
+  const [copiedDomain, setCopiedDomain] = useState(false);
   const [joinLoading, setJoinLoading] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
@@ -76,6 +110,17 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
   const [configSaveSuccess, setConfigSaveSuccess] = useState(false);
   const [isConfigured, setIsConfigured] = useState(isFirebaseConfigured());
 
+  // Delete Data Tab State
+  const [deleteSelection, setDeleteSelection] = useState<DeleteSelection>({
+    transactions: true,
+    bills: true,
+    budgetLimits: false,
+    shopping: true,
+    household: false,
+  });
+  const [deleteConfirmStep, setDeleteConfirmStep] = useState(false);
+  const [deleteSuccess, setDeleteSuccess] = useState(false);
+
   const { isInstallable, isInstalled, install } = usePWAInstall();
 
   useEffect(() => {
@@ -83,9 +128,13 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
       setFirebaseConfigForm(getActiveFirebaseConfig());
       setIsConfigured(isFirebaseConfigured());
       setAuthError(null);
+      setUnauthorizedDomain(null);
       setJoinError(null);
+      setActiveTab(initialTab);
+      setDeleteConfirmStep(false);
+      setDeleteSuccess(false);
     }
-  }, [isOpen]);
+  }, [isOpen, initialTab]);
 
   if (!isOpen) return null;
 
@@ -94,6 +143,13 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
     navigator.clipboard.writeText(household.inviteCode);
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 2500);
+  };
+
+  const handleCopyDomain = () => {
+    if (!unauthorizedDomain) return;
+    navigator.clipboard.writeText(unauthorizedDomain);
+    setCopiedDomain(true);
+    setTimeout(() => setCopiedDomain(false), 2500);
   };
 
   const handleCreateHouseholdSubmit = async (e: React.FormEvent) => {
@@ -138,6 +194,7 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
   const handleGoogleLoginClick = async () => {
     setAuthLoading(true);
     setAuthError(null);
+    setUnauthorizedDomain(null);
     try {
       if (!isConfigured) {
         setActiveTab('firebase_config');
@@ -148,13 +205,20 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
         return;
       }
       const user = await loginWithGoogleFirebase();
-      onLoginSuccess(user);
+      if (user) {
+        onLoginSuccess(user);
+      }
     } catch (err: any) {
-      console.error('Błąd logowania Firebase:', err);
-      setAuthError(
-        err.message ||
-          'Wystąpił błąd podczas logowania przez Google. Upewnij się, że w Firebase Console włączono logowanie Google.'
-      );
+      const msg: string = err?.message || 'Wystąpił błąd podczas logowania przez Google.';
+      if (msg.startsWith('UNAUTHORIZED_DOMAIN::')) {
+        const parts = msg.split('::');
+        const host = parts[1] || window.location.hostname;
+        const text = parts[2] || 'Domena nie jest autoryzowana w Firebase.';
+        setUnauthorizedDomain(host);
+        setAuthError(text);
+      } else {
+        setAuthError(msg);
+      }
     } finally {
       setAuthLoading(false);
     }
@@ -215,6 +279,29 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
     setIsConfigured(isFirebaseConfigured());
   };
 
+  // Handle selective deletion execution
+  const selectedCount = Object.values(deleteSelection).filter(Boolean).length;
+  const toggleAllDelete = (val: boolean) => {
+    setDeleteSelection({
+      transactions: val,
+      bills: val,
+      budgetLimits: val,
+      shopping: val,
+      household: val,
+    });
+  };
+
+  const handleExecuteDelete = () => {
+    if (onDeleteSelectedData) {
+      onDeleteSelectedData(deleteSelection);
+      setDeleteSuccess(true);
+      setTimeout(() => {
+        setDeleteSuccess(false);
+        setDeleteConfirmStep(false);
+      }, 2500);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4 overflow-y-auto">
       <div className="bg-white w-full max-w-xl rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto">
@@ -226,12 +313,12 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <h2 className="text-base sm:text-lg font-bold">Konto & Gospodarstwo Domowe</h2>
+                <h2 className="text-base sm:text-lg font-bold">Konto & Ustawienia</h2>
                 <span className="text-[10px] bg-amber-500/20 text-amber-300 font-bold px-2 py-0.5 rounded-full border border-amber-500/30">
                   Firebase Auth & Firestore
                 </span>
               </div>
-              <p className="text-xs text-slate-300">Niezależne logowanie dla każdego użytkownika</p>
+              <p className="text-xs text-slate-300">Zarządzanie domem, chmurą i danymi</p>
             </div>
           </div>
           <button
@@ -243,37 +330,49 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex border-b border-slate-200 bg-slate-50 px-4 pt-2 gap-2 text-xs font-semibold">
+        <div className="flex border-b border-slate-200 bg-slate-50 px-3 sm:px-4 pt-2 gap-1 sm:gap-2 text-xs font-semibold overflow-x-auto">
           <button
             onClick={() => setActiveTab('household')}
-            className={`pb-2.5 px-3 border-b-2 transition-all flex items-center space-x-1.5 ${
+            className={`pb-2.5 px-2.5 sm:px-3 border-b-2 transition-all flex items-center space-x-1.5 shrink-0 ${
               activeTab === 'household'
                 ? 'border-indigo-600 text-indigo-600 font-bold'
                 : 'border-transparent text-slate-600 hover:text-slate-900'
             }`}
           >
             <Users className="w-4 h-4" />
-            <span>Konto i Domownicy</span>
+            <span>Domownicy</span>
           </button>
 
           <button
             onClick={() => setActiveTab('firebase_config')}
-            className={`pb-2.5 px-3 border-b-2 transition-all flex items-center space-x-1.5 ${
+            className={`pb-2.5 px-2.5 sm:px-3 border-b-2 transition-all flex items-center space-x-1.5 shrink-0 ${
               activeTab === 'firebase_config'
                 ? 'border-amber-600 text-amber-600 font-bold'
                 : 'border-transparent text-slate-600 hover:text-slate-900'
             }`}
           >
             <Flame className="w-4 h-4 text-amber-500" />
-            <span>Konfiguracja Firebase</span>
+            <span>Konfiguracja</span>
             {!isConfigured && (
               <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
             )}
           </button>
 
           <button
+            onClick={() => setActiveTab('delete_data')}
+            className={`pb-2.5 px-2.5 sm:px-3 border-b-2 transition-all flex items-center space-x-1.5 shrink-0 ${
+              activeTab === 'delete_data'
+                ? 'border-rose-600 text-rose-600 font-bold'
+                : 'border-transparent text-slate-600 hover:text-rose-600'
+            }`}
+          >
+            <Trash2 className="w-4 h-4 text-rose-500" />
+            <span>Usuń dane</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('pwa')}
-            className={`pb-2.5 px-3 border-b-2 transition-all flex items-center space-x-1.5 ${
+            className={`pb-2.5 px-2.5 sm:px-3 border-b-2 transition-all flex items-center space-x-1.5 shrink-0 ${
               activeTab === 'pwa'
                 ? 'border-indigo-600 text-indigo-600 font-bold'
                 : 'border-transparent text-slate-600 hover:text-slate-900'
@@ -364,13 +463,39 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
                   </div>
                 )}
 
+                {/* Auth Error Banner with Domain Helper */}
                 {authError && (
-                  <div className="mt-3 p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-xl flex items-start space-x-2">
-                    <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
-                    <div className="flex-1">
-                      <p className="font-semibold">Błąd uwierzytelniania</p>
-                      <p className="text-[11px] mt-0.5 text-rose-700">{authError}</p>
+                  <div className="mt-3 p-3.5 bg-rose-50 border border-rose-200 text-rose-900 text-xs rounded-xl space-y-2">
+                    <div className="flex items-start space-x-2">
+                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <p className="font-bold">{unauthorizedDomain ? 'Wymagana autoryzacja domeny w Firebase' : 'Błąd uwierzytelniania'}</p>
+                        <p className="text-[11px] mt-0.5 text-rose-800">{authError}</p>
+                      </div>
                     </div>
+
+                    {unauthorizedDomain && (
+                      <div className="bg-white p-2.5 rounded-lg border border-rose-200 text-slate-800 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-bold">Domena:</span>
+                          <div className="flex items-center space-x-1">
+                            <code className="px-2 py-0.5 bg-slate-100 font-mono text-[11px] text-indigo-700 rounded font-bold">
+                              {unauthorizedDomain}
+                            </code>
+                            <button
+                              onClick={handleCopyDomain}
+                              className="p-1 text-slate-500 hover:text-indigo-600 rounded transition-colors"
+                              title="Kopiuj domenę"
+                            >
+                              {copiedDomain ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                            </button>
+                          </div>
+                        </div>
+                        <p className="text-[10px] text-slate-500">
+                          Dodaj tę domenę w Firebase Console ➔ Authentication ➔ Settings ➔ sekcja <strong>Authorized domains</strong>.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -428,7 +553,7 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
 
                   {joinError && (
                     <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-xl flex items-start space-x-2">
-                      <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                       <div className="flex-1">
                         <p className="font-semibold">Błąd łączenia z Domem</p>
                         <p className="text-[11px] mt-0.5 text-rose-700">{joinError}</p>
@@ -811,7 +936,304 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
             </div>
           )}
 
-          {/* TAB 3: PWA MOBILE */}
+          {/* TAB 3: DELETE DATA (SELEKTYWNE USUWANIE DANYCH) */}
+          {activeTab === 'delete_data' && (
+            <div className="space-y-4">
+              <div className="p-4 bg-rose-50/70 border border-rose-200 rounded-2xl space-y-2">
+                <div className="flex items-center space-x-2 text-rose-900 font-bold text-sm">
+                  <Trash2 className="w-4 h-4 text-rose-600" />
+                  <span>Selektywne czyszczenie danych</span>
+                </div>
+                <p className="text-xs text-rose-800 leading-relaxed">
+                  Możesz wybrać, które kategorie danych chcesz wyczyścić z pamięci i bazy domowej.
+                </p>
+              </div>
+
+              {deleteSuccess ? (
+                <div className="py-6 text-center space-y-2.5 bg-emerald-50 border border-emerald-200 rounded-2xl animate-in fade-in duration-150">
+                  <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-xs">
+                    <Check className="w-5 h-5" />
+                  </div>
+                  <h3 className="text-sm font-bold text-slate-900">Zaznaczone dane zostały usunięte!</h3>
+                  <p className="text-xs text-slate-500">Pamięć lokalna i baza domowa są zaktualizowane.</p>
+                </div>
+              ) : !deleteConfirmStep ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between pb-1 border-b border-slate-100">
+                    <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                      Wybierz co usunąć:
+                    </span>
+                    <div className="flex space-x-2 text-xs">
+                      <button
+                        onClick={() => toggleAllDelete(true)}
+                        className="text-indigo-600 hover:text-indigo-800 font-semibold"
+                      >
+                        Zaznacz wszystkie
+                      </button>
+                      <span className="text-slate-300">|</span>
+                      <button
+                        onClick={() => toggleAllDelete(false)}
+                        className="text-slate-500 hover:text-slate-700 font-semibold"
+                      >
+                        Odznacz
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {/* Transakcje */}
+                    <label
+                      className={`flex items-start justify-between p-3 rounded-xl border cursor-pointer transition-all ${
+                        deleteSelection.transactions
+                          ? 'bg-rose-50/60 border-rose-300 shadow-xs'
+                          : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
+                      }`}
+                    >
+                      <div className="flex items-start space-x-2.5">
+                        <div className="mt-0.5">
+                          {deleteSelection.transactions ? (
+                            <CheckSquare className="w-4 h-4 text-rose-600" />
+                          ) : (
+                            <Square className="w-4 h-4 text-slate-400" />
+                          )}
+                        </div>
+                        <div>
+                          <div className="flex items-center space-x-1.5">
+                            <DollarSign className="w-3.5 h-3.5 text-slate-700" />
+                            <span className="text-xs font-bold text-slate-900">
+                              Transakcje & Wydatki
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500">
+                            Wszystkie zarejestrowane transakcje i paragony
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-700">
+                        {transactions.length} poz.
+                      </span>
+                      <input
+                        type="checkbox"
+                        className="hidden"
+                        checked={deleteSelection.transactions}
+                        onChange={(e) =>
+                          setDeleteSelection({ ...deleteSelection, transactions: e.target.checked })
+                        }
+                      />
+                    </label>
+
+                    {/* Rachunki */}
+                    <label
+                      className={`flex items-start justify-between p-3 rounded-xl border cursor-pointer transition-all ${
+                        deleteSelection.bills
+                          ? 'bg-rose-50/60 border-rose-300 shadow-xs'
+                          : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
+                      }`}
+                    >
+                      <div className="flex items-start space-x-2.5">
+                        <div className="mt-0.5">
+                          {deleteSelection.bills ? (
+                            <CheckSquare className="w-4 h-4 text-rose-600" />
+                          ) : (
+                            <Square className="w-4 h-4 text-slate-400" />
+                          )}
+                        </div>
+                        <div>
+                          <div className="flex items-center space-x-1.5">
+                            <Calendar className="w-3.5 h-3.5 text-slate-700" />
+                            <span className="text-xs font-bold text-slate-900">
+                              Rachunki & Opłaty stałe
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500">
+                            Harmonogram rachunków i płatności
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-700">
+                        {bills.length} poz.
+                      </span>
+                      <input
+                        type="checkbox"
+                        className="hidden"
+                        checked={deleteSelection.bills}
+                        onChange={(e) =>
+                          setDeleteSelection({ ...deleteSelection, bills: e.target.checked })
+                        }
+                      />
+                    </label>
+
+                    {/* Limity */}
+                    <label
+                      className={`flex items-start justify-between p-3 rounded-xl border cursor-pointer transition-all ${
+                        deleteSelection.budgetLimits
+                          ? 'bg-rose-50/60 border-rose-300 shadow-xs'
+                          : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
+                      }`}
+                    >
+                      <div className="flex items-start space-x-2.5">
+                        <div className="mt-0.5">
+                          {deleteSelection.budgetLimits ? (
+                            <CheckSquare className="w-4 h-4 text-rose-600" />
+                          ) : (
+                            <Square className="w-4 h-4 text-slate-400" />
+                          )}
+                        </div>
+                        <div>
+                          <div className="flex items-center space-x-1.5">
+                            <Layers className="w-3.5 h-3.5 text-slate-700" />
+                            <span className="text-xs font-bold text-slate-900">
+                              Limity budżetowe
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500">
+                            Ustawione limity wydatków dla kategorii
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-700">
+                        {budgetLimits.length} poz.
+                      </span>
+                      <input
+                        type="checkbox"
+                        className="hidden"
+                        checked={deleteSelection.budgetLimits}
+                        onChange={(e) =>
+                          setDeleteSelection({ ...deleteSelection, budgetLimits: e.target.checked })
+                        }
+                      />
+                    </label>
+
+                    {/* Listy zakupów */}
+                    <label
+                      className={`flex items-start justify-between p-3 rounded-xl border cursor-pointer transition-all ${
+                        deleteSelection.shopping
+                          ? 'bg-rose-50/60 border-rose-300 shadow-xs'
+                          : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
+                      }`}
+                    >
+                      <div className="flex items-start space-x-2.5">
+                        <div className="mt-0.5">
+                          {deleteSelection.shopping ? (
+                            <CheckSquare className="w-4 h-4 text-rose-600" />
+                          ) : (
+                            <Square className="w-4 h-4 text-slate-400" />
+                          )}
+                        </div>
+                        <div>
+                          <div className="flex items-center space-x-1.5">
+                            <ShoppingCart className="w-3.5 h-3.5 text-slate-700" />
+                            <span className="text-xs font-bold text-slate-900">
+                              Listy zakupów & produkty
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500">
+                            Wszystkie listy i pozycje do kupienia
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-700">
+                        {shoppingLists.length} list ({shoppingItems.length} prod.)
+                      </span>
+                      <input
+                        type="checkbox"
+                        className="hidden"
+                        checked={deleteSelection.shopping}
+                        onChange={(e) =>
+                          setDeleteSelection({ ...deleteSelection, shopping: e.target.checked })
+                        }
+                      />
+                    </label>
+
+                    {/* Gospodarstwo Domowe */}
+                    {household && (
+                      <label
+                        className={`flex items-start justify-between p-3 rounded-xl border cursor-pointer transition-all ${
+                          deleteSelection.household
+                            ? 'bg-rose-50/60 border-rose-300 shadow-xs'
+                            : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
+                        }`}
+                      >
+                        <div className="flex items-start space-x-2.5">
+                          <div className="mt-0.5">
+                            {deleteSelection.household ? (
+                              <CheckSquare className="w-4 h-4 text-rose-600" />
+                            ) : (
+                              <Square className="w-4 h-4 text-slate-400" />
+                            )}
+                          </div>
+                          <div>
+                            <div className="flex items-center space-x-1.5">
+                              <Home className="w-3.5 h-3.5 text-slate-700" />
+                              <span className="text-xs font-bold text-slate-900">
+                                Odłącz powiązanie z Domem ({household.name})
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-500">
+                              Resetuje przypisanie do gospodarstwa domowego
+                            </p>
+                          </div>
+                        </div>
+                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-700">
+                          1 dom
+                        </span>
+                        <input
+                          type="checkbox"
+                          className="hidden"
+                          checked={deleteSelection.household}
+                          onChange={(e) =>
+                            setDeleteSelection({ ...deleteSelection, household: e.target.checked })
+                          }
+                        />
+                      </label>
+                    )}
+                  </div>
+
+                  <div className="pt-2 flex justify-end">
+                    <button
+                      onClick={() => setDeleteConfirmStep(true)}
+                      disabled={selectedCount === 0}
+                      className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center space-x-1.5"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Usuń zaznaczone ({selectedCount})</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* Confirm Step inside Tab */
+                <div className="py-4 space-y-3.5 text-center bg-rose-50/50 p-4 rounded-2xl border border-rose-200">
+                  <div className="w-10 h-10 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto shadow-xs">
+                    <AlertTriangle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900">Czy na pewno usunąć wybrane elementy?</h4>
+                    <p className="text-xs text-slate-600 mt-1 max-w-sm mx-auto">
+                      Zaznaczono <strong>{selectedCount}</strong> kategorii do trwałego usunięcia. Tej operacji nie można cofnąć.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-center gap-2 pt-2">
+                    <button
+                      onClick={() => setDeleteConfirmStep(false)}
+                      className="px-4 py-2 bg-white text-slate-700 font-semibold text-xs rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors"
+                    >
+                      Anuluj
+                    </button>
+                    <button
+                      onClick={handleExecuteDelete}
+                      className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center space-x-1.5"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Potwierdzam usunięcie</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 4: PWA MOBILE */}
           {activeTab === 'pwa' && (
             <div className="space-y-4">
               <div className="text-center py-2">

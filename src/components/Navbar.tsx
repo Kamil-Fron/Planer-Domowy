@@ -20,6 +20,7 @@ import {
   Users,
   Smartphone,
   LogIn,
+  Trash2,
 } from 'lucide-react';
 import { AppNotification, Bill, BudgetLimit, TabType, Transaction, Household, UserProfile } from '../types';
 import { generateAutomatedNotifications } from '../utils/notifications';
@@ -35,6 +36,7 @@ interface NavbarProps {
   household?: Household | null;
   currentUser?: UserProfile;
   onOpenHouseholdModal: () => void;
+  onOpenDeleteDataModal?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -48,6 +50,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   household = null,
   currentUser,
   onOpenHouseholdModal,
+  onOpenDeleteDataModal,
 }) => {
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
   const [showQuickAddMenu, setShowQuickAddMenu] = useState(false);
@@ -222,8 +225,12 @@ export const Navbar: React.FC<NavbarProps> = ({
                               )}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-xs font-semibold text-slate-900">{notif.title}</p>
-                              <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{notif.message}</p>
+                              <p className="text-xs font-semibold text-slate-900 leading-tight">
+                                {notif.title}
+                              </p>
+                              <p className="text-[11px] text-slate-500 mt-0.5 leading-normal">
+                                {notif.message}
+                              </p>
                             </div>
                           </div>
                         ))
@@ -232,6 +239,17 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </div>
                 )}
               </div>
+
+              {/* Quick Delete Data Action Button */}
+              {onOpenDeleteDataModal && (
+                <button
+                  onClick={onOpenDeleteDataModal}
+                  className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors border border-transparent hover:border-rose-100"
+                  title="Usuń wybrane dane (budżet, rachunki, zakupy)"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
 
               {/* Quick Add Menu */}
               <div className="relative">
@@ -409,6 +427,18 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <Home className="w-4 h-4 text-indigo-600" />
                   <span>Dom & PWA Telefon</span>
                 </button>
+                {onOpenDeleteDataModal && (
+                  <button
+                    onClick={() => {
+                      setShowMobileMoreMenu(false);
+                      onOpenDeleteDataModal();
+                    }}
+                    className="w-full text-left px-3.5 py-2.5 text-xs flex items-center space-x-2 font-semibold text-rose-600 hover:bg-rose-50 border-t border-slate-100"
+                  >
+                    <Trash2 className="w-4 h-4 text-rose-500" />
+                    <span>Usuń wybrane dane</span>
+                  </button>
+                )}
               </div>
             )}
           </div>

@@ -223,7 +223,7 @@ if (isFirebaseConfigured()) {
 /**
  * Logowanie przez konto Google (Firebase Auth - Popup)
  */
-export async function loginWithGoogleFirebase(): Promise<UserProfile> {
+export async function loginWithGoogleFirebase(): Promise<UserProfile | null> {
   const auth = getFirebaseAuth();
   if (!auth) {
     throw new Error(
@@ -232,21 +232,63 @@ export async function loginWithGoogleFirebase(): Promise<UserProfile> {
   }
 
   const provider = getGoogleProvider();
-  const result = await signInWithPopup(auth, provider);
-  const user = result.user;
+  try {
+    const result = await signInWithPopup(auth, provider);
+    const user = result.user;
 
-  const userProfile: UserProfile = {
-    id: user.uid,
-    name: user.displayName || user.email?.split('@')[0] || 'Użytkownik',
-    email: user.email || '',
-    avatarUrl: user.photoURL || undefined,
-    isLoggedIn: true,
-  };
+    const userProfile: UserProfile = {
+      id: user.uid,
+      name: user.displayName || user.email?.split('@')[0] || 'Użytkownik',
+      email: user.email || '',
+      avatarUrl: user.photoURL || undefined,
+      isLoggedIn: true,
+    };
 
-  // Zapisz/zaktualizuj profil w Firestore
-  await saveUserProfileToFirestore(userProfile);
+    // Zapisz/zaktualizuj profil w Firestore
+    await saveUserProfileToFirestore(userProfile);
 
-  return userProfile;
+    return userProfile;
+  } catch (error: any) {
+    const errorCode = error?.code || '';
+    const errorMsg = error?.message || '';
+
+    // Zamknięcie okna popupu przez użytkownika to celowe anulowanie akcji
+    if (
+      errorCode === 'auth/popup-closed-by-user' ||
+      errorCode === 'auth/cancelled-popup-request' ||
+      errorMsg.includes('popup-closed-by-user') ||
+      errorMsg.includes('cancelled-popup-request')
+    ) {
+      console.log('Logowanie Google zostało anulowane przez użytkownika (zamknięto okno).');
+      return null;
+    }
+
+    if (errorCode === 'auth/popup-blocked') {
+      throw new Error(
+        'Okno logowania Google zostało zablokowane przez przeglądarkę. Zezwól na wyskakujące okna (pop-up) dla tej witryny.'
+      );
+    }
+
+    if (
+      errorCode === 'auth/unauthorized-domain' ||
+      errorMsg.includes('unauthorized-domain') ||
+      errorMsg.includes('authorized domain')
+    ) {
+      const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'twoja-domena.github.io';
+      throw new Error(
+        `UNAUTHORIZED_DOMAIN::${currentHost}::Bieżąca domena (${currentHost}) nie jest dodana do autoryzowanych domen w Twoim projekcie Firebase. Wejdź do Firebase Console -> Authentication -> Settings -> sekcja "Authorized domains" i dodaj domenę: ${currentHost}`
+      );
+    }
+
+    if (errorCode === 'auth/operation-not-allowed') {
+      throw new Error(
+        'Logowanie przez konto Google nie jest włączone w Firebase. Włącz je w Firebase Console -> Authentication -> Sign-in method.'
+      );
+    }
+
+    console.warn('Błąd Firebase Auth:', error);
+    throw new Error(errorMsg || 'Wystąpił problem podczas logowania przez Google.');
+  }
 }
 
 /**

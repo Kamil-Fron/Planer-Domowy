@@ -41,9 +41,10 @@ async function generateWithFallback(
   }
 ) {
   const modelsToTry = [
-    params.preferredModel || "gemini-2.5-flash",
+    params.preferredModel || "gemini-3.6-flash",
     "gemini-3.7-flash",
     "gemini-flash-latest",
+    "gemini-2.5-flash",
   ].filter((v, i, a) => a.indexOf(v) === i);
 
   let lastError: any = null;
@@ -129,7 +130,7 @@ Przeanalizuj dołączone zdjęcie paragonu i wyodrębnij:
 Zwróć wynik w formacie JSON zgodnym ze schematem.`;
 
     const response = await generateWithFallback(ai, {
-      preferredModel: "gemini-2.5-flash",
+      preferredModel: "gemini-3.6-flash",
       contents: {
         parts: [
           {
@@ -257,7 +258,7 @@ Przygotuj zwięzłą, konkretną analizę w języku polskim:
 Zwróć odpowiedź ściśle w formacie JSON zgodnym ze schematem.`;
 
     const response = await generateWithFallback(ai, {
-      preferredModel: "gemini-2.5-flash",
+      preferredModel: "gemini-3.6-flash",
       contents: prompt,
       config: {
         responseMimeType: "application/json",

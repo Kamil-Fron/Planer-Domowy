@@ -161,8 +161,8 @@ Zwróć wynik w czystym formacie JSON:
   ]
 }`;
 
-  // Use currently supported, high-accuracy vision models
-  const models = ["gemini-2.5-flash", "gemini-2.5-pro"];
+  // Use modern high-accuracy vision and reasoning models
+  const models = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-flash-latest", "gemini-2.5-flash"];
   let lastError: any = null;
 
   for (const model of models) {
@@ -260,7 +260,7 @@ Przygotuj zwięzłą, konkretną analizę w języku polskim w formacie JSON:
   "fullText": "Pełny tekst analizy w punktach po polsku"
 }`;
 
-  const models = ["gemini-2.5-flash", "gemini-2.5-pro"];
+  const models = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-flash-latest", "gemini-2.5-flash"];
   let lastError: any = null;
 
   for (const model of models) {

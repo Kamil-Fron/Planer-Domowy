@@ -331,6 +331,31 @@ export function subscribeToFirebaseAuthState(
 }
 
 /**
+ * Recursively cleanses data to ensure no `undefined` values are passed to Firestore,
+ * which would otherwise cause: "Unsupported field value: undefined"
+ */
+export function sanitizeForFirestore<T>(data: T): T {
+  if (data === undefined) {
+    return null as any;
+  }
+  if (data === null || typeof data !== 'object') {
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data
+      .filter((item) => item !== undefined)
+      .map((item) => sanitizeForFirestore(item)) as any;
+  }
+  const result: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value !== undefined) {
+      result[key] = sanitizeForFirestore(value);
+    }
+  }
+  return result as T;
+}
+
+/**
  * Zapis profilu użytkownika w Firestore (/users/{userId})
  */
 export async function saveUserProfileToFirestore(
@@ -353,7 +378,7 @@ export async function saveUserProfileToFirestore(
     if (activeHouseholdId !== undefined) {
       updatePayload.activeHouseholdId = activeHouseholdId;
     }
-    await setDoc(userRef, updatePayload, { merge: true });
+    await setDoc(userRef, sanitizeForFirestore(updatePayload), { merge: true });
   } catch (error) {
     console.warn('Błąd zapisu profilu użytkownika do Firestore:', error);
   }
@@ -415,14 +440,12 @@ export async function saveHouseholdToFirestore(
   const targetPath = `households/${householdId}`;
   try {
     const householdRef = doc(db, 'households', householdId);
-    await setDoc(
-      householdRef,
-      {
-        ...data,
-        lastUpdatedAt: new Date().toISOString(),
-      },
-      { merge: true }
-    );
+    const rawPayload = {
+      ...data,
+      lastUpdatedAt: new Date().toISOString(),
+    };
+    const sanitizedPayload = sanitizeForFirestore(rawPayload);
+    await setDoc(householdRef, sanitizedPayload, { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, targetPath);
   }

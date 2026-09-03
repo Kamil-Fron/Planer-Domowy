@@ -24,6 +24,7 @@ import {
   ShieldCheck,
   RefreshCw,
   HardDrive,
+  LogOut,
 } from 'lucide-react';
 import { Bill, BudgetLimit, TabType, Transaction, Household, UserProfile, AppNotification } from '../types';
 import { generateAutomatedNotifications } from '../utils/notifications';
@@ -48,6 +49,7 @@ interface NavbarProps {
   onOpenDataSafetyModal?: () => void;
   onClearNotifications?: () => void;
   onMarkNotificationRead?: (id: string) => void;
+  onLogout?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -70,6 +72,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenDataSafetyModal,
   onClearNotifications,
   onMarkNotificationRead,
+  onLogout,
 }) => {
   const [isActionMenuOpen, setIsActionMenuOpen] = useState(false);
   const [showMobileMoreMenu, setShowMobileMoreMenu] = useState(false);
@@ -430,8 +433,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                       </div>
                     </div>
 
-                    {/* 3. Konto, Gospodarstwo & PWA */}
-                    <div className="p-2">
+                    {/* 3. Konto, Gospodarstwo & Profil */}
+                    <div className="p-2 space-y-1">
                       <button
                         onClick={() => {
                           setIsActionMenuOpen(false);
@@ -460,6 +463,22 @@ export const Navbar: React.FC<NavbarProps> = ({
                           </span>
                         )}
                       </button>
+
+                      {/* Direct Logout Button in Dropdown */}
+                      {currentUser?.isLoggedIn && onLogout && (
+                        <button
+                          onClick={() => {
+                            setIsActionMenuOpen(false);
+                            onLogout();
+                          }}
+                          className="w-full text-left p-2 px-2.5 rounded-xl text-xs font-semibold text-rose-600 hover:bg-rose-50 transition-colors flex items-center space-x-2.5"
+                        >
+                          <div className="w-7 h-7 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center flex-shrink-0">
+                            <LogOut className="w-4 h-4" />
+                          </div>
+                          <span>Wyloguj się z konta</span>
+                        </button>
+                      )}
                     </div>
 
                     {/* Synchronizacja z chmurą */}

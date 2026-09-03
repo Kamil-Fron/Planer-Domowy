@@ -85,7 +85,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const balance = totalIncome - totalExpense;
   const savingsRate = totalIncome > 0 ? ((balance / totalIncome) * 100).toFixed(0) : '0';
 
-  // Urgent / Upcoming bills
+  // Urgent / Upcoming bills - show only near due dates (overdue or within 14 days)
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -93,7 +93,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
     .filter((b) => b.status !== 'paid')
     .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
 
-  const upcomingBills = pendingBills.slice(0, 3);
+  // Only bills with near due dates (overdue or due within 14 days), hiding far future bills
+  const upcomingBills = pendingBills
+    .filter((b) => {
+      const dueTime = new Date(b.dueDate).getTime();
+      const diffDays = Math.ceil((dueTime - today.getTime()) / (1000 * 60 * 60 * 24));
+      return diffDays <= 14;
+    })
+    .slice(0, 4);
 
   // Mini Sparkline Data for Income/Expense
   const daysInMonth = Array.from({ length: 15 }, (_, i) => {

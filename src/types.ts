@@ -41,6 +41,7 @@ export interface Transaction {
   comment?: string;
   isRecurring?: boolean;
   receiptId?: string;
+  billId?: string; // ID powiązanego rachunku
   receiptItems?: ReceiptItemDetail[];
   receiptStoreName?: string;
   createdAt: string;
@@ -116,6 +117,7 @@ export interface Bill {
   meterReading?: MeterReading;
   notes?: string;
   autoExpenseId?: string;
+  previousDueDate?: string; // Poprzedni termin przed opłaceniem cyklu
   paymentHistory?: BillPaymentHistoryItem[];
   createdAt: string;
 }

@@ -462,6 +462,33 @@ export default function App() {
         'Usunięto transakcję',
         `Usunięto "${deletedTx.title}" (${deletedTx.amount.toFixed(2)} PLN)`
       );
+
+      // Jeśli usunięta transakcja była powiązana z opłaconym rachunkiem, przywróć rachunek do oczekujących na zapłatę
+      if (deletedTx.billId) {
+        setBills((prevBills) => {
+          const updatedBills = prevBills.map((b) => {
+            if (b.id === deletedTx.billId) {
+              const updatedHistory = (b.paymentHistory || []).filter(
+                (h) => !(h.paidDate === deletedTx.date && Math.abs(h.amount - deletedTx.amount) < 0.01)
+              );
+              return {
+                ...b,
+                status: 'pending' as const,
+                dueDate: b.previousDueDate || b.dueDate,
+                paymentDate: undefined,
+                paymentHistory: updatedHistory,
+              };
+            }
+            return b;
+          });
+          saveBills(updatedBills);
+          return updatedBills;
+        });
+        logActivity(
+          'Przywrócono rachunek do opłacenia',
+          `Po usunięciu transakcji powiązany rachunek powrócił do statusu "Do zapłaty"`
+        );
+      }
     }
   };
 
@@ -599,11 +626,26 @@ export default function App() {
     }
   };
 
+  const handleUpdateShoppingItem = (id: string, updates: Partial<ShoppingItem>) => {
+    lastLocalMutationTime.current = Date.now();
+    hasUnsavedLocalChanges.current = true;
+    setShoppingItems((prev) => {
+      const updated = prev.map((item) => {
+        if (item.id === id) {
+          return { ...item, ...updates };
+        }
+        return item;
+      });
+      saveShoppingItems(updated);
+      return updated;
+    });
+  };
+
   // Handlers for Bills
-  const handleAddBill = (billData: Omit<Bill, 'id' | 'createdAt'>) => {
+  const handleAddBill = (billData: Omit<Bill, 'id' | 'createdAt'> & { id?: string }) => {
     const newBill: Bill = {
       ...billData,
-      id: `bill-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      id: billData.id || `bill-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       createdAt: new Date().toISOString(),
     };
     lastLocalMutationTime.current = Date.now();
@@ -1456,6 +1498,7 @@ export default function App() {
             onAddItem={handleAddShoppingItem}
             onToggleItem={handleToggleShoppingItem}
             onDeleteItem={handleDeleteShoppingItem}
+            onUpdateItem={handleUpdateShoppingItem}
             onAddTransaction={handleAddTransaction}
           />
         )}
@@ -1469,6 +1512,8 @@ export default function App() {
             onAddTransaction={handleAddTransaction}
             pushEnabled={pushEnabled}
             onTogglePush={setPushEnabled}
+            selectedMonth={selectedMonth}
+            onMonthChange={setSelectedMonth}
           />
         )}
 

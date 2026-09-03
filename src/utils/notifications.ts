@@ -18,8 +18,38 @@ export async function requestNotificationPermission(): Promise<boolean> {
   return false;
 }
 
-export function sendBrowserPushNotification(title: string, options?: NotificationOptions) {
-  if ('Notification' in window && Notification.permission === 'granted') {
+export async function sendBrowserPushNotification(title: string, options?: NotificationOptions) {
+  // Wibracja telefonu przy powiadomieniu (wspierana na urządzeniach mobilnych z Androidem)
+  if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+    try {
+      navigator.vibrate([180, 80, 180]);
+    } catch {
+      // Ignoruj jeśli zablokowane
+    }
+  }
+
+  if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+    // 1. Priorytet dla telefonów / Service Workera (na mobilnym Chrome wywołanie new Notification() rzuca błąd "Illegal constructor" i wymaga serviceWorkerRegistration.showNotification)
+    if ('serviceWorker' in navigator) {
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        if (registration && typeof registration.showNotification === 'function') {
+          await registration.showNotification(title, {
+            icon: '/icon-192.png',
+            badge: '/favicon.ico',
+            vibrate: [180, 80, 180],
+            tag: `notif-${Date.now()}`,
+            renotify: true,
+            ...options,
+          } as NotificationOptions);
+          return;
+        }
+      } catch (err) {
+        console.warn('Próba wysłania powiadomienia mobilnego przez Service Worker nie powiodła się, sprawdzam fallback:', err);
+      }
+    }
+
+    // 2. Standardowy fallback przeglądarkowy dla desktopu
     try {
       new Notification(title, {
         icon: '/favicon.ico',

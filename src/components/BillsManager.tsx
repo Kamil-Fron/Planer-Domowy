@@ -22,6 +22,8 @@ import {
   Layers,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   CreditCard,
   Edit3,
 } from 'lucide-react';
@@ -30,13 +32,31 @@ import { calculateNextDueDate, getBillingPeriodName } from '../utils/billCycle';
 
 interface BillsManagerProps {
   bills: Bill[];
-  onAddBill: (bill: Omit<Bill, 'id' | 'createdAt'>) => void;
+  onAddBill: (bill: Omit<Bill, 'id' | 'createdAt'> & { id?: string }) => void;
   onUpdateBill: (id: string, updates: Partial<Bill>) => void;
   onDeleteBill: (id: string) => void;
   onAddTransaction: (transaction: Omit<Transaction, 'id' | 'createdAt'>) => void;
   pushEnabled: boolean;
   onTogglePush: (enabled: boolean) => void;
+  selectedMonth?: string;
+  onMonthChange?: (month: string) => void;
 }
+
+const formatMonthName = (monthStr: string) => {
+  if (!monthStr || !monthStr.includes('-')) return monthStr;
+  const parts = monthStr.split('-');
+  const date = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, 1);
+  return date.toLocaleDateString('pl-PL', { month: 'long', year: 'numeric' });
+};
+
+const getAdjacentMonth = (monthStr: string, delta: number) => {
+  const base = monthStr && monthStr.includes('-') ? monthStr : new Date().toISOString().slice(0, 7);
+  const parts = base.split('-');
+  const date = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1 + delta, 1);
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+};
 
 export const BillsManager: React.FC<BillsManagerProps> = ({
   bills,
@@ -44,7 +64,17 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   onUpdateBill,
   onDeleteBill,
   onAddTransaction,
+  selectedMonth,
+  onMonthChange,
 }) => {
+  const [internalMonth, setInternalMonth] = useState(() => {
+    return selectedMonth || new Date().toISOString().slice(0, 7);
+  });
+  const currentMonth = selectedMonth || internalMonth;
+  const handleMonthChange = (newMonth: string) => {
+    setInternalMonth(newMonth);
+    if (onMonthChange) onMonthChange(newMonth);
+  };
   const [filterType, setFilterType] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'paid' | 'overdue'>('all');
   const [filterPricing, setFilterPricing] = useState<'all' | 'fixed' | 'variable'>('all');
@@ -112,6 +142,26 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
+  const todayMonthStr = new Date().toISOString().slice(0, 7);
+  const isCurrentCalendarMonth = currentMonth === todayMonthStr;
+
+  const parseDueDate = (dateStr: string) => {
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+    }
+    return new Date(dateStr);
+  };
+
+  const twoWeeksFromNow = new Date(today);
+  twoWeeksFromNow.setDate(twoWeeksFromNow.getDate() + 14);
+  twoWeeksFromNow.setHours(23, 59, 59, 999);
+
+  const isNearDue = (dueDateStr: string) => {
+    const d = parseDueDate(dueDateStr);
+    return d.getTime() <= twoWeeksFromNow.getTime();
+  };
+
   // Compute status helpers
   const getDueInfo = (billDueDate: string, status: Bill['status']) => {
     if (status === 'paid') {
@@ -149,43 +199,82 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
     }
   };
 
-  // Filter bills
-  const filteredBills = bills.filter((b) => {
+  // 1. Rachunki do zapłaty na dany miesiąc:
+  // Tyczy się tylko okresu rozliczeniowego na dany miesiąc (dueDate w tym miesiącu)
+  // oraz jeśli to bieżący miesiąc kalendarzowy - rachunków zaległych z przeszłości
+  const monthPendingBills = bills.filter((b) => {
+    if (b.status === 'paid') return false;
+    const isDueInMonth = b.dueDate.startsWith(currentMonth);
+    const isPastOverdueInCurrent = isCurrentCalendarMonth && b.dueDate < currentMonth;
+    return isDueInMonth || isPastOverdueInCurrent;
+  });
+
+  // 2. Uregulowane opłaty w danym miesiącu:
+  // Jeśli rachunek został opłacony w wybranym miesiącu (nawet z odległą datą ważności)
+  const monthPaidBills = bills.filter((b) => {
+    const hasMonthPayment = b.paymentHistory?.some((h) => h.paidDate.startsWith(currentMonth));
+    const isMarkedPaidInMonth = b.status === 'paid' && !!b.paymentDate?.startsWith(currentMonth);
+    return hasMonthPayment || isMarkedPaidInMonth;
+  });
+
+  // 3. Rachunki z odległą datą ważności (przyszłe miesiące)
+  const futureBills = bills.filter((b) => {
+    if (b.status === 'paid') return false;
+    return !monthPendingBills.some((mp) => mp.id === b.id);
+  });
+
+  // Kwoty dla wybranego miesiąca rozliczeniowego
+  const totalPendingAmount = monthPendingBills.reduce((s, b) => s + b.amount, 0);
+
+  const totalPaidAmount = monthPaidBills.reduce((sum, b) => {
+    const monthHistory = (b.paymentHistory || []).filter((h) => h.paidDate.startsWith(currentMonth));
+    if (monthHistory.length > 0) {
+      return sum + monthHistory.reduce((s, h) => s + h.amount, 0);
+    }
+    if (b.status === 'paid' && b.paymentDate?.startsWith(currentMonth)) {
+      return sum + (b.lastPaidAmount || b.amount);
+    }
+    return sum;
+  }, 0);
+
+  const totalRegisteredAmount = totalPendingAmount + totalPaidAmount;
+  const registeredCount = monthPendingBills.length + monthPaidBills.length;
+
+  // Rachunki stałe z bliskim terminem ważności (zaległe lub termin <= 14 dni) do szybkiej opłaty "Opłać"
+  const nearPendingFixedBills = bills.filter(
+    (b) => b.status !== 'paid' && (b.pricingType === 'fixed' || !b.pricingType) && isNearDue(b.dueDate)
+  );
+  const totalNearPendingFixedAmount = nearPendingFixedBills.reduce((s, b) => s + b.amount, 0);
+
+  // Filter matcher for types and pricing
+  const matchesServiceAndPricing = (b: Bill) => {
     const matchesType = filterType === 'all' || b.serviceType === filterType;
     const matchesPricing =
       filterPricing === 'all' ||
       (filterPricing === 'fixed' && (b.pricingType === 'fixed' || !b.pricingType)) ||
       (filterPricing === 'variable' && b.pricingType === 'variable');
+    return matchesType && matchesPricing;
+  };
 
-    let matchesStatus = true;
-    if (filterStatus === 'paid') matchesStatus = b.status === 'paid';
-    if (filterStatus === 'pending') matchesStatus = b.status === 'pending';
-    if (filterStatus === 'overdue') {
-      const d = new Date(b.dueDate);
-      d.setHours(0, 0, 0, 0);
-      matchesStatus = b.status !== 'paid' && d.getTime() < today.getTime();
-    }
-    return matchesType && matchesPricing && matchesStatus;
+  const filteredMonthPendingBills = monthPendingBills.filter(matchesServiceAndPricing);
+  const filteredMonthPaidBills = monthPaidBills.filter(matchesServiceAndPricing);
+  const filteredFutureBills = futureBills.filter(matchesServiceAndPricing);
+
+  // Overdue bills matching filter
+  const filteredOverdueBills = bills.filter((b) => {
+    if (b.status === 'paid') return false;
+    const d = parseDueDate(b.dueDate);
+    return d.getTime() < today.getTime() && matchesServiceAndPricing(b);
   });
 
-  // Calculate totals
-  const pendingBills = bills.filter((b) => b.status !== 'paid');
-  const totalPendingAmount = pendingBills.reduce((s, b) => s + b.amount, 0);
-  const paidBills = bills.filter((b) => b.status === 'paid');
-  const totalPaidAmount = paidBills.reduce((s, b) => s + b.amount, 0);
-
-  // Pending fixed bills for batch quick pay
-  const pendingFixedBills = pendingBills.filter((b) => b.pricingType === 'fixed' || !b.pricingType);
-  const totalPendingFixedAmount = pendingFixedBills.reduce((s, b) => s + b.amount, 0);
-
   /**
-   * Opłacenie rachunku stałego (1 kliknięcie)
+   * Opłacenie rachunku stałego (1 kliknięcie) - powiązane z transakcją
    */
   const handlePayFixedBill = (bill: Bill) => {
     const payDate = new Date().toISOString().split('T')[0];
     const periodName = getBillingPeriodName(bill.dueDate);
 
-    // 1. Zapisz transakcję w wydatkach
+    // 1. Zapisz transakcję w wydatkach powiązaną z rachunkiem (billId)
     onAddTransaction({
       type: 'expense',
       amount: bill.amount,
@@ -193,6 +282,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
       date: payDate,
       title: `Rachunek: ${bill.name}`,
       comment: `Opłacono opłatę stałą (${bill.provider}) za okres ${periodName}.`,
+      billId: bill.id,
     });
 
     const newHistoryItem = {
@@ -205,10 +295,11 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
 
     const updatedHistory = [newHistoryItem, ...(bill.paymentHistory || [])];
 
-    // 2. Obsługa cykliczności
+    // 2. Obsługa cykliczności z zapamiętaniem poprzedniego terminu
     if (bill.billingCycle === 'jednorazowo') {
       onUpdateBill(bill.id, {
         status: 'paid',
+        previousDueDate: bill.dueDate,
         paymentDate: payDate,
         lastPaidAmount: bill.amount,
         paymentHistory: updatedHistory,
@@ -218,6 +309,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
       const nextDue = calculateNextDueDate(bill.dueDate, bill.billingCycle);
       onUpdateBill(bill.id, {
         status: 'pending',
+        previousDueDate: bill.dueDate,
         dueDate: nextDue,
         paymentDate: payDate,
         lastPaidAmount: bill.amount,
@@ -230,7 +322,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   };
 
   /**
-   * Opłacenie rachunku zmiennego (z wprowadzoną nową kwotą lub odczytem)
+   * Opłacenie rachunku zmiennego (z nową kwotą / odczytem) - powiązane z transakcją
    */
   const handlePayVariableBill = (bill: Bill) => {
     const edit = variableEdits[bill.id];
@@ -257,7 +349,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
       };
     }
 
-    // 1. Zapisz transakcję
+    // 1. Zapisz transakcję z billId
     onAddTransaction({
       type: 'expense',
       amount: parsedAmount,
@@ -267,6 +359,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
       comment: `Opłacono rachunek zmienny (${bill.provider}) za okres ${periodName}: ${parsedAmount.toFixed(2)} PLN.${
         updatedMeter ? ` Stan licznika: ${updatedMeter.current} ${updatedMeter.unit}.` : ''
       }`,
+      billId: bill.id,
     });
 
     const newHistoryItem = {
@@ -280,11 +373,12 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
 
     const updatedHistory = [newHistoryItem, ...(bill.paymentHistory || [])];
 
-    // 2. Obsługa cykliczności
+    // 2. Obsługa cykliczności z zapamiętaniem poprzedniego terminu
     if (bill.billingCycle === 'jednorazowo') {
       onUpdateBill(bill.id, {
         status: 'paid',
         amount: parsedAmount,
+        previousDueDate: bill.dueDate,
         paymentDate: payDate,
         lastPaidAmount: parsedAmount,
         meterReading: updatedMeter,
@@ -295,7 +389,8 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
       const nextDue = calculateNextDueDate(bill.dueDate, bill.billingCycle);
       onUpdateBill(bill.id, {
         status: 'pending',
-        amount: parsedAmount, // Zaktualizowana nowa kwota jako baza na kolejny cykl
+        amount: parsedAmount,
+        previousDueDate: bill.dueDate,
         dueDate: nextDue,
         paymentDate: payDate,
         lastPaidAmount: parsedAmount,
@@ -316,10 +411,10 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   };
 
   /**
-   * Szybkie zbiorcze opłacenie wszystkich oczekujących rachunków stałych
+   * Szybkie opłacenie rachunków o bliskiej dacie ważności
    */
   const handleBatchPayFixed = () => {
-    const billsToPay = pendingFixedBills.filter(b => selectedBatchBills.includes(b.id));
+    const billsToPay = nearPendingFixedBills.filter((b) => selectedBatchBills.includes(b.id));
     if (billsToPay.length === 0) return;
 
     const payDate = new Date().toISOString().split('T')[0];
@@ -335,7 +430,8 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         category: 'Rachunki i media',
         date: payDate,
         title: `Rachunek: ${bill.name}`,
-        comment: `Szybka płatność stała (${bill.provider}) za okres ${periodName}`,
+        comment: `Szybka płatność (${bill.provider}) za okres ${periodName}`,
+        billId: bill.id,
       });
 
       const newHistoryItem = {
@@ -343,13 +439,14 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         amount: bill.amount,
         paidDate: payDate,
         billingPeriod: periodName,
-        notes: 'Szybkie opłacenie zbiorcze',
+        notes: 'Szybkie opłacenie rachunku',
       };
       const updatedHistory = [newHistoryItem, ...(bill.paymentHistory || [])];
 
       if (bill.billingCycle === 'jednorazowo') {
         onUpdateBill(bill.id, {
           status: 'paid',
+          previousDueDate: bill.dueDate,
           paymentDate: payDate,
           lastPaidAmount: bill.amount,
           paymentHistory: updatedHistory,
@@ -358,6 +455,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         const nextDue = calculateNextDueDate(bill.dueDate, bill.billingCycle);
         onUpdateBill(bill.id, {
           status: 'pending',
+          previousDueDate: bill.dueDate,
           dueDate: nextDue,
           paymentDate: payDate,
           lastPaidAmount: bill.amount,
@@ -369,7 +467,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
     setShowBatchPayModal(false);
     setSelectedBatchBills([]);
     showToast(
-      `Pomyślnie opłacono ${billsToPay.length} stałych rachunków na łączną kwotę ${totalPaid.toFixed(2)} PLN!`
+      `Pomyślnie opłacono ${billsToPay.length} rachunków na łączną kwotę ${totalPaid.toFixed(2)} PLN!`
     );
   };
 
@@ -404,7 +502,9 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         : undefined;
 
     if (initialStatus === 'paid') {
-      // 1. Zapisz transakcję w wydatkach z wybraną datą opłacenia
+      const newBillId = `bill-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+
+      // 1. Zapisz transakcję w wydatkach z billId
       onAddTransaction({
         type: 'expense',
         amount: parsedAmount,
@@ -414,6 +514,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         comment: `Opłacono rachunek (${name.trim()}) za okres ${periodName}.${
           meterData ? ` Stan licznika: ${meterData.current} ${meterData.unit}.` : ''
         }`,
+        billId: newBillId,
       });
 
       const newHistoryItem = {
@@ -425,14 +526,16 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         notes: 'Opłacono podczas dodawania rachunku',
       };
 
-      // 2. Dodaj rachunek jako opłacony
+      // 2. Dodaj rachunek jako opłacony z tym samym ID
       onAddBill({
+        id: newBillId,
         name: name.trim(),
         serviceType,
         pricingType,
         provider: name.trim(),
         amount: parsedAmount,
         dueDate,
+        previousDueDate: dueDate,
         billingCycle,
         status: 'paid',
         paymentDate: actualPayDate,
@@ -750,7 +853,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         </div>
       )}
 
-      {/* Header with Title and Plus Button only */}
+      {/* Header with Title and Plus Button */}
       <div className="bg-white rounded-2xl px-5 py-4 border border-slate-200 shadow-xs flex items-center justify-between gap-4">
         <div className="flex items-center space-x-3">
           <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100">
@@ -761,9 +864,9 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
               <h1 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">
                 Rachunki i Media
               </h1>
-              {pendingBills.length > 0 && (
+              {monthPendingBills.length > 0 && (
                 <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-700 border border-rose-200">
-                  {pendingBills.length} do opłacenia
+                  {monthPendingBills.length} do opłacenia
                 </span>
               )}
             </div>
@@ -783,16 +886,70 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         </div>
       </div>
 
-      {/* KPI Cards */}
+      {/* Month Selector Bar */}
+      <div className="bg-white rounded-2xl px-5 py-3 border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center space-x-2.5">
+          <div className="p-1.5 rounded-lg bg-emerald-50 text-emerald-700">
+            <Calendar className="w-4 h-4" />
+          </div>
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+            Okres rozliczeniowy:
+          </span>
+          <span
+            className={`text-xs font-bold px-2 py-0.5 rounded-md ${
+              isCurrentCalendarMonth
+                ? 'bg-emerald-100 text-emerald-800'
+                : 'bg-slate-100 text-slate-700'
+            }`}
+          >
+            {isCurrentCalendarMonth ? 'Bieżący miesiąc' : 'Wybrany okres'}
+          </span>
+        </div>
+
+        <div className="flex items-center space-x-2 self-start sm:self-auto">
+          <button
+            onClick={() => handleMonthChange(getAdjacentMonth(currentMonth, -1))}
+            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 transition-colors"
+            title="Poprzedni miesiąc"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+
+          <span className="text-sm font-black text-slate-900 capitalize min-w-[140px] text-center">
+            {formatMonthName(currentMonth)}
+          </span>
+
+          <button
+            onClick={() => handleMonthChange(getAdjacentMonth(currentMonth, 1))}
+            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 transition-colors"
+            title="Następny miesiąc"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+
+          {!isCurrentCalendarMonth && (
+            <button
+              onClick={() => handleMonthChange(todayMonthStr)}
+              className="text-xs font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200 transition-colors ml-1"
+            >
+              Bieżący
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* KPI Cards for the selected month */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
           <div>
-            <span className="text-xs text-slate-500 font-medium">Do zapłaty (bieżący cykl)</span>
+            <span className="text-xs text-slate-500 font-medium">
+              Do zapłaty ({formatMonthName(currentMonth)})
+            </span>
             <p className="text-2xl font-black text-rose-600 mt-1">
               {totalPendingAmount.toFixed(2)} PLN
             </p>
             <span className="text-xs text-slate-400 mt-0.5 block font-medium">
-              {pendingBills.length} oczekujących płatności
+              {monthPendingBills.length} oczekujących płatności
             </span>
           </div>
           <div className="p-3 bg-rose-50 text-rose-600 rounded-2xl">
@@ -802,12 +959,14 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
 
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
           <div>
-            <span className="text-xs text-slate-500 font-medium">Uregulowane opłaty</span>
+            <span className="text-xs text-slate-500 font-medium">
+              Uregulowane opłaty ({formatMonthName(currentMonth)})
+            </span>
             <p className="text-2xl font-black text-emerald-600 mt-1">
               {totalPaidAmount.toFixed(2)} PLN
             </p>
             <span className="text-xs text-slate-400 mt-0.5 block font-medium">
-              {paidBills.length} zakończonych pozycji
+              {monthPaidBills.length} uregulowanych pozycji
             </span>
           </div>
           <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl">
@@ -817,12 +976,14 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
 
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
           <div>
-            <span className="text-xs text-slate-500 font-medium">Zarejestrowane opłaty</span>
+            <span className="text-xs text-slate-500 font-medium">
+              Zarejestrowane opłaty ({formatMonthName(currentMonth)})
+            </span>
             <p className="text-2xl font-black text-slate-900 mt-1">
-              {(totalPendingAmount + totalPaidAmount).toFixed(2)} PLN
+              {totalRegisteredAmount.toFixed(2)} PLN
             </p>
             <span className="text-xs text-slate-400 mt-0.5 block font-medium">
-              {bills.length} aktywnych usług
+              {registeredCount} pozycji w tym miesiącu
             </span>
           </div>
           <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl">
@@ -831,8 +992,8 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         </div>
       </div>
 
-      {/* Moved down: Quick Batch Pay Alert Banner for Fixed Bills */}
-      {pendingFixedBills.length > 0 && (
+      {/* Quick Pay Alert Banner for Bills with near due date */}
+      {nearPendingFixedBills.length > 0 && (
         <div className="bg-emerald-50/80 border border-emerald-200/90 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3.5 shadow-xs">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
@@ -840,24 +1001,26 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
             </div>
             <div>
               <p className="text-xs sm:text-sm font-bold text-emerald-950">
-                Rachunki stałe do opłacenia: {pendingFixedBills.length} {pendingFixedBills.length === 1 ? 'pozycja' : 'pozycje'} ({totalPendingFixedAmount.toFixed(2)} PLN)
+                Rachunki z bliskim terminem do opłacenia: {nearPendingFixedBills.length}{' '}
+                {nearPendingFixedBills.length === 1 ? 'pozycja' : 'pozycje'} (
+                {totalNearPendingFixedAmount.toFixed(2)} PLN)
               </p>
               <p className="text-[11px] text-emerald-700 mt-0.5">
-                Możesz zatwierdzić każdy rachunek osobno lub uregulować je jednym kliknięciem.
+                Termin płatności przypada w ciągu najbliższych 14 dni lub upłynął. Możesz uregulować je jednym kliknięciem.
               </p>
             </div>
           </div>
 
           <button
             onClick={() => {
-              setSelectedBatchBills(pendingFixedBills.map((b) => b.id));
+              setSelectedBatchBills(nearPendingFixedBills.map((b) => b.id));
               setShowBatchPayModal(true);
             }}
-            className="w-full sm:w-auto px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs sm:text-sm font-bold rounded-xl flex items-center justify-center space-x-2 transition-all shadow-xs shrink-0"
-            title="Otwórz panel zatwierdzania rachunków stałych"
+            className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs sm:text-sm font-bold rounded-xl flex items-center justify-center space-x-2 transition-all shadow-xs shrink-0"
+            title="Opłać rachunki z bliskim terminem ważności"
           >
             <Check className="w-4 h-4" />
-            <span>Opłać stałe ({totalPendingFixedAmount.toFixed(2)} PLN)</span>
+            <span>Opłać ({totalNearPendingFixedAmount.toFixed(2)} PLN)</span>
           </button>
         </div>
       )}
@@ -967,79 +1130,160 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
 
       {/* Bills Cards Grid */}
       {(() => {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const twoWeeksFromNow = new Date(today);
-        twoWeeksFromNow.setDate(twoWeeksFromNow.getDate() + 14);
-        twoWeeksFromNow.setHours(23, 59, 59, 999);
-
-        const parseDueDate = (dateStr: string) => {
-          const parts = dateStr.split('-');
-          if (parts.length === 3) {
-            return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
-          }
-          return new Date(dateStr);
-        };
-
         if (filterStatus === 'paid') {
           return (
             <div className="space-y-4">
-              <h2 className="text-sm font-bold text-slate-800 flex items-center space-x-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                <span>Opłacone rachunki ({filteredBills.length})</span>
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                {filteredBills.map(renderBillCard)}
-              </div>
-            </div>
-          );
-        }
-
-        const urgentBills = filteredBills.filter(
-          (b) => b.status === 'pending' && parseDueDate(b.dueDate).getTime() <= twoWeeksFromNow.getTime()
-        );
-        const futureBills = filteredBills.filter(
-          (b) => b.status === 'pending' && parseDueDate(b.dueDate).getTime() > twoWeeksFromNow.getTime()
-        );
-        const paidFiltered = filteredBills.filter((b) => b.status === 'paid');
-
-        const urgentTotal = urgentBills.reduce((s, b) => s + b.amount, 0);
-        const futureTotal = futureBills.reduce((s, b) => s + b.amount, 0);
-
-        return (
-          <div className="space-y-8">
-            {/* Urgent / Short-Term Bills (Due in next 14 days or overdue) */}
-            <div className="space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <h2 className="text-sm font-bold text-slate-800 flex items-center space-x-2">
-                  <Clock className="w-4 h-4 text-rose-500" />
-                  <span>Rachunki bieżące (termin do 14 dni lub zaległe)</span>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                  <span>
+                    Uregulowane opłaty ({formatMonthName(currentMonth)}): {filteredMonthPaidBills.length}
+                  </span>
                 </h2>
-                {urgentBills.length > 0 && (
-                  <span className="text-xs font-semibold text-rose-700 bg-rose-50 px-2.5 py-1 rounded-full border border-rose-100 self-start sm:self-auto">
-                    {urgentBills.length} {urgentBills.length === 1 ? 'rachunek' : 'rachunki'} • {urgentTotal.toFixed(2)} PLN
+                {filteredMonthPaidBills.length > 0 && (
+                  <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 self-start sm:self-auto">
+                    Łącznie uregulowano: {totalPaidAmount.toFixed(2)} PLN
                   </span>
                 )}
               </div>
 
-              {urgentBills.length > 0 ? (
+              {filteredMonthPaidBills.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {urgentBills.map(renderBillCard)}
+                  {filteredMonthPaidBills.map(renderBillCard)}
                 </div>
               ) : (
-                <div className="p-6 bg-white rounded-2xl border border-slate-200 text-center">
+                <div className="p-8 bg-white rounded-2xl border border-slate-200 text-center space-y-1">
                   <p className="text-sm font-semibold text-slate-700">
-                    Brak bieżących rachunków do uregulowania w ciągu 14 dni.
+                    Brak opłat uregulowanych w miesiącu {formatMonthName(currentMonth)}.
                   </p>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Wszystkie najbliższe opłaty zostały uregulowane lub termin przypada później.
+                  <p className="text-xs text-slate-400">
+                    Gdy opłacisz rachunek w tym okresie, pojawi się on tutaj oraz w Twoich transakcjach.
+                  </p>
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        if (filterStatus === 'pending') {
+          return (
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <h2 className="text-sm font-bold text-slate-800 flex items-center space-x-2">
+                  <Clock className="w-4 h-4 text-rose-500" />
+                  <span>
+                    Rachunki do zapłaty ({formatMonthName(currentMonth)}): {filteredMonthPendingBills.length}
+                  </span>
+                </h2>
+                {filteredMonthPendingBills.length > 0 && (
+                  <span className="text-xs font-semibold text-rose-700 bg-rose-50 px-2.5 py-1 rounded-full border border-rose-100 self-start sm:self-auto">
+                    Do zapłaty: {totalPendingAmount.toFixed(2)} PLN
+                  </span>
+                )}
+              </div>
+
+              {filteredMonthPendingBills.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {filteredMonthPendingBills.map(renderBillCard)}
+                </div>
+              ) : (
+                <div className="p-8 bg-white rounded-2xl border border-slate-200 text-center space-y-1">
+                  <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
+                  <p className="text-sm font-bold text-slate-800">
+                    Wszystkie rachunki na {formatMonthName(currentMonth)} są uregulowane!
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    Brak oczekujących płatności przypadających na ten miesiąc rozliczeniowy.
+                  </p>
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        if (filterStatus === 'overdue') {
+          return (
+            <div className="space-y-4">
+              <h2 className="text-sm font-bold text-slate-800 flex items-center space-x-2">
+                <AlertTriangle className="w-4 h-4 text-rose-500" />
+                <span>Rachunki przeterminowane ({filteredOverdueBills.length})</span>
+              </h2>
+              {filteredOverdueBills.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {filteredOverdueBills.map(renderBillCard)}
+                </div>
+              ) : (
+                <div className="p-8 bg-white rounded-2xl border border-slate-200 text-center">
+                  <p className="text-sm font-semibold text-slate-700">
+                    Brak przeterminowanych rachunków. Wszystko pod kontrolą!
+                  </p>
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        // 'all' filter: Display Month Pending, Month Paid, and Future Bills
+        const futureTotal = filteredFutureBills.reduce((s, b) => s + b.amount, 0);
+
+        return (
+          <div className="space-y-8">
+            {/* Section 1: Month Pending Bills */}
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <h2 className="text-sm font-bold text-slate-800 flex items-center space-x-2">
+                  <Clock className="w-4 h-4 text-rose-500" />
+                  <span>
+                    Do zapłaty w tym miesiącu ({formatMonthName(currentMonth)})
+                  </span>
+                </h2>
+                {filteredMonthPendingBills.length > 0 && (
+                  <span className="text-xs font-semibold text-rose-700 bg-rose-50 px-2.5 py-1 rounded-full border border-rose-100 self-start sm:self-auto">
+                    {filteredMonthPendingBills.length}{' '}
+                    {filteredMonthPendingBills.length === 1 ? 'rachunek' : 'rachunki'} •{' '}
+                    {totalPendingAmount.toFixed(2)} PLN
+                  </span>
+                )}
+              </div>
+
+              {filteredMonthPendingBills.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {filteredMonthPendingBills.map(renderBillCard)}
+                </div>
+              ) : (
+                <div className="p-6 bg-white rounded-2xl border border-slate-200 text-center space-y-1">
+                  <p className="text-sm font-semibold text-slate-700">
+                    Brak oczekujących rachunków w okresie {formatMonthName(currentMonth)}.
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    Wszystkie rachunki z tego okresu zostały uregulowane lub termin przypada w kolejnych miesiącach.
                   </p>
                 </div>
               )}
             </div>
 
-            {/* Future Bills (Collapsible Bar - Hidden by default for clean focus) */}
-            {futureBills.length > 0 && (
+            {/* Section 2: Month Paid Bills */}
+            {filteredMonthPaidBills.length > 0 && (
+              <div className="space-y-4 pt-2">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <h2 className="text-sm font-bold text-slate-800 flex items-center space-x-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                    <span>
+                      Uregulowane w miesiącu {formatMonthName(currentMonth)} ({filteredMonthPaidBills.length})
+                    </span>
+                  </h2>
+                  <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100 self-start sm:self-auto">
+                    Opłacono: {totalPaidAmount.toFixed(2)} PLN
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {filteredMonthPaidBills.map(renderBillCard)}
+                </div>
+              </div>
+            )}
+
+            {/* Section 3: Future Bills (Collapsible) */}
+            {filteredFutureBills.length > 0 && (
               <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
                 <button
                   onClick={() => setShowFutureBills(!showFutureBills)}
@@ -1052,14 +1296,14 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                     <div>
                       <div className="flex items-center space-x-2">
                         <span className="font-bold text-sm text-slate-900">
-                          Rachunki przyszłe (termin powyżej 2 tygodni)
+                          Rachunki z odległą datą ważności (kolejne miesiące)
                         </span>
                         <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-indigo-100 text-indigo-700">
-                          {futureBills.length}
+                          {filteredFutureBills.length}
                         </span>
                       </div>
                       <p className="text-xs text-slate-500 mt-0.5">
-                        Łączna kwota: <span className="font-semibold text-slate-700">{futureTotal.toFixed(2)} PLN</span> • Schowane, aby ułatwić skupienie na bieżących płatnościach
+                        Łączna kwota: <span className="font-semibold text-slate-700">{futureTotal.toFixed(2)} PLN</span> • Nieobciążające bieżącego miesiąca ({formatMonthName(currentMonth)})
                       </p>
                     </div>
                   </div>
@@ -1073,36 +1317,25 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                 {showFutureBills && (
                   <div className="p-5 border-t border-slate-200 bg-slate-50/30">
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 animate-in fade-in slide-in-from-top-2">
-                      {futureBills.map(renderBillCard)}
+                      {filteredFutureBills.map(renderBillCard)}
                     </div>
                   </div>
                 )}
               </div>
             )}
 
-            {/* Paid Bills Section (Shown if 'all' filter is active) */}
-            {filterStatus === 'all' && paidFiltered.length > 0 && (
-              <div className="space-y-4 pt-4 border-t border-slate-200/60">
-                <h2 className="text-sm font-bold text-slate-800 flex items-center space-x-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                  <span>Opłacone rachunki ({paidFiltered.length})</span>
-                </h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {paidFiltered.map(renderBillCard)}
+            {filteredMonthPendingBills.length === 0 &&
+              filteredMonthPaidBills.length === 0 &&
+              filteredFutureBills.length === 0 && (
+                <div className="text-center py-10 bg-white rounded-2xl border border-slate-200 border-dashed">
+                  <p className="text-sm text-slate-500">Brak rachunków spełniających kryteria filtrów.</p>
                 </div>
-              </div>
-            )}
-
-            {filteredBills.length === 0 && (
-              <div className="text-center py-10 bg-white rounded-2xl border border-slate-200 border-dashed">
-                <p className="text-sm text-slate-500">Brak rachunków spełniających kryteria.</p>
-              </div>
-            )}
+              )}
           </div>
         );
       })()}
 
-      {/* Batch Pay Fixed Modal with Individual Approval Option */}
+      {/* Batch Pay Modal for Near Due Bills */}
       {showBatchPayModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 border border-slate-200 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
@@ -1112,21 +1345,21 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
               </div>
               <div>
                 <h3 className="font-bold text-base text-slate-900">
-                  Rachunki stałe do opłacenia
+                  Rachunki z bliskim terminem ważności
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Zatwierdź każdy rachunek osobno lub opłać wybrane pozycje zbiorczo.
+                  Zatwierdź każdy rachunek osobno lub ureguluj wybrane pozycje zbiorczo.
                 </p>
               </div>
             </div>
 
             {/* Selection Toolbar */}
             <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
-              <span className="font-medium">Lista rachunków ({pendingFixedBills.length}):</span>
+              <span className="font-medium">Lista do opłacenia ({nearPendingFixedBills.length}):</span>
               <div className="flex items-center space-x-2 font-semibold">
                 <button
                   type="button"
-                  onClick={() => setSelectedBatchBills(pendingFixedBills.map((b) => b.id))}
+                  onClick={() => setSelectedBatchBills(nearPendingFixedBills.map((b) => b.id))}
                   className="text-emerald-700 hover:text-emerald-800 transition-colors"
                 >
                   Zaznacz wszystkie
@@ -1144,7 +1377,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
 
             {/* List with Individual Pay Buttons */}
             <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-              {pendingFixedBills.map((b) => {
+              {nearPendingFixedBills.map((b) => {
                 const isSelected = selectedBatchBills.includes(b.id);
                 return (
                   <div
@@ -1187,7 +1420,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                         onClick={() => {
                           handlePayFixedBill(b);
                           setSelectedBatchBills((prev) => prev.filter((id) => id !== b.id));
-                          if (pendingFixedBills.length <= 1) {
+                          if (nearPendingFixedBills.length <= 1) {
                             setShowBatchPayModal(false);
                           }
                         }}
@@ -1208,11 +1441,11 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
               <div>
                 <span className="text-xs font-semibold text-emerald-900 block">Zaznaczono do opłacenia:</span>
                 <span className="text-[11px] text-emerald-700">
-                  {selectedBatchBills.length} z {pendingFixedBills.length} rachunków
+                  {selectedBatchBills.length} z {nearPendingFixedBills.length} rachunków
                 </span>
               </div>
               <span className="text-lg font-black text-emerald-700">
-                {pendingFixedBills
+                {nearPendingFixedBills
                   .filter((b) => selectedBatchBills.includes(b.id))
                   .reduce((sum, b) => sum + b.amount, 0)
                   .toFixed(2)}{' '}

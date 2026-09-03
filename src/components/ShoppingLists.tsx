@@ -8,6 +8,8 @@ import {
   Search,
   CheckCheck,
   X,
+  Pencil,
+  Check,
 } from 'lucide-react';
 import { ShoppingList, ShoppingItem, Transaction } from '../types';
 import confetti from 'canvas-confetti';
@@ -20,6 +22,7 @@ interface ShoppingListsProps {
   onAddItem: (item: Omit<ShoppingItem, 'id' | 'createdAt'>) => void;
   onToggleItem: (id: string) => void;
   onDeleteItem: (id: string) => void;
+  onUpdateItem?: (id: string, updates: Partial<ShoppingItem>) => void;
   onAddTransaction: (transaction: Omit<Transaction, 'id' | 'createdAt'>) => void;
 }
 
@@ -55,6 +58,7 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
   onAddItem,
   onToggleItem,
   onDeleteItem,
+  onUpdateItem,
 }) => {
   // Tab: 'active' (Do kupienia) vs 'completed' (Kupione)
   const [activeTab, setActiveTab] = useState<'active' | 'completed'>('active');
@@ -67,6 +71,44 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('Spożywcze');
   const [customCategory, setCustomCategory] = useState('');
   const [isCreatingCustomCategory, setIsCreatingCustomCategory] = useState(false);
+
+  // Edit Item State
+  const [editingItem, setEditingItem] = useState<ShoppingItem | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editCategory, setEditCategory] = useState('Spożywcze');
+  const [editQuantity, setEditQuantity] = useState('1');
+  const [editUnit, setEditUnit] = useState('szt.');
+  const [editEstimatedPrice, setEditEstimatedPrice] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+
+  const handleStartEdit = (item: ShoppingItem, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingItem(item);
+    setEditName(item.name);
+    setEditCategory(item.category || 'Spożywcze');
+    setEditQuantity(item.quantity ? item.quantity.toString() : '1');
+    setEditUnit(item.unit || 'szt.');
+    setEditEstimatedPrice(item.estimatedPrice !== undefined ? item.estimatedPrice.toString() : '');
+    setEditNotes(item.notes || '');
+  };
+
+  const handleSaveEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingItem || !editName.trim()) return;
+    const qty = parseFloat(editQuantity) || 1;
+    const price = editEstimatedPrice ? parseFloat(editEstimatedPrice) : undefined;
+    if (onUpdateItem) {
+      onUpdateItem(editingItem.id, {
+        name: editName.trim(),
+        category: editCategory.trim() || 'Spożywcze',
+        quantity: qty,
+        unit: editUnit.trim() || 'szt.',
+        estimatedPrice: price && !isNaN(price) ? price : undefined,
+        notes: editNotes.trim() || undefined,
+      });
+    }
+    setEditingItem(null);
+  };
 
   // All known categories for the dropdown selector when adding a new item
   const allKnownCategories = useMemo(() => {
@@ -501,6 +543,11 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
                       >
                         {item.name}
                       </span>
+                      {item.quantity && item.quantity > 1 && (
+                        <span className="text-[11px] text-slate-500 font-medium shrink-0">
+                          {item.quantity} {item.unit || 'szt.'}
+                        </span>
+                      )}
 
                       <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded-md bg-slate-100 text-[10px] font-medium text-slate-600 shrink-0 border border-slate-200/60 max-w-[100px] truncate">
                         <span
@@ -512,18 +559,28 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
                     </div>
                   </div>
 
-                  {/* Delete Action */}
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDeleteItem(item.id);
-                    }}
-                    className="p-1.5 text-slate-300 hover:text-rose-600 transition-colors rounded-lg shrink-0"
-                    title="Usuń"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  {/* Actions: Edit & Delete */}
+                  <div className="flex items-center space-x-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={(e) => handleStartEdit(item, e)}
+                      className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors rounded-lg"
+                      title="Edytuj pozycję"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteItem(item.id);
+                      }}
+                      className="p-1.5 text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-colors rounded-lg"
+                      title="Usuń"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               );
             })}
@@ -590,19 +647,35 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
                         >
                           {item.name}
                         </span>
+                        {item.quantity && item.quantity > 1 && (
+                          <span className="text-[11px] text-slate-500 font-medium shrink-0">
+                            {item.quantity} {item.unit || 'szt.'}
+                          </span>
+                        )}
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeleteItem(item.id);
-                        }}
-                        className="p-1.5 text-slate-300 hover:text-rose-600 transition-colors rounded-lg shrink-0"
-                        title="Usuń"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {/* Actions: Edit & Delete */}
+                      <div className="flex items-center space-x-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={(e) => handleStartEdit(item, e)}
+                          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors rounded-lg"
+                          title="Edytuj pozycję"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteItem(item.id);
+                          }}
+                          className="p-1.5 text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-colors rounded-lg"
+                          title="Usuń"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   ))}
               </div>
@@ -610,6 +683,144 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
           )
         )}
       </div>
+
+      {/* Edit Item Modal */}
+      {editingItem && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-xl border border-slate-200 overflow-hidden animate-in zoom-in-95">
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100">
+                  <Pencil className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm sm:text-base">Edytuj pozycję z koszyka</h3>
+                  <p className="text-xs text-slate-500">Zaktualizuj nazwę, kategorię lub ilość</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setEditingItem(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="p-4 sm:p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Nazwa produktu <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  placeholder="np. Mleko 3.2%, Chleb razowy"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  autoFocus
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Kategoria
+                  </label>
+                  <select
+                    value={editCategory}
+                    onChange={(e) => setEditCategory(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    {allKnownCategories.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Ilość
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0.1"
+                      value={editQuantity}
+                      onChange={(e) => setEditQuantity(e.target.value)}
+                      className="w-full px-2.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Jedn.
+                    </label>
+                    <select
+                      value={editUnit}
+                      onChange={(e) => setEditUnit(e.target.value)}
+                      className="w-full px-2 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="szt.">szt.</option>
+                      <option value="kg">kg</option>
+                      <option value="g">g</option>
+                      <option value="l">l</option>
+                      <option value="opak.">opak.</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Szacowana cena (PLN, opcjonalna)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={editEstimatedPrice}
+                  onChange={(e) => setEditEstimatedPrice(e.target.value)}
+                  placeholder="np. 4.99"
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Notatka / Dodatkowe uwagi
+                </label>
+                <input
+                  type="text"
+                  value={editNotes}
+                  onChange={(e) => setEditNotes(e.target.value)}
+                  placeholder="np. marka, rodzaj, pojemność"
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingItem(null)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors"
+                >
+                  Anuluj
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center space-x-1.5"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Zapisz zmiany</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

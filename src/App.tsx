@@ -90,6 +90,7 @@ export default function App() {
   // Ref to prevent echo update loops when Firestore snapshot triggers local state update
   const isIncomingFirestoreUpdate = useRef(false);
   const lastLocalMutationTime = useRef<number>(0);
+  const hasUnsavedLocalChanges = useRef<boolean>(false);
 
   // Ref always pointing to freshest data
   const stateRef = useRef({
@@ -228,58 +229,35 @@ export default function App() {
                   cloudProvider: 'firebase',
                 });
 
-                // Take safety snapshot of local data before cloud assimilation
-                saveBackupSnapshot('Przed pobraniem danych z chmury', {
-                  transactions: stateRef.current.transactions,
-                  bills: stateRef.current.bills,
-                  budgetLimits: stateRef.current.budgetLimits,
-                  shoppingLists: stateRef.current.shoppingLists,
-                  shoppingItems: stateRef.current.shoppingItems,
-                });
+                // Directly assign cloud data as source of truth for logged in account
+                const cloudTxs = cloudHousehold.transactions || [];
+                const cloudBills = cloudHousehold.bills || [];
+                const cloudLimits = cloudHousehold.budgetLimits || [];
+                const cloudLists = cloudHousehold.shoppingLists || [];
+                const cloudItems = cloudHousehold.shoppingItems || [];
+                const cloudNotifs = cloudHousehold.notifications || [];
 
-                if (cloudHousehold.transactions && Array.isArray(cloudHousehold.transactions)) {
-                  // Safe merge: keep local transactions that might not have synced yet
-                  const cloudTxMap = new Map(cloudHousehold.transactions.map((t: Transaction) => [t.id, t]));
-                  const currentLocal = stateRef.current.transactions;
-                  const merged = [...cloudHousehold.transactions];
-                  for (const localTx of currentLocal) {
-                    if (!cloudTxMap.has(localTx.id)) {
-                      merged.push(localTx);
-                    }
-                  }
-                  setTransactions(merged);
-                  saveTransactions(merged);
-                }
-                if (cloudHousehold.bills && Array.isArray(cloudHousehold.bills)) {
-                  const cloudBillsMap = new Map(cloudHousehold.bills.map((b: Bill) => [b.id, b]));
-                  const currentLocalBills = stateRef.current.bills;
-                  const mergedBills = [...cloudHousehold.bills];
-                  for (const localBill of currentLocalBills) {
-                    if (!cloudBillsMap.has(localBill.id)) {
-                      mergedBills.push(localBill);
-                    }
-                  }
-                  setBills(mergedBills);
-                  saveBills(mergedBills);
-                }
-                if (cloudHousehold.budgetLimits && Array.isArray(cloudHousehold.budgetLimits)) {
-                  setBudgetLimits(cloudHousehold.budgetLimits);
-                  saveBudgetLimits(cloudHousehold.budgetLimits);
-                }
-                if (cloudHousehold.shoppingLists && Array.isArray(cloudHousehold.shoppingLists)) {
-                  setShoppingLists(cloudHousehold.shoppingLists);
-                  saveShoppingLists(cloudHousehold.shoppingLists);
-                }
-                if (cloudHousehold.shoppingItems && Array.isArray(cloudHousehold.shoppingItems)) {
-                  setShoppingItems(cloudHousehold.shoppingItems);
-                  saveShoppingItems(cloudHousehold.shoppingItems);
-                }
-                if (cloudHousehold.notifications && Array.isArray(cloudHousehold.notifications)) {
-                  setNotifications(cloudHousehold.notifications);
-                  saveNotifications(cloudHousehold.notifications);
-                }
+                setTransactions(cloudTxs);
+                saveTransactions(cloudTxs);
+
+                setBills(cloudBills);
+                saveBills(cloudBills);
+
+                setBudgetLimits(cloudLimits);
+                saveBudgetLimits(cloudLimits);
+
+                setShoppingLists(cloudLists);
+                saveShoppingLists(cloudLists);
+
+                setShoppingItems(cloudItems);
+                saveShoppingItems(cloudItems);
+
+                setNotifications(cloudNotifs);
+                saveNotifications(cloudNotifs);
+
                 setSyncStatus('synced');
                 setLastSyncedAt(new Date());
+                hasUnsavedLocalChanges.current = false;
 
                 if (memberChanged) {
                   await saveHouseholdToFirestore(cloudHousehold.id, {
@@ -289,8 +267,21 @@ export default function App() {
                 }
               }
             } else {
-              // Użytkownik nie ma jeszcze przypisanego żadnego domu - izolacja konta
+              // Użytkownik nie ma jeszcze przypisanego żadnego domu - wyczyść stale dane z innego konta
               setHousehold(null);
+              setTransactions([]);
+              saveTransactions([]);
+              setBills([]);
+              saveBills([]);
+              setBudgetLimits([]);
+              saveBudgetLimits([]);
+              setShoppingLists([]);
+              saveShoppingLists([]);
+              setShoppingItems([]);
+              saveShoppingItems([]);
+              setNotifications([]);
+              saveNotifications([]);
+              hasUnsavedLocalChanges.current = false;
             }
           } catch (e) {
             console.warn('Błąd pobierania powiązanego profilu/domu:', e);
@@ -304,6 +295,7 @@ export default function App() {
           isLoggedIn: false,
         });
         setHousehold(null);
+        hasUnsavedLocalChanges.current = false;
       }
     });
 
@@ -318,54 +310,37 @@ export default function App() {
       household.id,
       (cloudData, hasPendingWrites) => {
         if (!cloudData) return;
-        // Ignore local uncommitted snapshot writes
+        // Ignore local uncommitted snapshot writes if user is currently making local changes
         if (hasPendingWrites) return;
-        // If the user just edited something locally in the last 2 seconds, don't overwrite with snapshot
-        if (Date.now() - lastLocalMutationTime.current < 2000) return;
 
         isIncomingFirestoreUpdate.current = true;
+        hasUnsavedLocalChanges.current = false;
 
-        if (cloudData.transactions && Array.isArray(cloudData.transactions)) {
-          // Safe merge so un-synced local transactions are never overwritten
-          const cloudTxMap = new Map(cloudData.transactions.map((t: Transaction) => [t.id, t]));
-          const currentLocal = stateRef.current.transactions;
-          const merged = [...cloudData.transactions];
-          for (const localTx of currentLocal) {
-            if (!cloudTxMap.has(localTx.id)) {
-              merged.push(localTx);
-            }
-          }
-          setTransactions(merged);
-          saveTransactions(merged);
-        }
-        if (cloudData.bills && Array.isArray(cloudData.bills)) {
-          const cloudBillsMap = new Map(cloudData.bills.map((b: Bill) => [b.id, b]));
-          const currentLocalBills = stateRef.current.bills;
-          const mergedBills = [...cloudData.bills];
-          for (const localBill of currentLocalBills) {
-            if (!cloudBillsMap.has(localBill.id)) {
-              mergedBills.push(localBill);
-            }
-          }
-          setBills(mergedBills);
-          saveBills(mergedBills);
-        }
-        if (cloudData.budgetLimits && Array.isArray(cloudData.budgetLimits)) {
-          setBudgetLimits(cloudData.budgetLimits);
-          saveBudgetLimits(cloudData.budgetLimits);
-        }
-        if (cloudData.shoppingLists && Array.isArray(cloudData.shoppingLists)) {
-          setShoppingLists(cloudData.shoppingLists);
-          saveShoppingLists(cloudData.shoppingLists);
-        }
-        if (cloudData.shoppingItems && Array.isArray(cloudData.shoppingItems)) {
-          setShoppingItems(cloudData.shoppingItems);
-          saveShoppingItems(cloudData.shoppingItems);
-        }
-        if (cloudData.notifications && Array.isArray(cloudData.notifications)) {
-          setNotifications(cloudData.notifications);
-          saveNotifications(cloudData.notifications);
-        }
+        const cloudTxs = cloudData.transactions || [];
+        const cloudBills = cloudData.bills || [];
+        const cloudLimits = cloudData.budgetLimits || [];
+        const cloudLists = cloudData.shoppingLists || [];
+        const cloudItems = cloudData.shoppingItems || [];
+        const cloudNotifs = cloudData.notifications || [];
+
+        setTransactions(cloudTxs);
+        saveTransactions(cloudTxs);
+
+        setBills(cloudBills);
+        saveBills(cloudBills);
+
+        setBudgetLimits(cloudLimits);
+        saveBudgetLimits(cloudLimits);
+
+        setShoppingLists(cloudLists);
+        saveShoppingLists(cloudLists);
+
+        setShoppingItems(cloudItems);
+        saveShoppingItems(cloudItems);
+
+        setNotifications(cloudNotifs);
+        saveNotifications(cloudNotifs);
+
         if (cloudData.members && Array.isArray(cloudData.members)) {
           setHousehold((prev) => (prev ? { ...prev, members: cloudData.members } : null));
         }
@@ -375,7 +350,7 @@ export default function App() {
 
         setTimeout(() => {
           isIncomingFirestoreUpdate.current = false;
-        }, 300);
+        }, 100);
       },
       (error) => {
         console.warn('Firestore subscription status:', error.message);
@@ -390,6 +365,7 @@ export default function App() {
   // 3. Auto sync changes to Firestore (debounced)
   useEffect(() => {
     if (isIncomingFirestoreUpdate.current) return;
+    if (!hasUnsavedLocalChanges.current) return;
     if (!household?.id || !isFirebaseConfigured()) return;
 
     const timer = setTimeout(async () => {
@@ -412,6 +388,7 @@ export default function App() {
           notifications: current.notifications,
           lastUpdatedBy: currentUser.email || currentUser.name,
         });
+        hasUnsavedLocalChanges.current = false;
         setSyncStatus('synced');
         setLastSyncedAt(new Date());
         setSyncErrorMessage(null);
@@ -479,6 +456,7 @@ export default function App() {
       createdAt: new Date().toISOString(),
     };
     lastLocalMutationTime.current = Date.now();
+    hasUnsavedLocalChanges.current = true;
     setTransactions((prev) => {
       const updated = [newTx, ...prev];
       saveTransactions(updated);
@@ -496,6 +474,7 @@ export default function App() {
   const handleDeleteTransaction = (id: string) => {
     const deletedTx = transactions.find((t) => t.id === id);
     lastLocalMutationTime.current = Date.now();
+    hasUnsavedLocalChanges.current = true;
     setTransactions((prev) => {
       const updated = prev.filter((t) => t.id !== id);
       saveTransactions(updated);
@@ -511,6 +490,7 @@ export default function App() {
 
   const handleUpdateTransaction = (id: string, updates: Partial<Transaction>) => {
     lastLocalMutationTime.current = Date.now();
+    hasUnsavedLocalChanges.current = true;
     let updatedTitle = '';
     setTransactions((prev) => {
       const updated = prev.map((t) => {
@@ -561,6 +541,7 @@ export default function App() {
       createdAt: new Date().toISOString(),
     };
     lastLocalMutationTime.current = Date.now();
+    hasUnsavedLocalChanges.current = true;
     setShoppingLists((prev) => {
       const updated = [...prev, newList];
       saveShoppingLists(updated);
@@ -572,6 +553,7 @@ export default function App() {
   const handleDeleteShoppingList = (id: string) => {
     const listToDelete = shoppingLists.find((l) => l.id === id);
     lastLocalMutationTime.current = Date.now();
+    hasUnsavedLocalChanges.current = true;
     setShoppingLists((prev) => {
       const updated = prev.filter((l) => l.id !== id);
       saveShoppingLists(updated);
@@ -595,6 +577,7 @@ export default function App() {
       assignedTo: itemData.assignedTo || currentUser.name || 'Wszyscy',
     };
     lastLocalMutationTime.current = Date.now();
+    hasUnsavedLocalChanges.current = true;
     setShoppingItems((prev) => {
       const updated = [...prev, newItem];
       saveShoppingItems(updated);
@@ -605,6 +588,7 @@ export default function App() {
 
   const handleToggleShoppingItem = (id: string) => {
     lastLocalMutationTime.current = Date.now();
+    hasUnsavedLocalChanges.current = true;
     setShoppingItems((prev) => {
       const updated = prev.map((item) => {
         if (item.id === id) {
@@ -627,6 +611,7 @@ export default function App() {
   const handleDeleteShoppingItem = (id: string) => {
     const itemToDelete = shoppingItems.find((i) => i.id === id);
     lastLocalMutationTime.current = Date.now();
+    hasUnsavedLocalChanges.current = true;
     setShoppingItems((prev) => {
       const updated = prev.filter((i) => i.id !== id);
       saveShoppingItems(updated);
@@ -645,6 +630,7 @@ export default function App() {
       createdAt: new Date().toISOString(),
     };
     lastLocalMutationTime.current = Date.now();
+    hasUnsavedLocalChanges.current = true;
     setBills((prev) => {
       const updated = [...prev, newBill];
       saveBills(updated);
@@ -658,6 +644,7 @@ export default function App() {
 
   const handleUpdateBill = (id: string, updates: Partial<Bill>) => {
     lastLocalMutationTime.current = Date.now();
+    hasUnsavedLocalChanges.current = true;
     setBills((prev) => {
       const updated = prev.map((b) => {
         if (b.id === id) {
@@ -679,6 +666,7 @@ export default function App() {
   const handleDeleteBill = (id: string) => {
     const billToDelete = bills.find((b) => b.id === id);
     lastLocalMutationTime.current = Date.now();
+    hasUnsavedLocalChanges.current = true;
     setBills((prev) => {
       const updated = prev.filter((b) => b.id !== id);
       saveBills(updated);
@@ -696,6 +684,7 @@ export default function App() {
       id: `limit-${Date.now()}`,
     };
     lastLocalMutationTime.current = Date.now();
+    hasUnsavedLocalChanges.current = true;
     setBudgetLimits((prev) => {
       const updated = [...prev, newLimit];
       saveBudgetLimits(updated);
@@ -706,6 +695,7 @@ export default function App() {
 
   const handleUpdateBudgetLimit = (id: string, limit: number) => {
     lastLocalMutationTime.current = Date.now();
+    hasUnsavedLocalChanges.current = true;
     setBudgetLimits((prev) => {
       const updated = prev.map((l) => {
         if (l.id === id) {
@@ -722,6 +712,7 @@ export default function App() {
   const handleDeleteBudgetLimit = (id: string) => {
     const limitToDelete = budgetLimits.find((l) => l.id === id);
     lastLocalMutationTime.current = Date.now();
+    hasUnsavedLocalChanges.current = true;
     setBudgetLimits((prev) => {
       const updated = prev.filter((l) => l.id !== id);
       saveBudgetLimits(updated);
@@ -799,6 +790,7 @@ export default function App() {
           notifications,
           lastUpdatedBy: currentUser.email || currentUser.name,
         });
+        hasUnsavedLocalChanges.current = false;
       } catch (err) {
         console.warn('Błąd aktualizacji Firestore po usunięciu danych:', err);
       }
@@ -826,12 +818,32 @@ export default function App() {
               syncStatus: 'synced',
               cloudProvider: 'firebase',
             });
-            if (cloudH.transactions) setTransactions(cloudH.transactions);
-            if (cloudH.bills) setBills(cloudH.bills);
-            if (cloudH.budgetLimits) setBudgetLimits(cloudH.budgetLimits);
-            if (cloudH.shoppingLists) setShoppingLists(cloudH.shoppingLists);
-            if (cloudH.shoppingItems) setShoppingItems(cloudH.shoppingItems);
-            if (cloudH.notifications) setNotifications(cloudH.notifications);
+            const cloudTxs = cloudH.transactions || [];
+            const cloudBills = cloudH.bills || [];
+            const cloudLimits = cloudH.budgetLimits || [];
+            const cloudLists = cloudH.shoppingLists || [];
+            const cloudItems = cloudH.shoppingItems || [];
+            const cloudNotifs = cloudH.notifications || [];
+
+            setTransactions(cloudTxs);
+            saveTransactions(cloudTxs);
+
+            setBills(cloudBills);
+            saveBills(cloudBills);
+
+            setBudgetLimits(cloudLimits);
+            saveBudgetLimits(cloudLimits);
+
+            setShoppingLists(cloudLists);
+            saveShoppingLists(cloudLists);
+
+            setShoppingItems(cloudItems);
+            saveShoppingItems(cloudItems);
+
+            setNotifications(cloudNotifs);
+            saveNotifications(cloudNotifs);
+
+            hasUnsavedLocalChanges.current = false;
           }
         }
       } catch (err) {
@@ -854,6 +866,21 @@ export default function App() {
     });
     setHousehold(null);
     setIsGuestMode(false);
+
+    // Reset local data to isolate accounts completely
+    setTransactions([]);
+    saveTransactions([]);
+    setBills([]);
+    saveBills([]);
+    setBudgetLimits([]);
+    saveBudgetLimits([]);
+    setShoppingLists([]);
+    saveShoppingLists([]);
+    setShoppingItems([]);
+    saveShoppingItems([]);
+    setNotifications([]);
+    saveNotifications([]);
+    hasUnsavedLocalChanges.current = false;
   };
 
   const handleCreateHousehold = async (name: string) => {
@@ -879,6 +906,7 @@ export default function App() {
     };
 
     setHousehold(newHouseholdObj);
+    hasUnsavedLocalChanges.current = true;
     logActivity('Utworzono gospodarstwo domowe', `Utworzono dom „${name}” z kodem zaproszenia ${inviteCode}`);
 
     if (isFirebaseConfigured()) {
@@ -898,6 +926,7 @@ export default function App() {
           notifications,
           lastUpdatedBy: currentUser.email || currentUser.name,
         });
+        hasUnsavedLocalChanges.current = false;
 
         if (currentUser.id) {
           await saveUserProfileToFirestore(currentUser, newHouseholdObj.id);
@@ -981,22 +1010,29 @@ export default function App() {
         cloudProvider: 'firebase',
       });
 
-      if (cloudHousehold.transactions && Array.isArray(cloudHousehold.transactions)) {
-        setTransactions(cloudHousehold.transactions);
-      }
-      if (cloudHousehold.bills && Array.isArray(cloudHousehold.bills)) {
-        setBills(cloudHousehold.bills);
-      }
-      if (cloudHousehold.budgetLimits && Array.isArray(cloudHousehold.budgetLimits)) {
-        setBudgetLimits(cloudHousehold.budgetLimits);
-      }
-      if (cloudHousehold.shoppingLists && Array.isArray(cloudHousehold.shoppingLists)) {
-        setShoppingLists(cloudHousehold.shoppingLists);
-      }
-      if (cloudHousehold.shoppingItems && Array.isArray(cloudHousehold.shoppingItems)) {
-        setShoppingItems(cloudHousehold.shoppingItems);
-      }
+      const cloudTxs = cloudHousehold.transactions || [];
+      const cloudBills = cloudHousehold.bills || [];
+      const cloudLimits = cloudHousehold.budgetLimits || [];
+      const cloudLists = cloudHousehold.shoppingLists || [];
+      const cloudItems = cloudHousehold.shoppingItems || [];
+
+      setTransactions(cloudTxs);
+      saveTransactions(cloudTxs);
+
+      setBills(cloudBills);
+      saveBills(cloudBills);
+
+      setBudgetLimits(cloudLimits);
+      saveBudgetLimits(cloudLimits);
+
+      setShoppingLists(cloudLists);
+      saveShoppingLists(cloudLists);
+
+      setShoppingItems(cloudItems);
+      saveShoppingItems(cloudItems);
+
       setNotifications(combinedNotifications);
+      saveNotifications(combinedNotifications);
 
       await saveHouseholdToFirestore(cloudHousehold.id, {
         id: cloudHousehold.id,
@@ -1005,14 +1041,16 @@ export default function App() {
         createdAt: cloudHousehold.createdAt,
         createdBy: cloudHousehold.createdBy,
         members: updatedMembers,
-        transactions: cloudHousehold.transactions || transactions,
-        bills: cloudHousehold.bills || bills,
-        budgetLimits: cloudHousehold.budgetLimits || budgetLimits,
-        shoppingLists: cloudHousehold.shoppingLists || shoppingLists,
-        shoppingItems: cloudHousehold.shoppingItems || shoppingItems,
+        transactions: cloudTxs,
+        bills: cloudBills,
+        budgetLimits: cloudLimits,
+        shoppingLists: cloudLists,
+        shoppingItems: cloudItems,
         notifications: combinedNotifications,
         lastUpdatedBy: currentUser.email || currentUser.name,
       });
+
+      hasUnsavedLocalChanges.current = false;
 
       if (currentUser.id) {
         await saveUserProfileToFirestore(currentUser, cloudHousehold.id);

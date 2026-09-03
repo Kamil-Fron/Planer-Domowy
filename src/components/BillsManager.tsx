@@ -750,8 +750,8 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         </div>
       )}
 
-      {/* Ultra Clean Header with Green Button & Plus Button only */}
-      <div className="bg-white rounded-2xl px-5 py-4 border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      {/* Header with Title and Plus Button only */}
+      <div className="bg-white rounded-2xl px-5 py-4 border border-slate-200 shadow-xs flex items-center justify-between gap-4">
         <div className="flex items-center space-x-3">
           <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100">
             <CreditCard className="w-5 h-5" />
@@ -770,25 +770,11 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
           </div>
         </div>
 
-        {/* Action Controls: Prominent Green Pay Button & Plus Icon Button */}
-        <div className="flex flex-wrap items-center gap-2.5">
-          {pendingFixedBills.length > 0 && (
-            <button
-              onClick={() => {
-                setSelectedBatchBills(pendingFixedBills.map(b => b.id));
-                setShowBatchPayModal(true);
-              }}
-              className="px-3.5 sm:px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs sm:text-sm font-bold rounded-xl flex items-center space-x-2 transition-all shadow-xs"
-              title="Opłać wszystkie oczekujące rachunki stałe jednym kliknięciem"
-            >
-              <Check className="w-4 h-4" />
-              <span>Opłać stałe ({totalPendingFixedAmount.toFixed(2)} PLN)</span>
-            </button>
-          )}
-
+        {/* Right Action: Plus Button */}
+        <div>
           <button
             onClick={() => setShowAddModal(true)}
-            className="p-2 sm:px-3 sm:py-2 bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white rounded-xl flex items-center space-x-1.5 transition-colors shadow-xs font-semibold text-xs sm:text-sm"
+            className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white rounded-xl flex items-center space-x-1.5 transition-colors shadow-xs font-semibold text-xs sm:text-sm"
             title="Dodaj nowy rachunek"
           >
             <Plus className="w-4 h-4" />
@@ -845,15 +831,46 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         </div>
       </div>
 
-      {/* Filter and Mode Bar */}
-      <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-        {/* Type & Media Filters */}
-        <div className="flex items-center gap-1.5 w-full overflow-x-auto pb-2 xl:pb-0 no-scrollbar">
+      {/* Moved down: Quick Batch Pay Alert Banner for Fixed Bills */}
+      {pendingFixedBills.length > 0 && (
+        <div className="bg-emerald-50/80 border border-emerald-200/90 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3.5 shadow-xs">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+              <CheckCircle2 className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xs sm:text-sm font-bold text-emerald-950">
+                Rachunki stałe do opłacenia: {pendingFixedBills.length} {pendingFixedBills.length === 1 ? 'pozycja' : 'pozycje'} ({totalPendingFixedAmount.toFixed(2)} PLN)
+              </p>
+              <p className="text-[11px] text-emerald-700 mt-0.5">
+                Możesz zatwierdzić każdy rachunek osobno lub uregulować je jednym kliknięciem.
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => {
+              setSelectedBatchBills(pendingFixedBills.map((b) => b.id));
+              setShowBatchPayModal(true);
+            }}
+            className="w-full sm:w-auto px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs sm:text-sm font-bold rounded-xl flex items-center justify-center space-x-2 transition-all shadow-xs shrink-0"
+            title="Otwórz panel zatwierdzania rachunków stałych"
+          >
+            <Check className="w-4 h-4" />
+            <span>Opłać stałe ({totalPendingFixedAmount.toFixed(2)} PLN)</span>
+          </button>
+        </div>
+      )}
+
+      {/* Filter and Mode Bar - fully responsive with no overflow */}
+      <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+        {/* Row 1: Type & Media Filters */}
+        <div className="flex items-center gap-1.5 w-full overflow-x-auto pb-1 scrollbar-none">
           <button
             onClick={() => setFilterType('all')}
             className={`px-3 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors shrink-0 ${
               filterType === 'all'
-                ? 'bg-slate-900 text-white'
+                ? 'bg-slate-900 text-white shadow-2xs'
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
@@ -867,7 +884,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                 onClick={() => setFilterType(st)}
                 className={`px-3 py-1.5 text-xs font-semibold rounded-xl whitespace-nowrap transition-colors flex items-center space-x-1.5 shrink-0 ${
                   filterType === st
-                    ? 'bg-slate-900 text-white'
+                    ? 'bg-slate-900 text-white shadow-2xs'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
@@ -878,62 +895,72 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
           })}
         </div>
 
-        {/* Pricing Mode and Status Filters */}
-        <div className="flex items-center gap-3 w-full overflow-x-auto pb-2 xl:pb-0 no-scrollbar justify-start xl:justify-end shrink-0">
+        {/* Row 2: Pricing Mode & Status Filters (Clean responsive wrap, contained within frame) */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-slate-100">
           {/* Pricing type switch */}
-          <div className="flex items-center bg-slate-100 p-0.5 rounded-xl text-xs font-semibold text-slate-600 shrink-0">
-            <button
-              onClick={() => setFilterPricing('all')}
-              className={`px-2.5 py-1 rounded-lg transition-all whitespace-nowrap ${
-                filterPricing === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'hover:text-slate-900'
-              }`}
-            >
-              Wszystkie
-            </button>
-            <button
-              onClick={() => setFilterPricing('fixed')}
-              className={`px-2.5 py-1 rounded-lg transition-all whitespace-nowrap ${
-                filterPricing === 'fixed' ? 'bg-white text-indigo-700 shadow-xs font-bold' : 'hover:text-slate-900'
-              }`}
-            >
-              Stałe
-            </button>
-            <button
-              onClick={() => setFilterPricing('variable')}
-              className={`px-2.5 py-1 rounded-lg transition-all whitespace-nowrap ${
-                filterPricing === 'variable' ? 'bg-white text-amber-700 shadow-xs font-bold' : 'hover:text-slate-900'
-              }`}
-            >
-              Zmienne
-            </button>
+          <div className="flex items-center space-x-2">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider hidden sm:inline">
+              Koszty:
+            </span>
+            <div className="inline-flex items-center bg-slate-100 p-0.5 rounded-xl text-xs font-semibold text-slate-600">
+              <button
+                onClick={() => setFilterPricing('all')}
+                className={`px-2.5 py-1 rounded-lg transition-all whitespace-nowrap ${
+                  filterPricing === 'all' ? 'bg-white text-slate-900 shadow-2xs' : 'hover:text-slate-900'
+                }`}
+              >
+                Wszystkie
+              </button>
+              <button
+                onClick={() => setFilterPricing('fixed')}
+                className={`px-2.5 py-1 rounded-lg transition-all whitespace-nowrap ${
+                  filterPricing === 'fixed' ? 'bg-white text-indigo-700 shadow-2xs font-bold' : 'hover:text-slate-900'
+                }`}
+              >
+                Stałe
+              </button>
+              <button
+                onClick={() => setFilterPricing('variable')}
+                className={`px-2.5 py-1 rounded-lg transition-all whitespace-nowrap ${
+                  filterPricing === 'variable' ? 'bg-white text-amber-700 shadow-2xs font-bold' : 'hover:text-slate-900'
+                }`}
+              >
+                Zmienne
+              </button>
+            </div>
           </div>
 
           {/* Status switch */}
-          <div className="flex items-center bg-slate-100 p-0.5 rounded-xl text-xs font-semibold text-slate-600 shrink-0">
-            <button
-              onClick={() => setFilterStatus('all')}
-              className={`px-2.5 py-1 rounded-lg transition-all whitespace-nowrap ${
-                filterStatus === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'hover:text-slate-900'
-              }`}
-            >
-              Wszystkie
-            </button>
-            <button
-              onClick={() => setFilterStatus('pending')}
-              className={`px-2.5 py-1 rounded-lg transition-all whitespace-nowrap ${
-                filterStatus === 'pending' ? 'bg-rose-600 text-white shadow-xs' : 'hover:text-slate-900'
-              }`}
-            >
-              Do zapłaty
-            </button>
-            <button
-              onClick={() => setFilterStatus('paid')}
-              className={`px-2.5 py-1 rounded-lg transition-all whitespace-nowrap ${
-                filterStatus === 'paid' ? 'bg-emerald-600 text-white shadow-xs' : 'hover:text-slate-900'
-              }`}
-            >
-              Opłacone
-            </button>
+          <div className="flex items-center space-x-2">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider hidden sm:inline">
+              Status:
+            </span>
+            <div className="inline-flex items-center bg-slate-100 p-0.5 rounded-xl text-xs font-semibold text-slate-600">
+              <button
+                onClick={() => setFilterStatus('all')}
+                className={`px-2.5 py-1 rounded-lg transition-all whitespace-nowrap ${
+                  filterStatus === 'all' ? 'bg-white text-slate-900 shadow-2xs' : 'hover:text-slate-900'
+                }`}
+              >
+                Wszystkie
+              </button>
+              <button
+                onClick={() => setFilterStatus('pending')}
+                className={`px-2.5 py-1 rounded-lg transition-all whitespace-nowrap ${
+                  filterStatus === 'pending' ? 'bg-rose-600 text-white shadow-2xs' : 'hover:text-slate-900'
+                }`}
+              >
+                Do zapłaty
+              </button>
+              <button
+                onClick={() => setFilterStatus('paid')}
+                className={`px-2.5 py-1 rounded-lg transition-all whitespace-nowrap ${
+                  filterStatus === 'paid' ? 'bg-emerald-600 text-white shadow-2xs' : 'hover:text-slate-900'
+                }`}
+              >
+                Opłacone
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -944,65 +971,121 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         today.setHours(0, 0, 0, 0);
         const twoWeeksFromNow = new Date(today);
         twoWeeksFromNow.setDate(twoWeeksFromNow.getDate() + 14);
+        twoWeeksFromNow.setHours(23, 59, 59, 999);
+
+        const parseDueDate = (dateStr: string) => {
+          const parts = dateStr.split('-');
+          if (parts.length === 3) {
+            return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+          }
+          return new Date(dateStr);
+        };
 
         if (filterStatus === 'paid') {
           return (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {filteredBills.map(renderBillCard)}
+            <div className="space-y-4">
+              <h2 className="text-sm font-bold text-slate-800 flex items-center space-x-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                <span>Opłacone rachunki ({filteredBills.length})</span>
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {filteredBills.map(renderBillCard)}
+              </div>
             </div>
           );
         }
 
         const urgentBills = filteredBills.filter(
-          (b) => b.status === 'pending' && new Date(b.dueDate) <= twoWeeksFromNow
+          (b) => b.status === 'pending' && parseDueDate(b.dueDate).getTime() <= twoWeeksFromNow.getTime()
         );
         const futureBills = filteredBills.filter(
-          (b) => b.status === 'pending' && new Date(b.dueDate) > twoWeeksFromNow
+          (b) => b.status === 'pending' && parseDueDate(b.dueDate).getTime() > twoWeeksFromNow.getTime()
         );
         const paidFiltered = filteredBills.filter((b) => b.status === 'paid');
 
+        const urgentTotal = urgentBills.reduce((s, b) => s + b.amount, 0);
+        const futureTotal = futureBills.reduce((s, b) => s + b.amount, 0);
+
         return (
           <div className="space-y-8">
-            {/* Urgent / Pending Bills */}
-            {(urgentBills.length > 0 || (filterStatus === 'pending' && futureBills.length === 0)) && (
-              <div className="space-y-4">
-                {filterStatus !== 'pending' && urgentBills.length > 0 && (
-                  <h2 className="text-sm font-bold text-slate-800 flex items-center space-x-2">
-                    <Clock className="w-4 h-4 text-rose-500" />
-                    <span>Pilne płatności (najbliższe 14 dni lub zaległe)</span>
-                  </h2>
+            {/* Urgent / Short-Term Bills (Due in next 14 days or overdue) */}
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <h2 className="text-sm font-bold text-slate-800 flex items-center space-x-2">
+                  <Clock className="w-4 h-4 text-rose-500" />
+                  <span>Rachunki bieżące (termin do 14 dni lub zaległe)</span>
+                </h2>
+                {urgentBills.length > 0 && (
+                  <span className="text-xs font-semibold text-rose-700 bg-rose-50 px-2.5 py-1 rounded-full border border-rose-100 self-start sm:self-auto">
+                    {urgentBills.length} {urgentBills.length === 1 ? 'rachunek' : 'rachunki'} • {urgentTotal.toFixed(2)} PLN
+                  </span>
                 )}
+              </div>
+
+              {urgentBills.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                   {urgentBills.map(renderBillCard)}
                 </div>
-              </div>
-            )}
+              ) : (
+                <div className="p-6 bg-white rounded-2xl border border-slate-200 text-center">
+                  <p className="text-sm font-semibold text-slate-700">
+                    Brak bieżących rachunków do uregulowania w ciągu 14 dni.
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Wszystkie najbliższe opłaty zostały uregulowane lub termin przypada później.
+                  </p>
+                </div>
+              )}
+            </div>
 
-            {/* Future Bills (Collapsible) */}
+            {/* Future Bills (Collapsible Bar - Hidden by default for clean focus) */}
             {futureBills.length > 0 && (
-              <div className="space-y-4">
+              <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
                 <button
                   onClick={() => setShowFutureBills(!showFutureBills)}
-                  className="flex items-center space-x-2 text-sm font-bold text-slate-700 hover:text-slate-900 transition-colors bg-slate-100/50 hover:bg-slate-100 px-4 py-2 rounded-xl w-full sm:w-auto"
+                  className="w-full p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/80 hover:bg-slate-100/90 transition-colors text-left"
                 >
-                  {showFutureBills ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                  <span>Rachunki przyszłe ({futureBills.length})</span>
+                  <div className="flex items-center space-x-3">
+                    <div className="p-2 rounded-xl bg-indigo-50 text-indigo-700 shrink-0">
+                      <Calendar className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <span className="font-bold text-sm text-slate-900">
+                          Rachunki przyszłe (termin powyżej 2 tygodni)
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-indigo-100 text-indigo-700">
+                          {futureBills.length}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Łączna kwota: <span className="font-semibold text-slate-700">{futureTotal.toFixed(2)} PLN</span> • Schowane, aby ułatwić skupienie na bieżących płatnościach
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2 text-xs font-bold text-indigo-600 bg-white px-3.5 py-2 rounded-xl border border-slate-200 shadow-2xs self-start sm:self-auto shrink-0">
+                    <span>{showFutureBills ? 'Ukryj rachunki przyszłe' : 'Rozwiń rachunki przyszłe'}</span>
+                    {showFutureBills ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </div>
                 </button>
-                
+
                 {showFutureBills && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 animate-in fade-in slide-in-from-top-2">
-                    {futureBills.map(renderBillCard)}
+                  <div className="p-5 border-t border-slate-200 bg-slate-50/30">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 animate-in fade-in slide-in-from-top-2">
+                      {futureBills.map(renderBillCard)}
+                    </div>
                   </div>
                 )}
               </div>
             )}
 
-            {/* Paid Bills Section (Only shown if 'all' is selected and there are paid bills) */}
+            {/* Paid Bills Section (Shown if 'all' filter is active) */}
             {filterStatus === 'all' && paidFiltered.length > 0 && (
               <div className="space-y-4 pt-4 border-t border-slate-200/60">
                 <h2 className="text-sm font-bold text-slate-800 flex items-center space-x-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                  <span>Opłacone rachunki</span>
+                  <span>Opłacone rachunki ({paidFiltered.length})</span>
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                   {paidFiltered.map(renderBillCard)}
@@ -1019,37 +1102,60 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         );
       })()}
 
-      {/* Batch Pay Fixed Modal */}
+      {/* Batch Pay Fixed Modal with Individual Approval Option */}
       {showBatchPayModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 border border-slate-200 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 border border-slate-200 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center space-x-3">
               <div className="p-3 bg-emerald-100 text-emerald-700 rounded-2xl">
                 <CheckCircle2 className="w-6 h-6" />
               </div>
               <div>
                 <h3 className="font-bold text-base text-slate-900">
-                  Zbiorcze opłacenie stałych rachunków
+                  Rachunki stałe do opłacenia
                 </h3>
                 <p className="text-xs text-slate-500">
-                  {pendingFixedBills.length} pozycji do automatycznego uregulowania
+                  Zatwierdź każdy rachunek osobno lub opłać wybrane pozycje zbiorczo.
                 </p>
               </div>
             </div>
 
-            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+            {/* Selection Toolbar */}
+            <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
+              <span className="font-medium">Lista rachunków ({pendingFixedBills.length}):</span>
+              <div className="flex items-center space-x-2 font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setSelectedBatchBills(pendingFixedBills.map((b) => b.id))}
+                  className="text-emerald-700 hover:text-emerald-800 transition-colors"
+                >
+                  Zaznacz wszystkie
+                </button>
+                <span>•</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedBatchBills([])}
+                  className="text-slate-500 hover:text-slate-700 transition-colors"
+                >
+                  Odznacz
+                </button>
+              </div>
+            </div>
+
+            {/* List with Individual Pay Buttons */}
+            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
               {pendingFixedBills.map((b) => {
                 const isSelected = selectedBatchBills.includes(b.id);
                 return (
-                  <label
+                  <div
                     key={b.id}
-                    className={`p-2.5 rounded-xl border flex items-center justify-between text-xs cursor-pointer transition-colors ${
+                    className={`p-3 rounded-xl border flex items-center justify-between gap-3 text-xs transition-colors ${
                       isSelected
-                        ? 'bg-emerald-50/50 border-emerald-200'
-                        : 'bg-slate-50 border-slate-100 hover:bg-slate-100'
+                        ? 'bg-emerald-50/60 border-emerald-200'
+                        : 'bg-slate-50 border-slate-100 hover:bg-slate-100/70'
                     }`}
                   >
-                    <div className="flex items-center space-x-3">
+                    <div className="flex items-center space-x-3 min-w-0">
                       <input
                         type="checkbox"
                         checked={isSelected}
@@ -1062,21 +1168,49 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                         }}
                         className="rounded-sm text-emerald-600 focus:ring-emerald-600 w-4 h-4 shrink-0"
                       />
-                      <div>
-                        <span className="font-bold text-slate-800 block">{b.name}</span>
-                        <span className="text-[10px] text-slate-400 capitalize">
-                          {b.provider} • {b.billingCycle}
+                      <div className="truncate">
+                        <span className="font-bold text-slate-800 block truncate">{b.name}</span>
+                        <span className="text-[10px] text-slate-400 block capitalize">
+                          {b.provider} • Termin: {b.dueDate}
                         </span>
                       </div>
                     </div>
-                    <span className="font-black text-slate-900">{b.amount.toFixed(2)} PLN</span>
-                  </label>
+
+                    <div className="flex items-center space-x-2.5 shrink-0">
+                      <span className="font-black text-slate-900 whitespace-nowrap">
+                        {b.amount.toFixed(2)} PLN
+                      </span>
+
+                      {/* Individual Approval Button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handlePayFixedBill(b);
+                          setSelectedBatchBills((prev) => prev.filter((id) => id !== b.id));
+                          if (pendingFixedBills.length <= 1) {
+                            setShowBatchPayModal(false);
+                          }
+                        }}
+                        className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-lg text-xs font-bold transition-colors flex items-center space-x-1 shadow-2xs"
+                        title="Zatwierdź i opłać tylko ten rachunek"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Zatwierdź</span>
+                      </button>
+                    </div>
+                  </div>
                 );
               })}
             </div>
 
+            {/* Summary of Selected Items */}
             <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 flex items-center justify-between">
-              <span className="text-xs font-semibold text-emerald-900">Łączna kwota do pobrania:</span>
+              <div>
+                <span className="text-xs font-semibold text-emerald-900 block">Zaznaczono do opłacenia:</span>
+                <span className="text-[11px] text-emerald-700">
+                  {selectedBatchBills.length} z {pendingFixedBills.length} rachunków
+                </span>
+              </div>
               <span className="text-lg font-black text-emerald-700">
                 {pendingFixedBills
                   .filter((b) => selectedBatchBills.includes(b.id))
@@ -1086,28 +1220,24 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
               </span>
             </div>
 
-            <div className="flex items-center justify-end space-x-2 pt-2">
+            {/* Modal Actions */}
+            <div className="flex items-center justify-between space-x-2 pt-2 border-t border-slate-100">
               <button
                 type="button"
                 onClick={() => setShowBatchPayModal(false)}
                 className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
               >
-                Anuluj
+                Zamknij
               </button>
               <button
                 type="button"
                 disabled={selectedBatchBills.length === 0}
                 onClick={handleBatchPayFixed}
-                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs rounded-xl shadow-xs flex items-center space-x-1.5 transition-all"
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs rounded-xl shadow-xs flex items-center space-x-1.5 transition-all"
               >
                 <Check className="w-4 h-4" />
                 <span>
-                  Zatwierdź opłacenie (
-                  {pendingFixedBills
-                    .filter((b) => selectedBatchBills.includes(b.id))
-                    .reduce((sum, b) => sum + b.amount, 0)
-                    .toFixed(2)}{' '}
-                  PLN)
+                  Opłać zaznaczone ({selectedBatchBills.length})
                 </span>
               </button>
             </div>

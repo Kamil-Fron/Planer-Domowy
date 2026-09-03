@@ -41,6 +41,8 @@ interface NavbarProps {
   currentUser?: UserProfile;
   syncStatus?: 'synced' | 'saving' | 'error' | 'offline';
   lastSyncedAt?: Date | null;
+  onTriggerSync?: () => Promise<void> | void;
+  isSyncing?: boolean;
   onOpenHouseholdModal: () => void;
   onOpenDeleteDataModal?: () => void;
   onOpenDataSafetyModal?: () => void;
@@ -61,6 +63,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentUser,
   syncStatus = 'synced',
   lastSyncedAt = null,
+  onTriggerSync,
+  isSyncing = false,
   onOpenHouseholdModal,
   onOpenDeleteDataModal,
   onOpenDataSafetyModal,
@@ -208,6 +212,19 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <span className="hidden md:inline">Lokalnie</span>
                   </>
                 )}
+              </button>
+            )}
+
+            {/* Direct Instant Synchronize Button */}
+            {onTriggerSync && household && (
+              <button
+                onClick={onTriggerSync}
+                disabled={isSyncing || syncStatus === 'saving'}
+                className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl border border-indigo-200 bg-white hover:bg-indigo-50 active:scale-95 text-indigo-700 transition-all text-xs font-semibold shrink-0 shadow-2xs disabled:opacity-50"
+                title="Wymuś synchronizację w czasie rzeczywistym (pobierz najnowsze dane z chmury i wyślij lokalne)"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 text-indigo-600 shrink-0 ${isSyncing || syncStatus === 'saving' ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">{isSyncing || syncStatus === 'saving' ? 'Synchronizuję...' : 'Synchronizuj'}</span>
               </button>
             )}
 
@@ -444,6 +461,28 @@ export const Navbar: React.FC<NavbarProps> = ({
                         )}
                       </button>
                     </div>
+
+                    {/* Synchronizacja z chmurą */}
+                    {onTriggerSync && (
+                      <div className="p-2 border-t border-slate-100">
+                        <button
+                          onClick={() => {
+                            setIsActionMenuOpen(false);
+                            onTriggerSync();
+                          }}
+                          disabled={isSyncing || syncStatus === 'saving'}
+                          className="w-full text-left p-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-indigo-50/70 hover:text-indigo-800 transition-colors flex items-center justify-between"
+                        >
+                          <div className="flex items-center space-x-2 min-w-0">
+                            <RefreshCw className={`w-4 h-4 text-indigo-600 shrink-0 ${isSyncing || syncStatus === 'saving' ? 'animate-spin' : ''}`} />
+                            <span className="truncate">Zsynchronizuj teraz z chmurą</span>
+                          </div>
+                          <span className="text-[10px] text-slate-400">
+                            {lastSyncedAt ? lastSyncedAt.toLocaleTimeString('pl-PL') : ''}
+                          </span>
+                        </button>
+                      </div>
+                    )}
 
                     {/* Centrum Bezpieczeństwa & Kopie Zapasowe */}
                     {onOpenDataSafetyModal && (

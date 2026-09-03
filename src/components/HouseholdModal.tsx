@@ -640,19 +640,34 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Invite Code Badge */}
-                    <div className="flex items-center space-x-2 bg-white px-3 py-1.5 rounded-xl border border-indigo-200 shadow-xs">
-                      <div className="text-left">
-                        <span className="text-[9px] text-slate-400 uppercase font-bold block">Twój Kod Domu</span>
-                        <span className="font-mono text-xs font-bold text-slate-800">{household.inviteCode}</span>
+                    {/* Action Buttons: Sync & Invite Code Badge */}
+                    <div className="flex items-center gap-2">
+                      {onTriggerSync && (
+                        <button
+                          type="button"
+                          onClick={onTriggerSync}
+                          disabled={isSyncing}
+                          className="px-2.5 py-1.5 bg-white hover:bg-slate-50 text-indigo-700 text-xs font-bold rounded-xl border border-indigo-200 transition-all flex items-center space-x-1.5 shadow-2xs disabled:opacity-50"
+                          title="Pobierz i zsynchronizuj bazę w czasie rzeczywistym"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-indigo-600' : ''}`} />
+                          <span>{isSyncing ? 'Synchronizacja...' : 'Zsynchronizuj teraz'}</span>
+                        </button>
+                      )}
+
+                      <div className="flex items-center space-x-2 bg-white px-3 py-1.5 rounded-xl border border-indigo-200 shadow-xs">
+                        <div className="text-left">
+                          <span className="text-[9px] text-slate-400 uppercase font-bold block">Twój Kod Domu</span>
+                          <span className="font-mono text-xs font-bold text-slate-800">{household.inviteCode}</span>
+                        </div>
+                        <button
+                          onClick={handleCopyCode}
+                          className="p-1 text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
+                          title="Kopiuj kod zaproszenia"
+                        >
+                          {copiedCode ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                        </button>
                       </div>
-                      <button
-                        onClick={handleCopyCode}
-                        className="p-1 text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
-                        title="Kopiuj kod zaproszenia"
-                      >
-                        {copiedCode ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
-                      </button>
                     </div>
                   </div>
 
@@ -754,6 +769,32 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
                         <span>Dodaj domownika</span>
                       </button>
                     </form>
+                  </div>
+
+                  {/* Switch to Another Household by Invite Code */}
+                  <div className="pt-3 border-t border-slate-100 space-y-2">
+                    <span className="text-xs font-bold text-slate-700 block">
+                      Chcesz dołączyć do domu partnera? (Wpisz kod zaproszenia)
+                    </span>
+                    <form onSubmit={handleJoinHouseholdSubmit} className="flex gap-2">
+                      <input
+                        type="text"
+                        value={joinCodeInput}
+                        onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
+                        placeholder="np. DOM-1234-PL"
+                        className="flex-1 px-3 py-2 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-600 focus:outline-hidden uppercase"
+                      />
+                      <button
+                        type="submit"
+                        disabled={joinLoading || !joinCodeInput.trim()}
+                        className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-semibold shrink-0"
+                      >
+                        {joinLoading ? 'Łączenie...' : 'Połącz z tym Domem'}
+                      </button>
+                    </form>
+                    {joinError && (
+                      <p className="text-xs text-rose-600 font-semibold">{joinError}</p>
+                    )}
                   </div>
 
                   {/* Leave / Disconnect Household */}

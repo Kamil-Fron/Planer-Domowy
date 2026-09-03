@@ -119,6 +119,14 @@ export const deleteBackupSnapshot = (snapshotId: string): void => {
   setItemSafe(KEYS.SNAPSHOTS, filtered);
 };
 
+export const clearAllBackupSnapshots = (): void => {
+  try {
+    localStorage.removeItem(KEYS.SNAPSHOTS);
+  } catch (e) {
+    console.warn('Nie udało się wyczyścić migawek:', e);
+  }
+};
+
 // JSON File Export & Import
 export const exportDataToJsonFile = (payload: {
   transactions: Transaction[];

@@ -578,7 +578,6 @@ export function subscribeToHouseholdFirestore(
     (err) => {
       console.warn('Błąd odczytu w czasie rzeczywistym z Firestore:', err);
       if (onError) onError(err);
-      handleFirestoreError(err, OperationType.GET, targetPath);
     }
   );
 }

@@ -31,6 +31,7 @@ import {
   saveUserProfile,
   saveBackupSnapshot,
   scanLocalStorageForLostData,
+  clearAllBackupSnapshots,
 } from './storage';
 import {
   subscribeToFirebaseAuthState,
@@ -127,42 +128,6 @@ export default function App() {
       return updated;
     });
   };
-
-  // Emergency automatic recovery check on mount: scan for any lost transactions/bills
-  useEffect(() => {
-    try {
-      const recovery = scanLocalStorageForLostData();
-      if (recovery.recoveredTransactions.length > 0) {
-        setTransactions((prev) => {
-          if (prev.length <= 1 && recovery.recoveredTransactions.length > prev.length) {
-            console.log(`[Auto-Recovery] Przywracanie ${recovery.recoveredTransactions.length} transakcji z pamięci lokalnej...`);
-            const map = new Map<string, Transaction>();
-            recovery.recoveredTransactions.forEach((t) => map.set(t.id, t));
-            prev.forEach((t) => map.set(t.id, t));
-            const merged = Array.from(map.values());
-            saveTransactions(merged);
-            return merged;
-          }
-          return prev;
-        });
-      }
-      if (recovery.recoveredBills.length > 0) {
-        setBills((prev) => {
-          if (prev.length === 0 && recovery.recoveredBills.length > 0) {
-            const map = new Map<string, Bill>();
-            recovery.recoveredBills.forEach((b) => map.set(b.id, b));
-            prev.forEach((b) => map.set(b.id, b));
-            const merged = Array.from(map.values());
-            saveBills(merged);
-            return merged;
-          }
-          return prev;
-        });
-      }
-    } catch (e) {
-      console.warn('Auto-recovery check error:', e);
-    }
-  }, []);
 
   // 1. Subscribe to Firebase Auth state on mount (ensures independent user isolation)
   useEffect(() => {
@@ -310,8 +275,8 @@ export default function App() {
       household.id,
       (cloudData, hasPendingWrites) => {
         if (!cloudData) return;
-        // Ignore local uncommitted snapshot writes if user is currently making local changes
-        if (hasPendingWrites) return;
+        // Don't overwrite if the user is in the middle of active local typing/mutation
+        if (hasUnsavedLocalChanges.current && hasPendingWrites) return;
 
         isIncomingFirestoreUpdate.current = true;
         hasUnsavedLocalChanges.current = false;
@@ -342,7 +307,16 @@ export default function App() {
         saveNotifications(cloudNotifs);
 
         if (cloudData.members && Array.isArray(cloudData.members)) {
-          setHousehold((prev) => (prev ? { ...prev, members: cloudData.members } : null));
+          setHousehold((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  name: cloudData.name || prev.name,
+                  members: cloudData.members,
+                  inviteCode: cloudData.inviteCode || prev.inviteCode,
+                }
+              : null
+          );
         }
 
         setSyncStatus('synced');
@@ -350,12 +324,12 @@ export default function App() {
 
         setTimeout(() => {
           isIncomingFirestoreUpdate.current = false;
-        }, 100);
+        }, 300);
       },
       (error) => {
-        console.warn('Firestore subscription status:', error.message);
+        console.warn('Firestore subscription status:', error?.message);
         setSyncStatus('error');
-        setSyncErrorMessage(error.message);
+        setSyncErrorMessage(error?.message || 'Błąd subskrypcji Firestore');
       }
     );
 
@@ -369,6 +343,9 @@ export default function App() {
     if (!household?.id || !isFirebaseConfigured()) return;
 
     const timer = setTimeout(async () => {
+      // Guard against race conditions
+      if (isIncomingFirestoreUpdate.current || !hasUnsavedLocalChanges.current) return;
+
       setIsSyncing(true);
       setSyncStatus('saving');
       try {
@@ -736,12 +713,14 @@ export default function App() {
       newTransactions = [];
       setTransactions([]);
       saveTransactions([]);
+      clearAllBackupSnapshots();
     }
 
     if (selection.bills) {
       newBills = [];
       setBills([]);
       saveBills([]);
+      clearAllBackupSnapshots();
     }
 
     if (selection.budgetLimits) {
@@ -999,7 +978,7 @@ export default function App() {
         ...(cloudHousehold.notifications || []),
       ].slice(0, 50);
 
-      setHousehold({
+      const joinedHousehold: Household = {
         id: cloudHousehold.id,
         name: cloudHousehold.name,
         inviteCode: cloudHousehold.inviteCode,
@@ -1008,7 +987,10 @@ export default function App() {
         members: updatedMembers,
         syncStatus: 'synced',
         cloudProvider: 'firebase',
-      });
+      };
+
+      setHousehold(joinedHousehold);
+      saveHousehold(joinedHousehold);
 
       const cloudTxs = cloudHousehold.transactions || [];
       const cloudBills = cloudHousehold.bills || [];
@@ -1071,6 +1053,7 @@ export default function App() {
       await saveUserProfileToFirestore(currentUser, '');
     }
     setHousehold(null);
+    saveHousehold(null);
   };
 
   const handleInviteMember = async (email: string, name: string) => {
@@ -1150,34 +1133,101 @@ export default function App() {
   };
 
   const handleForceSync = async (): Promise<boolean> => {
-    if (!household?.id || !isFirebaseConfigured()) return false;
+    if (!household?.id || !isFirebaseConfigured()) {
+      setSyncErrorMessage('Brak aktywnego gospodarstwa domowego lub konfiguracji Firebase.');
+      return false;
+    }
     setIsSyncing(true);
     setSyncStatus('saving');
     try {
       const current = stateRef.current;
-      saveBackupSnapshot('Przed ręczną synchronizacją z chmurą', {
-        transactions: current.transactions,
-        bills: current.bills,
-        budgetLimits: current.budgetLimits,
-        shoppingLists: current.shoppingLists,
-        shoppingItems: current.shoppingItems,
-      });
 
-      await saveHouseholdToFirestore(household.id, {
-        id: household.id,
-        name: household.name,
-        inviteCode: household.inviteCode,
-        createdAt: household.createdAt,
-        createdBy: household.createdBy,
-        members: household.members,
-        transactions: current.transactions,
-        bills: current.bills,
-        budgetLimits: current.budgetLimits,
-        shoppingLists: current.shoppingLists,
-        shoppingItems: current.shoppingItems,
-        notifications: current.notifications,
-        lastUpdatedBy: currentUser.email || currentUser.name,
-      });
+      // 1. If this client has unsaved local edits, push them to Firestore first
+      if (hasUnsavedLocalChanges.current) {
+        await saveHouseholdToFirestore(household.id, {
+          id: household.id,
+          name: household.name,
+          inviteCode: household.inviteCode,
+          createdAt: household.createdAt,
+          createdBy: household.createdBy,
+          members: household.members,
+          transactions: current.transactions,
+          bills: current.bills,
+          budgetLimits: current.budgetLimits,
+          shoppingLists: current.shoppingLists,
+          shoppingItems: current.shoppingItems,
+          notifications: current.notifications,
+          lastUpdatedBy: currentUser.email || currentUser.name,
+        });
+        hasUnsavedLocalChanges.current = false;
+      }
+
+      // 2. Fetch the latest canonical data directly from Cloud Firestore
+      const cloudHousehold = await getHouseholdFromFirestore(household.id);
+      if (cloudHousehold) {
+        isIncomingFirestoreUpdate.current = true;
+        hasUnsavedLocalChanges.current = false;
+
+        const cloudTxs = cloudHousehold.transactions || [];
+        const cloudBills = cloudHousehold.bills || [];
+        const cloudLimits = cloudHousehold.budgetLimits || [];
+        const cloudLists = cloudHousehold.shoppingLists || [];
+        const cloudItems = cloudHousehold.shoppingItems || [];
+        const cloudNotifs = cloudHousehold.notifications || [];
+
+        setTransactions(cloudTxs);
+        saveTransactions(cloudTxs);
+
+        setBills(cloudBills);
+        saveBills(cloudBills);
+
+        setBudgetLimits(cloudLimits);
+        saveBudgetLimits(cloudLimits);
+
+        setShoppingLists(cloudLists);
+        saveShoppingLists(cloudLists);
+
+        setShoppingItems(cloudItems);
+        saveShoppingItems(cloudItems);
+
+        setNotifications(cloudNotifs);
+        saveNotifications(cloudNotifs);
+
+        if (cloudHousehold.members && Array.isArray(cloudHousehold.members)) {
+          setHousehold((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  name: cloudHousehold.name || prev.name,
+                  members: cloudHousehold.members,
+                  inviteCode: cloudHousehold.inviteCode || prev.inviteCode,
+                }
+              : null
+          );
+        }
+
+        setTimeout(() => {
+          isIncomingFirestoreUpdate.current = false;
+        }, 300);
+      } else {
+        // Document didn't exist yet in Firestore - initialize it with current state
+        await saveHouseholdToFirestore(household.id, {
+          id: household.id,
+          name: household.name,
+          inviteCode: household.inviteCode,
+          createdAt: household.createdAt,
+          createdBy: household.createdBy,
+          members: household.members,
+          transactions: current.transactions,
+          bills: current.bills,
+          budgetLimits: current.budgetLimits,
+          shoppingLists: current.shoppingLists,
+          shoppingItems: current.shoppingItems,
+          notifications: current.notifications,
+          lastUpdatedBy: currentUser.email || currentUser.name,
+        });
+      }
+
       setSyncStatus('synced');
       setLastSyncedAt(new Date());
       setSyncErrorMessage(null);
@@ -1185,7 +1235,7 @@ export default function App() {
     } catch (e: any) {
       console.warn('Manual sync failed:', e);
       setSyncStatus('error');
-      setSyncErrorMessage(e?.message || 'Błąd zapisu do bazy Firestore');
+      setSyncErrorMessage(e?.message || 'Błąd synchronizacji z bazą Firestore');
       return false;
     } finally {
       setIsSyncing(false);
@@ -1294,6 +1344,8 @@ export default function App() {
         currentUser={currentUser}
         syncStatus={syncStatus}
         lastSyncedAt={lastSyncedAt}
+        onTriggerSync={handleTriggerManualSync}
+        isSyncing={isSyncing}
         onOpenHouseholdModal={() => {
           setHouseholdModalTab('household');
           setIsHouseholdModalOpen(true);

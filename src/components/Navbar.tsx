@@ -167,69 +167,58 @@ export const Navbar: React.FC<NavbarProps> = ({
               </select>
             </div>
 
-            {/* Sync Pill Indicator */}
-            {onOpenDataSafetyModal && (
-              <button
-                onClick={onOpenDataSafetyModal}
-                className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl border transition-all text-xs font-semibold shrink-0 active:scale-95 ${
-                  syncStatus === 'synced'
-                    ? 'border-emerald-200 bg-emerald-50/80 text-emerald-700 hover:bg-emerald-100/90 shadow-2xs'
-                    : syncStatus === 'saving'
-                    ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 shadow-2xs'
-                    : syncStatus === 'error'
-                    ? 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 font-bold animate-pulse shadow-2xs'
-                    : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 shadow-2xs'
-                }`}
-                title={
-                  syncStatus === 'synced'
-                    ? `Zapisano w chmurze ${lastSyncedAt ? `(${lastSyncedAt.toLocaleTimeString('pl-PL')})` : ''} - kliknij po kopię zapasową`
-                    : syncStatus === 'saving'
-                    ? 'Trwa zapisywanie do bazy Firestore...'
-                    : syncStatus === 'error'
-                    ? 'Błąd zapisu do chmury! Kliknij, aby naprawić lub pobrać kopię zapasową'
-                    : 'Tryb lokalny'
+            {/* Integrated Save & Sync Indicator / Action Button */}
+            <button
+              onClick={() => {
+                if (onTriggerSync && household) {
+                  onTriggerSync();
+                } else if (onOpenDataSafetyModal) {
+                  onOpenDataSafetyModal();
                 }
-              >
-                {syncStatus === 'synced' && (
-                  <>
-                    <Cloud className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
-                    <span className="hidden md:inline">Zapisano</span>
-                  </>
-                )}
-                {syncStatus === 'saving' && (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 text-blue-600 animate-spin shrink-0" />
-                    <span className="hidden md:inline">Zapisywanie...</span>
-                  </>
-                )}
-                {syncStatus === 'error' && (
-                  <>
-                    <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                    <span className="hidden sm:inline">Błąd zapisu!</span>
-                  </>
-                )}
-                {syncStatus === 'offline' && (
-                  <>
-                    <HardDrive className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                    <span className="hidden md:inline">Lokalnie</span>
-                  </>
-                )}
-              </button>
-            )}
-
-            {/* Direct Instant Synchronize Button */}
-            {onTriggerSync && household && (
-              <button
-                onClick={onTriggerSync}
-                disabled={isSyncing || syncStatus === 'saving'}
-                className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl border border-indigo-200 bg-white hover:bg-indigo-50 active:scale-95 text-indigo-700 transition-all text-xs font-semibold shrink-0 shadow-2xs disabled:opacity-50"
-                title="Wymuś synchronizację w czasie rzeczywistym (pobierz najnowsze dane z chmury i wyślij lokalne)"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 text-indigo-600 shrink-0 ${isSyncing || syncStatus === 'saving' ? 'animate-spin' : ''}`} />
-                <span className="hidden sm:inline">{isSyncing || syncStatus === 'saving' ? 'Synchronizuję...' : 'Synchronizuj'}</span>
-              </button>
-            )}
+              }}
+              disabled={isSyncing || syncStatus === 'saving'}
+              className={`group flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl border transition-all text-xs font-semibold shrink-0 active:scale-95 disabled:opacity-75 ${
+                syncStatus === 'synced'
+                  ? 'border-emerald-200 bg-emerald-50/80 text-emerald-700 hover:bg-emerald-100 shadow-2xs'
+                  : syncStatus === 'saving' || isSyncing
+                  ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 shadow-2xs'
+                  : syncStatus === 'error'
+                  ? 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 font-bold animate-pulse shadow-2xs'
+                  : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 shadow-2xs'
+              }`}
+              title={
+                syncStatus === 'synced'
+                  ? `Zapisano w chmurze ${lastSyncedAt ? `(${lastSyncedAt.toLocaleTimeString('pl-PL')})` : ''} • Kliknij, aby natychmiast zsynchronizować`
+                  : syncStatus === 'saving' || isSyncing
+                  ? 'Trwa zapisywanie i synchronizacja z chmurą...'
+                  : syncStatus === 'error'
+                  ? 'Błąd zapisu! Kliknij, aby ponowić synchronizację'
+                  : 'Tryb lokalny'
+              }
+            >
+              {(syncStatus === 'saving' || isSyncing) ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 text-blue-600 animate-spin shrink-0" />
+                  <span className="hidden sm:inline">Zapisywanie...</span>
+                </>
+              ) : syncStatus === 'synced' ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 text-emerald-600 shrink-0 group-hover:rotate-180 transition-transform duration-300" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
+                  <span className="hidden sm:inline">Zapisano</span>
+                </>
+              ) : syncStatus === 'error' ? (
+                <>
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                  <span className="hidden sm:inline">Błąd zapisu!</span>
+                </>
+              ) : (
+                <>
+                  <HardDrive className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                  <span className="hidden sm:inline">Lokalnie</span>
+                </>
+              )}
+            </button>
 
             {/* Right Action Menu: Single Consolidated Button */}
             <div className="relative flex-shrink-0">

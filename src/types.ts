@@ -44,6 +44,9 @@ export interface Transaction {
   billId?: string; // ID powiązanego rachunku
   billPaymentHistoryId?: string; // ID powiązanego wpisu w historii rachunku
   billPeriodDueDate?: string; // Termin płatności cyklu, którego dotyczy ta transakcja
+  isBalanceRollover?: boolean; // Flaga: transakcja przesunięcia bilansu z innego miesiąca
+  rolloverFromMonth?: string; // Miesiąc źródłowy (YYYY-MM), z którego przesunięto bilans
+  rolloverToMonth?: string; // Miesiąc docelowy (YYYY-MM), na który przesunięto bilans
   receiptItems?: ReceiptItemDetail[];
   receiptStoreName?: string;
   createdAt: string;

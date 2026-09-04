@@ -1537,6 +1537,9 @@ export default function App() {
             onQuickAddTransaction={() => {
               setActiveTab('transactions');
             }}
+            onAddTransaction={handleAddTransaction}
+            onDeleteTransaction={handleDeleteTransaction}
+            onMonthChange={setSelectedMonth}
           />
         )}
 
@@ -1547,6 +1550,7 @@ export default function App() {
             onDeleteTransaction={handleDeleteTransaction}
             onUpdateTransaction={handleUpdateTransaction}
             selectedMonth={selectedMonth}
+            onMonthChange={setSelectedMonth}
           />
         )}
 

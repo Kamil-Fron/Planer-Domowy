@@ -13,9 +13,11 @@ import {
   X,
   ListFilter,
   Check,
+  Sparkles,
 } from 'lucide-react';
 import { Transaction, TransactionType } from '../types';
 import { INITIAL_CATEGORIES, INITIAL_INCOME_CATEGORIES } from '../mockData';
+import { MonthRolloverControl } from './MonthRolloverControl';
 
 interface TransactionsManagerProps {
   transactions: Transaction[];
@@ -23,6 +25,7 @@ interface TransactionsManagerProps {
   onDeleteTransaction: (id: string) => void;
   onUpdateTransaction?: (id: string, updates: Partial<Transaction>) => void;
   selectedMonth: string;
+  onMonthChange?: (month: string) => void;
 }
 
 export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
@@ -31,6 +34,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
   onDeleteTransaction,
   onUpdateTransaction,
   selectedMonth,
+  onMonthChange,
 }) => {
   const [filterType, setFilterType] = useState<'all' | 'expense' | 'income'>('all');
   const [filterCategory, setFilterCategory] = useState<string>('all');
@@ -223,6 +227,16 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
         </div>
       </div>
 
+      {/* Przesunięcie bilansu poprzedniego miesiąca */}
+      <MonthRolloverControl
+        selectedMonth={selectedMonth}
+        transactions={transactions}
+        onAddTransaction={onAddTransaction}
+        onDeleteTransaction={onDeleteTransaction}
+        onNavigateToMonth={onMonthChange}
+        variant="banner"
+      />
+
       {/* Filter and Search Bar */}
       <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3 w-full">
         <div className="flex items-center space-x-2 w-full sm:w-auto min-w-0">
@@ -328,6 +342,15 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                       <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 shrink-0 truncate max-w-[120px]">
                         {item.category}
                       </span>
+                      {item.isBalanceRollover && (
+                        <span
+                          className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200 flex items-center space-x-1 shrink-0"
+                          title={`Przeniesienie bilansu z ${item.rolloverFromMonth || 'poprzedniego miesiąca'}`}
+                        >
+                          <Sparkles className="w-3 h-3 text-violet-600" />
+                          <span>Przeniesienie bilansu</span>
+                        </span>
+                      )}
                       {item.isRecurring && (
                         <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100 flex items-center space-x-0.5 shrink-0" title="Cykliczny">
                           <Repeat className="w-3 h-3" />

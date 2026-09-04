@@ -34,6 +34,7 @@ import {
 import { INITIAL_CATEGORIES } from '../mockData';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip } from 'recharts';
 import { getFinancialAdviceWithAI } from '../services/aiService';
+import { MonthRolloverControl } from './MonthRolloverControl';
 
 interface DashboardProps {
   transactions: Transaction[];
@@ -44,6 +45,9 @@ interface DashboardProps {
   selectedMonth: string;
   onNavigate: (tab: TabType) => void;
   onQuickAddTransaction: (type: 'income' | 'expense') => void;
+  onAddTransaction?: (transaction: Omit<Transaction, 'id' | 'createdAt'> & { id?: string }) => void;
+  onDeleteTransaction?: (id: string, skipBillRevert?: boolean) => void;
+  onMonthChange?: (month: string) => void;
 }
 
 interface AiAdviceData {
@@ -64,6 +68,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
   selectedMonth,
   onNavigate,
   onQuickAddTransaction,
+  onAddTransaction,
+  onDeleteTransaction,
+  onMonthChange,
 }) => {
   const [aiAdvice, setAiAdvice] = useState<AiAdviceData | string | null>(null);
   const [loadingAdvice, setLoadingAdvice] = useState(false);
@@ -137,6 +144,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+      {/* Przesunięcie bilansu poprzedniego miesiąca */}
+      {onAddTransaction && onDeleteTransaction && (
+        <MonthRolloverControl
+          selectedMonth={selectedMonth}
+          transactions={transactions}
+          onAddTransaction={onAddTransaction}
+          onDeleteTransaction={onDeleteTransaction}
+          onNavigateToMonth={onMonthChange}
+          variant="banner"
+        />
+      )}
+
       {/* 1. Top Balance Banner & Quick Action Buttons */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         {/* Main Balance Card */}

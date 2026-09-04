@@ -122,24 +122,36 @@ async function scanReceiptDirectClient(
   imageBase64: string,
   mimeType: string
 ): Promise<any> {
-  // Compress high-res mobile image to ensure fast transfer (<400KB) and crisp OCR
-  const { base64: cleanBase64, mimeType: compressedMime } = await compressImageBase64(
-    imageBase64,
-    1600,
-    1600,
-    0.85
-  );
+  const isPdf = mimeType === 'application/pdf' || imageBase64.startsWith('data:application/pdf');
 
-  const prompt = `Jesteś precyzyjnym systemem OCR i asystentem finansowym do analizy paragonów fiskalnych i faktur w Polsce.
-Przeanalizuj dołączone zdjęcie paragonu i wyodrębnij:
-1. storeName: Nazwa sklepu / stacji paliw / sprzedawcy (np. Pieprzyk, Biedronka, Lidl, Orlen, Castorama, Rossmann itp.).
+  let cleanBase64: string;
+  let detectedMime: string;
+
+  if (isPdf) {
+    cleanBase64 = imageBase64.replace(/^data:[^;]+;base64,/i, '').trim();
+    detectedMime = 'application/pdf';
+  } else {
+    // Compress high-res mobile image to ensure fast transfer (<400KB) and crisp OCR
+    const { base64: compBase64, mimeType: compressedMime } = await compressImageBase64(
+      imageBase64,
+      1600,
+      1600,
+      0.85
+    );
+    cleanBase64 = compBase64;
+    detectedMime = compressedMime || mimeType || 'image/jpeg';
+  }
+
+  const prompt = `Jesteś precyzyjnym systemem OCR i asystentem finansowym do analizy paragonów fiskalnych, faktur VAT oraz dokumentów PDF w Polsce.
+Przeanalizuj dołączony dokument (paragon, fakturę lub plik PDF) i wyodrębnij:
+1. storeName: Nazwa sklepu / stacji paliw / wystawcy faktury / sprzedawcy (np. Pieprzyk, Biedronka, Lidl, Orlen, Castorama, Rossmann, Tauron itp.).
 2. date: Data transakcji (w formacie YYYY-MM-DD). Jeśli niewidoczna, użyj bieżącej daty.
 3. totalAmount: Łączna kwota do zapłaty (liczba w PLN, np. 111.31).
 4. currency: Waluta (zwykle "PLN").
-5. receiptNumber: Numer paragonu lub NIP (jeśli widoczny, inaczej "").
-6. dominantCategory: Dominująca kategoria całego paragonu spośród: ["Transport i paliwo", "Jedzenie i artykuły spożywcze", "Remont i dom", "Dla zwierząt i kotów", "Rachunki i media", "Zdrowie i kosmetyki", "Rozrywka i hobby", "Odzież i obuwie", "Inne"].
-7. summary: Krótkie podsumowanie w języku polskim (np. "Zakup paliwa na stacji Pieprzyk").
-8. items: Lista pozycji zakupowych z paragonu (dla każdego produktu: name, price (liczba), quantity (liczba, domyślnie 1), category, notes).
+5. receiptNumber: Numer paragonu, faktury lub NIP (jeśli widoczny, inaczej "").
+6. dominantCategory: Dominująca kategoria całego dokumentu spośród: ["Transport i paliwo", "Jedzenie i artykuły spożywcze", "Remont i dom", "Dla zwierząt i kotów", "Rachunki i media", "Zdrowie i kosmetyki", "Rozrywka i hobby", "Odzież i obuwie", "Inne"].
+7. summary: Krótkie podsumowanie w języku polskim (np. "Zakup paliwa na stacji Pieprzyk" lub "Faktura za energię elektryczną").
+8. items: Lista pozycji zakupowych lub opłat z dokumentu (dla każdego produktu/usługi: name, price (liczba), quantity (liczba, domyślnie 1), category, notes).
 
 Zwróć wynik w czystym formacie JSON:
 {
@@ -177,7 +189,7 @@ Zwróć wynik w czystym formacie JSON:
               },
               {
                 inline_data: {
-                  mime_type: compressedMime || mimeType || "image/jpeg",
+                  mime_type: detectedMime,
                   data: cleanBase64,
                 },
               },
@@ -298,12 +310,18 @@ Przygotuj zwięzłą, konkretną analizę w języku polskim w formacie JSON:
 
 // Unified Service Call: Scan Receipt
 export async function scanReceiptWithAI(imageBase64: string, mimeType: string = "image/jpeg"): Promise<any> {
+  // Auto-detect PDF from base64 if needed
+  let effectiveMime = mimeType;
+  if (imageBase64.startsWith("data:application/pdf") || mimeType === "application/pdf") {
+    effectiveMime = "application/pdf";
+  }
+
   // 1. Try server endpoint first (Node / Express backend in AI Studio)
   try {
     const response = await fetch("/api/scan-receipt", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ imageBase64, mimeType }),
+      body: JSON.stringify({ imageBase64, mimeType: effectiveMime }),
     });
 
     if (response.ok) {
@@ -324,7 +342,7 @@ export async function scanReceiptWithAI(imageBase64: string, mimeType: string = 
     );
   }
 
-  return await scanReceiptDirectClient(clientKey, imageBase64, mimeType);
+  return await scanReceiptDirectClient(clientKey, imageBase64, effectiveMime);
 }
 
 // Unified Service Call: Financial Advice

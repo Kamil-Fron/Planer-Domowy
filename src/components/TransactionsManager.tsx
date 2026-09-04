@@ -18,6 +18,7 @@ import {
 import { Transaction, TransactionType } from '../types';
 import { INITIAL_CATEGORIES, INITIAL_INCOME_CATEGORIES } from '../mockData';
 import { MonthRolloverControl } from './MonthRolloverControl';
+import { useMonthSwipe } from '../hooks/useMonthSwipe';
 
 interface TransactionsManagerProps {
   transactions: Transaction[];
@@ -61,6 +62,12 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
   const [formDate, setFormDate] = useState(new Date().toISOString().split('T')[0]);
   const [formComment, setFormComment] = useState('');
   const [formRecurring, setFormRecurring] = useState(false);
+
+  // Mobile swipe gesture for month switching
+  const { touchHandlers, swipeFeedback } = useMonthSwipe({
+    selectedMonth,
+    onMonthChange,
+  });
 
   // Filtered list
   const filtered = transactions.filter((t) => {
@@ -183,8 +190,17 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
         </div>
       </div>
 
-      {/* KPI Cards - Clean, concise */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+      {/* KPI Cards - Clean, concise with mobile gesture support */}
+      <div
+        {...touchHandlers}
+        className={`grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 transition-transform duration-200 select-none touch-pan-y ${
+          swipeFeedback === 'next'
+            ? '-translate-x-1.5 opacity-90'
+            : swipeFeedback === 'prev'
+            ? 'translate-x-1.5 opacity-90'
+            : ''
+        }`}
+      >
         <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between min-w-0">
           <div className="min-w-0 flex-1">
             <span className="text-xs text-slate-500 font-medium block truncate">Dochody</span>
@@ -211,7 +227,19 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
 
         <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between min-w-0">
           <div className="min-w-0 flex-1">
-            <span className="text-xs text-slate-500 font-medium block truncate">Bilans</span>
+            <div className="flex items-center space-x-1.5">
+              <span className="text-xs text-slate-500 font-medium block truncate">Bilans</span>
+              {/* Mała dyskretna ikonka przesunięcia bilansu */}
+              <MonthRolloverControl
+                selectedMonth={selectedMonth}
+                transactions={transactions}
+                onAddTransaction={onAddTransaction}
+                onDeleteTransaction={onDeleteTransaction}
+                onNavigateToMonth={onMonthChange}
+                variant="icon"
+                theme="light"
+              />
+            </div>
             <p
               className={`text-xl sm:text-2xl font-black mt-0.5 truncate ${
                 totalIncome - totalExpense >= 0 ? 'text-slate-900' : 'text-rose-600'
@@ -227,15 +255,10 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
         </div>
       </div>
 
-      {/* Przesunięcie bilansu poprzedniego miesiąca */}
-      <MonthRolloverControl
-        selectedMonth={selectedMonth}
-        transactions={transactions}
-        onAddTransaction={onAddTransaction}
-        onDeleteTransaction={onDeleteTransaction}
-        onNavigateToMonth={onMonthChange}
-        variant="banner"
-      />
+      {/* Mobile gesture hint */}
+      <div className="sm:hidden text-center text-[10px] text-slate-400 py-0.5">
+        <span>‹ Przesuń palcem w lewo / prawo po kafelkach, aby zmienić miesiąc ›</span>
+      </div>
 
       {/* Filter and Search Bar */}
       <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3 w-full">

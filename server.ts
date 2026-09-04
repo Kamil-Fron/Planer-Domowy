@@ -106,26 +106,28 @@ app.post("/api/scan-receipt", async (req, res) => {
 
     const ai = getGenAI();
 
-    // Extract exact mime-type if embedded in data-uri
+    // Extract exact mime-type if embedded in data-uri or provided
     let detectedMime = mimeType || "image/jpeg";
-    const mimeMatch = imageBase64.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,/i);
+    const mimeMatch = imageBase64.match(/^data:([a-zA-Z0-9+.-]+\/[a-zA-Z0-9+.-]+);base64,/i);
     if (mimeMatch) {
       detectedMime = mimeMatch[1];
+    } else if (mimeType) {
+      detectedMime = mimeType;
     }
 
     // Clean base64 data
     const cleanBase64 = imageBase64.replace(/^data:[^;]+;base64,/i, "").trim();
 
-    const prompt = `Jesteś precyzyjnym systemem OCR i asystentem finansowym do analizy paragonów fiskalnych i faktur w Polsce.
-Przeanalizuj dołączone zdjęcie paragonu i wyodrębnij:
-1. storeName: Nazwa sklepu / sprzedawcy (np. Biedronka, Lidl, Castorama, Rossmann, PGNiG, itp.).
-2. date: Data transakcji (w formacie YYYY-MM-DD). Jeśli niewidoczna, użyj bieżącej daty.
-3. totalAmount: Łączna kwota do zapłaty (liczba w PLN).
+    const prompt = `Jesteś precyzyjnym systemem OCR i asystentem finansowym do analizy paragonów fiskalnych, faktur VAT oraz dokumentów PDF/zdjęć w Polsce.
+Przeanalizuj dołączony dokument (paragon, fakturę lub plik PDF) i wyodrębnij:
+1. storeName: Nazwa sklepu / wystawcy faktury / sprzedawcy (np. Biedronka, Lidl, Castorama, Rossmann, PGNiG, Tauron, Orange itp.).
+2. date: Data transakcji lub wystawienia (w formacie YYYY-MM-DD). Jeśli niewidoczna, użyj bieżącej daty.
+3. totalAmount: Łączna kwota do zapłaty (liczba w PLN, np. 149.99).
 4. currency: Waluta (zwykle "PLN").
-5. receiptNumber: Numer paragonu lub NIP (jeśli widoczny, inaczej pusty ciąg "").
+5. receiptNumber: Numer paragonu, faktury lub NIP (jeśli widoczny, inaczej pusty ciąg "").
 6. dominantCategory: Dominująca kategoria całego paragonu spośród: ["Jedzenie i artykuły spożywcze", "Remont i dom", "Dla zwierząt i kotów", "Rachunki i media", "Zdrowie i kosmetyki", "Transport i paliwo", "Rozrywka i hobby", "Odzież i obuwie", "Inne"].
 7. summary: Krótkie podsumowanie w języku polskim (1-2 zdania).
-8. items: Lista pozycji zakupowych z paragonu (dla każdego produktu: name, price (liczba), quantity (liczba, domyślnie 1), category, notes).
+8. items: Lista pozycji zakupowych lub opłat z dokumentu (dla każdego produktu: name, price (liczba), quantity (liczba, domyślnie 1), category, notes).
 
 Zwróć wynik w formacie JSON zgodnym ze schematem.`;
 

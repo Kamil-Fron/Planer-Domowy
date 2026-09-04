@@ -18,6 +18,7 @@ import {
   HelpCircle,
   Key,
   ShieldCheck,
+  FileText,
 } from 'lucide-react';
 import { ReceiptItemDetail, ReceiptScanResult, Transaction, ShoppingItem } from '../types';
 import { INITIAL_CATEGORIES, SAMPLE_RECEIPTS } from '../mockData';
@@ -113,12 +114,21 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
       return;
     }
 
+    const isPdf =
+      selectedFile?.type === 'application/pdf' ||
+      Boolean(selectedFile?.name?.toLowerCase().endsWith('.pdf')) ||
+      Boolean(dataToSend && dataToSend.startsWith('data:application/pdf'));
+
+    const effectiveMime = isPdf
+      ? 'application/pdf'
+      : (mimeType || selectedFile?.type || 'image/jpeg');
+
     setIsScanning(true);
     setError(null);
     setSuccessMessage(null);
 
     try {
-      const data = await scanReceiptWithAI(dataToSend, mimeType || 'image/jpeg');
+      const data = await scanReceiptWithAI(dataToSend, effectiveMime);
 
       if (data) {
         // Initialize selection status
@@ -413,12 +423,35 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
 
       {/* Main Upload / Scan Area */}
       {!scanResult && (
-        <div className="bg-white rounded-2xl p-8 border border-slate-200 shadow-xs text-center">
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+              const file = e.dataTransfer.files[0];
+              setSelectedFile(file);
+              setError(null);
+              setSuccessMessage(null);
+              setScanResult(null);
+
+              const reader = new FileReader();
+              reader.onload = () => {
+                setImagePreview(reader.result as string);
+              };
+              reader.readAsDataURL(file);
+            }
+          }}
+          className="bg-white rounded-2xl p-8 border border-slate-200 shadow-xs text-center hover:border-indigo-300 transition-colors"
+        >
           <input
             type="file"
             ref={fileInputRef}
             onChange={handleFileChange}
-            accept="image/*"
+            accept="image/*,application/pdf,.pdf"
             className="hidden"
           />
           <input
@@ -432,24 +465,48 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
 
           {imagePreview ? (
             <div className="max-w-md mx-auto space-y-4">
-              <div className="relative rounded-2xl overflow-hidden border border-slate-200 shadow-inner max-h-80 flex items-center justify-center bg-slate-50">
-                <img
-                  src={imagePreview}
-                  alt="Podgląd paragonu"
-                  className="max-h-80 object-contain mx-auto"
-                />
-              </div>
+              {selectedFile?.type === 'application/pdf' ||
+              Boolean(selectedFile?.name?.toLowerCase().endsWith('.pdf')) ||
+              imagePreview.startsWith('data:application/pdf') ? (
+                <div className="p-6 rounded-2xl border-2 border-dashed border-rose-200 bg-rose-50/50 flex flex-col items-center justify-center space-y-3">
+                  <div className="w-16 h-16 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center shadow-xs">
+                    <FileText className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-center space-x-2">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-rose-600 text-white">
+                        DOKUMENT PDF
+                      </span>
+                      <span className="text-sm font-bold text-slate-800 truncate max-w-[240px]">
+                        {selectedFile?.name || 'Dokument faktury / rachunku.pdf'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {selectedFile ? `${(selectedFile.size / 1024).toFixed(1)} KB • ` : ''}
+                      Plik PDF gotowy do odczytu danych przez Gemini AI
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="relative rounded-2xl overflow-hidden border border-slate-200 shadow-inner max-h-80 flex items-center justify-center bg-slate-50">
+                  <img
+                    src={imagePreview}
+                    alt="Podgląd dokumentu"
+                    className="max-h-80 object-contain mx-auto"
+                  />
+                </div>
+              )}
 
               <div className="flex items-center justify-center space-x-3">
                 <button
                   onClick={() => handleScanReceipt()}
                   disabled={isScanning}
-                  className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white font-semibold rounded-xl flex items-center space-x-2 shadow-xs transition-all"
+                  className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white font-semibold rounded-xl flex items-center space-x-2 shadow-xs transition-all cursor-pointer"
                 >
                   {isScanning ? (
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>Analizowanie przez Gemini AI...</span>
+                      <span>Analizowanie dokumentu przez Gemini AI...</span>
                     </>
                   ) : (
                     <>
@@ -463,9 +520,9 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                     setImagePreview(null);
                     setSelectedFile(null);
                   }}
-                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl transition-colors"
+                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl transition-colors cursor-pointer"
                 >
-                  Zmień zdjęcie
+                  Zmień plik
                 </button>
               </div>
             </div>
@@ -474,22 +531,22 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
               <div className="w-16 h-16 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center mx-auto mb-4 border border-indigo-100">
                 <Upload className="w-7 h-7" />
               </div>
-              <h3 className="text-lg font-bold text-slate-900">Wgraj zdjęcie paragonu</h3>
+              <h3 className="text-lg font-bold text-slate-900">Wgraj paragon lub plik PDF</h3>
               <p className="text-sm text-slate-500 mt-1 max-w-sm mx-auto">
-                Obsługiwane formaty: JPG, PNG, WEBP. Możesz także użyć aparatu w smartfonie.
+                Obsługiwane formaty: <strong>PDF (faktury, rachunki)</strong> oraz zdjęcia <strong>JPG, PNG, WEBP</strong>. Możesz przeciągnąć plik tutaj.
               </p>
 
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mt-6">
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="w-full sm:w-auto px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-semibold rounded-xl flex items-center justify-center space-x-2 transition-colors shadow-xs"
+                  className="w-full sm:w-auto px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-semibold rounded-xl flex items-center justify-center space-x-2 transition-colors shadow-xs cursor-pointer"
                 >
                   <Upload className="w-4 h-4" />
-                  <span>Wybierz plik z dysku</span>
+                  <span>Wybierz plik (PDF lub zdjęcie)</span>
                 </button>
                 <button
                   onClick={() => cameraInputRef.current?.click()}
-                  className="w-full sm:w-auto px-5 py-2.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs sm:text-sm font-semibold rounded-xl flex items-center justify-center space-x-2 transition-colors shadow-xs"
+                  className="w-full sm:w-auto px-5 py-2.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs sm:text-sm font-semibold rounded-xl flex items-center justify-center space-x-2 transition-colors shadow-xs cursor-pointer"
                 >
                   <Camera className="w-4 h-4 text-indigo-600" />
                   <span>Zrób zdjęcie aparatem</span>

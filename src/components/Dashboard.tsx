@@ -35,6 +35,7 @@ import { INITIAL_CATEGORIES } from '../mockData';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip } from 'recharts';
 import { getFinancialAdviceWithAI } from '../services/aiService';
 import { MonthRolloverControl } from './MonthRolloverControl';
+import { useMonthSwipe } from '../hooks/useMonthSwipe';
 
 interface DashboardProps {
   transactions: Transaction[];
@@ -75,6 +76,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [aiAdvice, setAiAdvice] = useState<AiAdviceData | string | null>(null);
   const [loadingAdvice, setLoadingAdvice] = useState(false);
   const [adviceError, setAdviceError] = useState<string | null>(null);
+
+  // Mobile swipe gesture between months on budget tile
+  const { touchHandlers, swipeFeedback } = useMonthSwipe({
+    selectedMonth,
+    onMonthChange,
+  });
 
   // Month transactions
   const monthTransactions = transactions.filter(
@@ -144,28 +151,41 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
-      {/* Przesunięcie bilansu poprzedniego miesiąca */}
-      {onAddTransaction && onDeleteTransaction && (
-        <MonthRolloverControl
-          selectedMonth={selectedMonth}
-          transactions={transactions}
-          onAddTransaction={onAddTransaction}
-          onDeleteTransaction={onDeleteTransaction}
-          onNavigateToMonth={onMonthChange}
-          variant="banner"
-        />
-      )}
-
       {/* 1. Top Balance Banner & Quick Action Buttons */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        {/* Main Balance Card */}
-        <div className="lg:col-span-2 bg-slate-900 text-white rounded-2xl p-6 shadow-xs relative overflow-hidden flex flex-col justify-between border border-slate-800">
+        {/* Main Balance Card with Touch Swipe for Mobile Month Switching */}
+        <div
+          {...touchHandlers}
+          className={`lg:col-span-2 bg-slate-900 text-white rounded-2xl p-6 shadow-xs relative overflow-hidden flex flex-col justify-between border border-slate-800 transition-transform duration-200 select-none touch-pan-y ${
+            swipeFeedback === 'next'
+              ? '-translate-x-1.5 opacity-90'
+              : swipeFeedback === 'prev'
+              ? 'translate-x-1.5 opacity-90'
+              : ''
+          }`}
+        >
           <div>
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                Stan Budżetu • {selectedMonth}
-              </span>
-              <span className="px-2.5 py-0.5 bg-emerald-500/20 text-emerald-300 rounded-full text-xs font-semibold border border-emerald-500/30">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center space-x-2 min-w-0">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 truncate">
+                  Stan Budżetu • {selectedMonth}
+                </span>
+
+                {/* Dyskretna ikonka przesunięcia bilansu poprzedniego miesiąca */}
+                {onAddTransaction && onDeleteTransaction && (
+                  <MonthRolloverControl
+                    selectedMonth={selectedMonth}
+                    transactions={transactions}
+                    onAddTransaction={onAddTransaction}
+                    onDeleteTransaction={onDeleteTransaction}
+                    onNavigateToMonth={onMonthChange}
+                    variant="icon"
+                    theme="dark"
+                  />
+                )}
+              </div>
+
+              <span className="px-2.5 py-0.5 bg-emerald-500/20 text-emerald-300 rounded-full text-xs font-semibold border border-emerald-500/30 shrink-0">
                 Stopa oszczędności: {savingsRate}%
               </span>
             </div>
@@ -183,25 +203,32 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 mt-6 pt-4 border-t border-slate-800">
-            <div>
-              <span className="text-xs text-slate-400 flex items-center space-x-1">
-                <ArrowDownRight className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Wpłaty & Dochody</span>
-              </span>
-              <p className="text-lg font-bold text-emerald-400 mt-0.5">
-                +{totalIncome.toFixed(2)} zł
-              </p>
+          <div className="mt-6 pt-4 border-t border-slate-800">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <span className="text-xs text-slate-400 flex items-center space-x-1">
+                  <ArrowDownRight className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Wpłaty & Dochody</span>
+                </span>
+                <p className="text-lg font-bold text-emerald-400 mt-0.5">
+                  +{totalIncome.toFixed(2)} zł
+                </p>
+              </div>
+
+              <div>
+                <span className="text-xs text-slate-400 flex items-center space-x-1">
+                  <ArrowUpRight className="w-3.5 h-3.5 text-rose-400" />
+                  <span>Wydatki łączne</span>
+                </span>
+                <p className="text-lg font-bold text-rose-400 mt-0.5">
+                  -{totalExpense.toFixed(2)} zł
+                </p>
+              </div>
             </div>
 
-            <div>
-              <span className="text-xs text-slate-400 flex items-center space-x-1">
-                <ArrowUpRight className="w-3.5 h-3.5 text-rose-400" />
-                <span>Wydatki łączne</span>
-              </span>
-              <p className="text-lg font-bold text-rose-400 mt-0.5">
-                -{totalExpense.toFixed(2)} zł
-              </p>
+            {/* Mobile swipe gesture guide */}
+            <div className="sm:hidden flex items-center justify-center space-x-1.5 mt-3 pt-2 border-t border-slate-800/60 text-[10px] text-slate-500">
+              <span>‹ Przesuń palcem w lewo / prawo, aby zmienić miesiąc ›</span>
             </div>
           </div>
         </div>

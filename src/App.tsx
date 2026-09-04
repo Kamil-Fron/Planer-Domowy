@@ -61,6 +61,7 @@ import {
   checkAndTriggerBillNotifications,
   createActivityNotification,
 } from './utils/notifications';
+import { calculatePreviousDueDate } from './utils/billCycle';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
@@ -463,32 +464,84 @@ export default function App() {
         `Usunięto "${deletedTx.title}" (${deletedTx.amount.toFixed(2)} PLN)`
       );
 
-      // Jeśli usunięta transakcja była powiązana z opłaconym rachunkiem, przywróć rachunek do oczekujących na zapłatę
-      if (deletedTx.billId) {
-        setBills((prevBills) => {
-          const updatedBills = prevBills.map((b) => {
-            if (b.id === deletedTx.billId) {
-              const updatedHistory = (b.paymentHistory || []).filter(
-                (h) => !(h.paidDate === deletedTx.date && Math.abs(h.amount - deletedTx.amount) < 0.01)
+      // Jeśli usunięta transakcja była powiązana z opłaconym rachunkiem,
+      // usuń transakcję z historii uregulowanych cykli rachunku i przywróć do oczekujących
+      const targetBillId = deletedTx.billId;
+      const cleanTitleName = deletedTx.title.replace(/^Rachunek:\s*/i, '').trim().toLowerCase();
+
+      setBills((prevBills) => {
+        let billModified = false;
+        const updatedBills = prevBills.map((b) => {
+          const isDirectMatch = !!(targetBillId && b.id === targetBillId);
+          const isNameMatch =
+            !targetBillId &&
+            deletedTx.category === 'Rachunki i media' &&
+            (b.name.toLowerCase() === cleanTitleName ||
+              (deletedTx.comment && deletedTx.comment.toLowerCase().includes(b.name.toLowerCase())));
+
+          if (isDirectMatch || isNameMatch) {
+            billModified = true;
+            const history = b.paymentHistory || [];
+            let removedItemIndex = -1;
+
+            // 1. Dopasowanie po dacie transakcji i kwocie
+            removedItemIndex = history.findIndex(
+              (h) =>
+                (h.paidDate === deletedTx.date || h.paidDate.slice(0, 7) === deletedTx.date.slice(0, 7)) &&
+                Math.abs(h.amount - deletedTx.amount) < 0.05
+            );
+
+            // 2. Jeśli nie znaleziono, dopasowanie po miesiącu
+            if (removedItemIndex === -1) {
+              removedItemIndex = history.findIndex(
+                (h) => h.paidDate.slice(0, 7) === deletedTx.date.slice(0, 7)
               );
-              return {
-                ...b,
-                status: 'pending' as const,
-                dueDate: b.previousDueDate || b.dueDate,
-                paymentDate: undefined,
-                paymentHistory: updatedHistory,
-              };
             }
-            return b;
-          });
-          saveBills(updatedBills);
-          return updatedBills;
+
+            // 3. Jeśli nie znaleziono, dopasowanie po kwocie
+            if (removedItemIndex === -1) {
+              removedItemIndex = history.findIndex(
+                (h) => Math.abs(h.amount - deletedTx.amount) < 0.05
+              );
+            }
+
+            // 4. Fallback: najnowszy wpis historii
+            if (removedItemIndex === -1 && history.length > 0) {
+              removedItemIndex = 0;
+            }
+
+            const updatedHistory =
+              removedItemIndex !== -1
+                ? history.filter((_, idx) => idx !== removedItemIndex)
+                : history;
+
+            // Przywróć poprzedni termin (np. wrzesień z października)
+            const restoredDueDate =
+              b.previousDueDate || calculatePreviousDueDate(b.dueDate, b.billingCycle);
+
+            return {
+              ...b,
+              status: 'pending' as const,
+              dueDate: restoredDueDate,
+              previousDueDate: undefined,
+              paymentDate: undefined,
+              paymentHistory: updatedHistory,
+              lastPaidAmount: updatedHistory[0]?.amount,
+            };
+          }
+          return b;
         });
-        logActivity(
-          'Przywrócono rachunek do opłacenia',
-          `Po usunięciu transakcji powiązany rachunek powrócił do statusu "Do zapłaty"`
-        );
-      }
+
+        if (billModified) {
+          saveBills(updatedBills);
+          logActivity(
+            'Przywrócono rachunek do opłacenia',
+            `Po usunięciu transakcji powiązany rachunek powrócił do statusu "Do zapłaty", a wpis usunięto z historii cykli`
+          );
+          return updatedBills;
+        }
+        return prevBills;
+      });
     }
   };
 
@@ -1514,6 +1567,8 @@ export default function App() {
             onTogglePush={setPushEnabled}
             selectedMonth={selectedMonth}
             onMonthChange={setSelectedMonth}
+            transactions={transactions}
+            onDeleteTransaction={handleDeleteTransaction}
           />
         )}
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Zap,
   Droplets,
@@ -28,7 +28,11 @@ import {
   Edit3,
 } from 'lucide-react';
 import { Bill, UtilityServiceType, Transaction, BillPricingType } from '../types';
-import { calculateNextDueDate, getBillingPeriodName } from '../utils/billCycle';
+import {
+  calculateNextDueDate,
+  calculatePreviousDueDate,
+  getBillingPeriodName,
+} from '../utils/billCycle';
 
 interface BillsManagerProps {
   bills: Bill[];
@@ -40,6 +44,8 @@ interface BillsManagerProps {
   onTogglePush: (enabled: boolean) => void;
   selectedMonth?: string;
   onMonthChange?: (month: string) => void;
+  transactions?: Transaction[];
+  onDeleteTransaction?: (id: string) => void;
 }
 
 const formatMonthName = (monthStr: string) => {
@@ -66,6 +72,8 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   onAddTransaction,
   selectedMonth,
   onMonthChange,
+  transactions,
+  onDeleteTransaction,
 }) => {
   const [internalMonth, setInternalMonth] = useState(() => {
     return selectedMonth || new Date().toISOString().slice(0, 7);
@@ -223,29 +231,6 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
     return !monthPendingBills.some((mp) => mp.id === b.id);
   });
 
-  // Kwoty dla wybranego miesiąca rozliczeniowego
-  const totalPendingAmount = monthPendingBills.reduce((s, b) => s + b.amount, 0);
-
-  const totalPaidAmount = monthPaidBills.reduce((sum, b) => {
-    const monthHistory = (b.paymentHistory || []).filter((h) => h.paidDate.startsWith(currentMonth));
-    if (monthHistory.length > 0) {
-      return sum + monthHistory.reduce((s, h) => s + h.amount, 0);
-    }
-    if (b.status === 'paid' && b.paymentDate?.startsWith(currentMonth)) {
-      return sum + (b.lastPaidAmount || b.amount);
-    }
-    return sum;
-  }, 0);
-
-  const totalRegisteredAmount = totalPendingAmount + totalPaidAmount;
-  const registeredCount = monthPendingBills.length + monthPaidBills.length;
-
-  // Rachunki stałe z bliskim terminem ważności (zaległe lub termin <= 14 dni) do szybkiej opłaty "Opłać"
-  const nearPendingFixedBills = bills.filter(
-    (b) => b.status !== 'paid' && (b.pricingType === 'fixed' || !b.pricingType) && isNearDue(b.dueDate)
-  );
-  const totalNearPendingFixedAmount = nearPendingFixedBills.reduce((s, b) => s + b.amount, 0);
-
   // Filter matcher for types and pricing
   const matchesServiceAndPricing = (b: Bill) => {
     const matchesType = filterType === 'all' || b.serviceType === filterType;
@@ -259,6 +244,83 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   const filteredMonthPendingBills = monthPendingBills.filter(matchesServiceAndPricing);
   const filteredMonthPaidBills = monthPaidBills.filter(matchesServiceAndPricing);
   const filteredFutureBills = futureBills.filter(matchesServiceAndPricing);
+
+  // Prosta lista uregulowanych wpisów z historii dla wybranego miesiąca
+  const settledHistoryItems = useMemo(() => {
+    const list: {
+      id: string;
+      billId: string;
+      billName: string;
+      provider: string;
+      serviceType: UtilityServiceType;
+      pricingType: BillPricingType;
+      billingCycle: Bill['billingCycle'];
+      amount: number;
+      paidDate: string;
+      billingPeriod: string;
+      meterReading?: { current: number; unit: string };
+      bill: Bill;
+      historyItem?: any;
+    }[] = [];
+
+    filteredMonthPaidBills.forEach((b) => {
+      const monthPayments = (b.paymentHistory || []).filter((h) =>
+        h.paidDate.startsWith(currentMonth)
+      );
+
+      if (monthPayments.length > 0) {
+        monthPayments.forEach((h) => {
+          list.push({
+            id: h.id || `hist-${b.id}-${h.paidDate}`,
+            billId: b.id,
+            billName: b.name,
+            provider: b.provider || b.name,
+            serviceType: b.serviceType,
+            pricingType: b.pricingType || 'fixed',
+            billingCycle: b.billingCycle,
+            amount: h.amount,
+            paidDate: h.paidDate,
+            billingPeriod: h.billingPeriod || formatMonthName(currentMonth),
+            meterReading: h.meterReading,
+            bill: b,
+            historyItem: h,
+          });
+        });
+      } else if (b.status === 'paid' && b.paymentDate?.startsWith(currentMonth)) {
+        list.push({
+          id: `paid-${b.id}`,
+          billId: b.id,
+          billName: b.name,
+          provider: b.provider || b.name,
+          serviceType: b.serviceType,
+          pricingType: b.pricingType || 'fixed',
+          billingCycle: b.billingCycle,
+          amount: b.lastPaidAmount || b.amount,
+          paidDate: b.paymentDate,
+          billingPeriod: formatMonthName(currentMonth),
+          meterReading: b.meterReading,
+          bill: b,
+        });
+      }
+    });
+
+    return list.sort((a, b) => b.paidDate.localeCompare(a.paidDate));
+  }, [filteredMonthPaidBills, currentMonth]);
+
+  // Kwoty dla wybranego miesiąca rozliczeniowego
+  const totalPendingAmount = filteredMonthPendingBills.reduce((s, b) => s + b.amount, 0);
+  const totalPaidAmount = useMemo(() => {
+    return settledHistoryItems.reduce((sum, item) => sum + item.amount, 0);
+  }, [settledHistoryItems]);
+
+  const totalRegisteredAmount = totalPendingAmount + totalPaidAmount;
+  const registeredCount = filteredMonthPendingBills.length + settledHistoryItems.length;
+
+  // Rachunki stałe z bliskim terminem ważności (zaległe lub termin <= 14 dni) do szybkiej opłaty "Opłać"
+  const nearPendingFixedBills = bills.filter(
+    (b) => b.status !== 'paid' && (b.pricingType === 'fixed' || !b.pricingType) && isNearDue(b.dueDate)
+  );
+  const totalNearPendingFixedAmount = nearPendingFixedBills.reduce((s, b) => s + b.amount, 0);
 
   // Overdue bills matching filter
   const filteredOverdueBills = bills.filter((b) => {
@@ -484,21 +546,48 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   /**
    * Cofnięcie uregulowania rachunku w danym miesiącu
    */
-  const handleRevertSettledPayment = (bill: Bill) => {
-    // 1. Usuń wpis z historii płatności z tego miesiąca
-    const updatedHistory = (bill.paymentHistory || []).filter(
-      (h) => !h.paidDate.startsWith(currentMonth)
-    );
+  const handleRevertSettledPayment = (bill: Bill, historyItemId?: string) => {
+    const history = bill.paymentHistory || [];
+    const itemToRevert = historyItemId
+      ? history.find((h) => h.id === historyItemId)
+      : history.find((h) => h.paidDate.startsWith(currentMonth));
+
+    // 1. Usuń powiązany wpis z historii płatności
+    const updatedHistory = historyItemId
+      ? history.filter((h) => h.id !== historyItemId)
+      : history.filter((h) => !h.paidDate.startsWith(currentMonth));
 
     // 2. Przywróć poprzedni termin (sprzed opłacenia)
-    const restoredDueDate = bill.previousDueDate || bill.dueDate;
+    const restoredDueDate =
+      bill.previousDueDate || calculatePreviousDueDate(bill.dueDate, bill.billingCycle);
 
     onUpdateBill(bill.id, {
       status: 'pending',
       dueDate: restoredDueDate,
+      previousDueDate: undefined,
       paymentDate: undefined,
       paymentHistory: updatedHistory,
+      lastPaidAmount: updatedHistory[0]?.amount,
     });
+
+    // 3. Usuń powiązaną transakcję z historii transakcji, aby zachować spójność
+    if (onDeleteTransaction && transactions) {
+      const matchTx = transactions.find((t) => {
+        if (t.billId === bill.id) {
+          if (itemToRevert) {
+            return (
+              Math.abs(t.amount - itemToRevert.amount) < 0.05 &&
+              (t.date === itemToRevert.paidDate || t.date.startsWith(currentMonth))
+            );
+          }
+          return t.date.startsWith(currentMonth);
+        }
+        return false;
+      });
+      if (matchTx) {
+        onDeleteTransaction(matchTx.id);
+      }
+    }
 
     showToast(`Cofnięto opłacenie rachunku "${bill.name}". Powrócił do listy "Do zapłaty".`);
   };
@@ -866,186 +955,87 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   };
 
   /**
-   * Karta uregulowanego rachunku (wpis z historii) dla danego okresu
+   * Prosta lista historii uregulowanych opłat w wybranym miesiącu
    */
-  const renderSettledBillCard = (bill: Bill) => {
-    const meta = getServiceMeta(bill.serviceType);
-    const ServiceIcon = meta.icon;
-    const isFixed = bill.pricingType === 'fixed' || !bill.pricingType;
-    const isHistoryOpen = expandedHistoryId === bill.id;
-
-    // Płatności uregulowane w wybranym miesiącu
-    const monthPayments = (bill.paymentHistory || []).filter((h) =>
-      h.paidDate.startsWith(currentMonth)
-    );
-    const latestMonthPayment = monthPayments[0];
-    const paidAmount = monthPayments.length > 0
-      ? monthPayments.reduce((s, h) => s + h.amount, 0)
-      : (bill.lastPaidAmount || bill.amount);
-
-    const displayPaidDate = latestMonthPayment?.paidDate || bill.paymentDate || '';
-    const meter = latestMonthPayment?.meterReading || bill.meterReading;
-
+  const renderSettledHistoryList = (items: typeof settledHistoryItems) => {
     return (
-      <div
-        key={`settled-${bill.id}`}
-        className="bg-white rounded-2xl p-5 border border-emerald-200/90 bg-emerald-50/10 shadow-xs flex flex-col justify-between transition-all hover:shadow-md"
-      >
-        <div>
-          {/* Nagłówek karty */}
-          <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-100">
-            <div className="flex items-center space-x-3">
-              <div className={`p-3 rounded-2xl ${meta.bg} ${meta.text}`}>
-                <ServiceIcon className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="font-bold text-sm text-slate-900 leading-snug">{bill.name}</h3>
-                <p className="text-xs text-slate-500 mt-0.5">{bill.provider}</p>
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-1">
-              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center space-x-1">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                <span>Uregulowano</span>
-              </span>
-              <button
-                onClick={() => onDeleteBill(bill.id)}
-                className="text-slate-300 hover:text-rose-600 transition-colors p-1 ml-1"
-                title="Usuń rachunek"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          {/* Etykiety typu opłaty i cyklu */}
-          <div className="mt-3 flex items-center justify-between">
-            <div className="flex items-center space-x-1.5">
-              <span
-                className={`px-2 py-0.5 rounded-md text-[11px] font-bold border ${
-                  isFixed
-                    ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                    : 'bg-amber-50 text-amber-700 border-amber-200'
-                }`}
-              >
-                {isFixed ? 'Opłata stała' : 'Opłata zmienna'}
-              </span>
-              <span className="text-[11px] text-slate-500 font-medium bg-slate-100 px-2 py-0.5 rounded-md capitalize">
-                {bill.billingCycle}
-              </span>
-            </div>
-
-            {bill.paymentHistory && bill.paymentHistory.length > 0 && (
-              <button
-                onClick={() => setExpandedHistoryId(isHistoryOpen ? null : bill.id)}
-                className="text-[11px] text-slate-500 hover:text-slate-800 flex items-center space-x-1 font-medium"
-              >
-                <History className="w-3.5 h-3.5" />
-                <span>{bill.paymentHistory.length} płatn.</span>
-                {isHistoryOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-              </button>
-            )}
-          </div>
-
-          {/* Potwierdzenie uregulowania z kwotą i datą */}
-          <div className="my-3.5 p-3.5 rounded-xl bg-emerald-50/60 border border-emerald-100/90 space-y-2">
-            <div className="flex items-baseline justify-between">
-              <span className="text-xs font-semibold text-emerald-900">
-                Kwota uregulowana:
-              </span>
-              <span className="text-xl font-black text-emerald-700">
-                {paidAmount.toFixed(2)}{' '}
-                <span className="text-xs font-bold text-emerald-600">PLN</span>
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between text-xs text-emerald-800/90 pt-1 border-t border-emerald-100/80">
-              <span className="flex items-center space-x-1">
-                <Calendar className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Data opłacenia:</span>
-              </span>
-              <span className="font-bold">
-                {displayPaidDate || 'w tym miesiącu'}
-              </span>
-            </div>
-
-            {latestMonthPayment?.billingPeriod && (
-              <div className="flex items-center justify-between text-xs text-emerald-800/80">
-                <span>Okres rozliczeniowy:</span>
-                <span className="font-semibold">{latestMonthPayment.billingPeriod}</span>
-              </div>
-            )}
-
-            {meter && (
-              <div className="flex items-center justify-between text-xs text-emerald-800/80">
-                <span className="flex items-center space-x-1">
-                  <Gauge className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Odczyt licznika:</span>
-                </span>
-                <span className="font-bold">
-                  {meter.current} {meter.unit}
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Informacja o kolejnym cyklu w przyszłych miesiącach */}
-          {bill.billingCycle !== 'jednorazowo' && (
-            <div className="mb-3 p-2.5 rounded-xl bg-slate-50 border border-slate-200/70 text-[11px] text-slate-600 flex items-center justify-between">
-              <span className="text-slate-500">Następny termin:</span>
-              <span className="font-bold text-slate-800">
-                {bill.dueDate} (rachunki przyszłe)
-              </span>
-            </div>
-          )}
-
-          {/* Pełna historia wpłat */}
-          {isHistoryOpen && bill.paymentHistory && (
-            <div className="mb-3 p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2 animate-in fade-in">
-              <span className="font-bold text-[11px] text-slate-700 uppercase tracking-wider block">
-                Pełna historia uregulowanych wpłat
-              </span>
-              <div className="space-y-1.5 max-h-36 overflow-y-auto">
-                {bill.paymentHistory.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center justify-between p-1.5 bg-white rounded-lg border border-slate-100 text-[11px]"
-                  >
-                    <div>
-                      <span className="font-semibold text-slate-800">
-                        {item.billingPeriod || item.paidDate}
-                      </span>
-                      <span className="text-slate-400 block text-[10px]">
-                        Zapłacono: {item.paidDate}
-                      </span>
-                    </div>
-                    <span className="font-bold text-emerald-600">
-                      {item.amount.toFixed(2)} PLN
+      <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 shadow-2xs overflow-hidden">
+        {items.map((item) => {
+          const meta = getServiceMeta(item.serviceType);
+          const ServiceIcon = meta.icon;
+          return (
+            <div
+              key={item.id}
+              className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/70 transition-colors"
+            >
+              <div className="flex items-center space-x-3.5 min-w-0">
+                <div className={`p-2.5 rounded-xl ${meta.bg} ${meta.text} shrink-0`}>
+                  <ServiceIcon className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                    <span className="font-bold text-sm text-slate-900 truncate">
+                      {item.billName}
+                    </span>
+                    <span className="text-xs text-slate-300">•</span>
+                    <span className="text-xs text-slate-500 font-medium truncate">
+                      {item.provider}
+                    </span>
+                    <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center space-x-1 shrink-0">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                      <span>Uregulowano</span>
+                    </span>
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider bg-slate-100 px-1.5 py-0.5 rounded-md">
+                      {item.pricingType === 'variable' ? 'Zmienna' : 'Stała'}
                     </span>
                   </div>
-                ))}
+
+                  <div className="flex items-center space-x-2 text-xs text-slate-500 mt-1 flex-wrap gap-y-1">
+                    <span>
+                      Okres: <strong className="text-slate-700 font-semibold">{item.billingPeriod}</strong>
+                    </span>
+                    <span>•</span>
+                    <span className="flex items-center space-x-1">
+                      <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Data opłacenia: <strong className="text-slate-700 font-medium">{item.paidDate}</strong></span>
+                    </span>
+                    {item.meterReading && (
+                      <>
+                        <span>•</span>
+                        <span className="flex items-center space-x-1">
+                          <Gauge className="w-3.5 h-3.5 text-slate-400" />
+                          <span>Licznik: <strong className="text-slate-700 font-medium">{item.meterReading.current} {item.meterReading.unit}</strong></span>
+                        </span>
+                      </>
+                    )}
+                    <span>•</span>
+                    <span className="capitalize text-slate-400">{item.billingCycle}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between sm:justify-end space-x-4 pl-12 sm:pl-0 shrink-0">
+                <div className="text-left sm:text-right">
+                  <span className="text-base font-black text-emerald-700 block">
+                    {item.amount.toFixed(2)} PLN
+                  </span>
+                  <span className="text-[10px] text-emerald-600 font-medium block">
+                    wpis z historii
+                  </span>
+                </div>
+
+                <button
+                  onClick={() => handleRevertSettledPayment(item.bill, item.historyItem?.id)}
+                  className="px-2.5 py-1.5 rounded-xl border border-slate-200 hover:border-rose-200 bg-slate-50 hover:bg-rose-50 text-slate-600 hover:text-rose-700 text-xs font-semibold flex items-center space-x-1 transition-all shadow-2xs"
+                  title="Cofnij tę opłatę i przywróć rachunek do oczekujących"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-slate-500 hover:text-rose-600" />
+                  <span className="hidden sm:inline">Cofnij opłatę</span>
+                </button>
               </div>
             </div>
-          )}
-        </div>
-
-        {/* Stopka karty: wpis z historii + możliwość cofnięcia opłaty */}
-        <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-          <span className="text-[10px] text-emerald-700 font-semibold flex items-center space-x-1">
-            <Check className="w-3 h-3 text-emerald-600" />
-            <span>Wpis z historii rozliczeń</span>
-          </span>
-
-          <button
-            onClick={() => handleRevertSettledPayment(bill)}
-            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 rounded-xl text-xs font-semibold flex items-center space-x-1 transition-colors"
-            title="Cofnij opłacenie za ten miesiąc i przywróć do oczekujących"
-          >
-            <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
-            <span>Cofnij opłatę</span>
-          </button>
-        </div>
+          );
+        })}
       </div>
     );
   };
@@ -1344,27 +1334,25 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                 <h2 className="text-sm font-bold text-slate-800 flex items-center space-x-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                   <span>
-                    Uregulowane opłaty ({formatMonthName(currentMonth)}): {filteredMonthPaidBills.length}
+                    Uregulowane opłaty ({formatMonthName(currentMonth)}): {settledHistoryItems.length}
                   </span>
                 </h2>
-                {filteredMonthPaidBills.length > 0 && (
+                {settledHistoryItems.length > 0 && (
                   <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 self-start sm:self-auto">
                     Łącznie uregulowano: {totalPaidAmount.toFixed(2)} PLN
                   </span>
                 )}
               </div>
 
-              {filteredMonthPaidBills.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {filteredMonthPaidBills.map(renderSettledBillCard)}
-                </div>
+              {settledHistoryItems.length > 0 ? (
+                renderSettledHistoryList(settledHistoryItems)
               ) : (
                 <div className="p-8 bg-white rounded-2xl border border-slate-200 text-center space-y-1">
                   <p className="text-sm font-semibold text-slate-700">
                     Brak opłat uregulowanych w miesiącu {formatMonthName(currentMonth)}.
                   </p>
                   <p className="text-xs text-slate-400">
-                    Gdy opłacisz rachunek w tym okresie, pojawi się on tutaj oraz w Twoich transakcjach.
+                    Gdy opłacisz rachunek w tym okresie, pojawi się on tutaj w historii oraz w Twoich transakcjach.
                   </p>
                 </div>
               )}
@@ -1394,13 +1382,17 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                   {filteredMonthPendingBills.map(renderBillCard)}
                 </div>
               ) : (
-                <div className="p-8 bg-white rounded-2xl border border-slate-200 text-center space-y-1">
-                  <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
-                  <p className="text-sm font-bold text-slate-800">
+                <div className="p-8 bg-emerald-50/50 rounded-2xl border border-emerald-200 text-center space-y-2">
+                  <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
+                    <CheckCircle2 className="w-6 h-6" />
+                  </div>
+                  <p className="text-base font-bold text-emerald-950">
                     Wszystkie rachunki na {formatMonthName(currentMonth)} są uregulowane!
                   </p>
-                  <p className="text-xs text-slate-400">
-                    Brak oczekujących płatności przypadających na ten miesiąc rozliczeniowy.
+                  <p className="text-xs text-emerald-800/80 max-w-md mx-auto">
+                    Brak oczekujących rachunków do opłacenia w tym miesiącu rozliczeniowym.
+                    {filteredFutureBills.length > 0 &&
+                      ` Rachunki na kolejne miesiące (${filteredFutureBills.length}) znajdziesz w sekcji rachunków przyszłych.`}
                   </p>
                 </div>
               )}
@@ -1458,34 +1450,37 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                   {filteredMonthPendingBills.map(renderBillCard)}
                 </div>
               ) : (
-                <div className="p-6 bg-white rounded-2xl border border-slate-200 text-center space-y-1">
-                  <p className="text-sm font-semibold text-slate-700">
-                    Brak oczekujących rachunków w okresie {formatMonthName(currentMonth)}.
+                <div className="p-6 bg-emerald-50/50 rounded-2xl border border-emerald-200 text-center space-y-2">
+                  <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
+                    <CheckCircle2 className="w-5 h-5" />
+                  </div>
+                  <p className="text-sm font-bold text-emerald-950">
+                    Wszystkie rachunki na {formatMonthName(currentMonth)} zostały uregulowane!
                   </p>
-                  <p className="text-xs text-slate-400">
-                    Wszystkie rachunki z tego okresu zostały uregulowane lub termin przypada w kolejnych miesiącach.
+                  <p className="text-xs text-emerald-800/80 max-w-md mx-auto">
+                    Brak oczekujących rachunków w okresie {formatMonthName(currentMonth)}.
+                    {filteredFutureBills.length > 0 &&
+                      ` Kolejne płatności przypadają w odległych terminach (${filteredFutureBills.length}).`}
                   </p>
                 </div>
               )}
             </div>
 
-            {/* Section 2: Month Paid Bills */}
-            {filteredMonthPaidBills.length > 0 && (
+            {/* Section 2: Month Paid Bills (Simple History List) */}
+            {settledHistoryItems.length > 0 && (
               <div className="space-y-4 pt-2">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <h2 className="text-sm font-bold text-slate-800 flex items-center space-x-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                     <span>
-                      Uregulowane w miesiącu {formatMonthName(currentMonth)} ({filteredMonthPaidBills.length})
+                      Uregulowane w miesiącu {formatMonthName(currentMonth)} ({settledHistoryItems.length})
                     </span>
                   </h2>
                   <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100 self-start sm:self-auto">
                     Opłacono: {totalPaidAmount.toFixed(2)} PLN
                   </span>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {filteredMonthPaidBills.map(renderSettledBillCard)}
-                </div>
+                {renderSettledHistoryList(settledHistoryItems)}
               </div>
             )}
 

@@ -26,6 +26,7 @@ import {
   ChevronRight,
   CreditCard,
   Edit3,
+  X,
 } from 'lucide-react';
 import { Bill, UtilityServiceType, Transaction, BillPricingType } from '../types';
 import {
@@ -96,6 +97,19 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   const [variableEdits, setVariableEdits] = useState<
     Record<string, { amount: string; meterCurr?: string }>
   >({});
+
+  // Stan modala wyboru daty i potwierdzenia opłacenia rachunku
+  const [payModalBill, setPayModalBill] = useState<Bill | null>(null);
+  const [payModalDate, setPayModalDate] = useState<string>(
+    () => new Date().toISOString().split('T')[0]
+  );
+  const [payModalAmount, setPayModalAmount] = useState<string>('');
+  const [payModalMeterCurr, setPayModalMeterCurr] = useState<string>('');
+
+  // Stan daty w modalu opłat zbiorczych
+  const [batchPayDate, setBatchPayDate] = useState<string>(
+    () => new Date().toISOString().split('T')[0]
+  );
 
   // Success toast state
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -329,108 +343,128 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
     return d.getTime() < today.getTime() && matchesServiceAndPricing(b);
   });
 
-  /**
-   * Opłacenie rachunku stałego (1 kliknięcie) - powiązane z transakcją
-   */
-  const handlePayFixedBill = (bill: Bill) => {
-    const payDate = new Date().toISOString().split('T')[0];
-    const periodName = getBillingPeriodName(bill.dueDate);
+  const getYesterdayDate = () => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return d.toISOString().split('T')[0];
+  };
 
-    // 1. Zapisz transakcję w wydatkach powiązaną z rachunkiem (billId)
-    onAddTransaction({
-      type: 'expense',
-      amount: bill.amount,
-      category: 'Rachunki i media',
-      date: payDate,
-      title: `Rachunek: ${bill.name}`,
-      comment: `Opłacono opłatę stałą (${bill.provider}) za okres ${periodName}.`,
-      billId: bill.id,
-    });
+  const getOffsetDate = (days: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    return d.toISOString().split('T')[0];
+  };
 
-    const newHistoryItem = {
-      id: `hist-${Date.now()}`,
-      amount: bill.amount,
-      paidDate: payDate,
-      billingPeriod: periodName,
-      notes: 'Opłata stała uregulowana',
-    };
-
-    const updatedHistory = [newHistoryItem, ...(bill.paymentHistory || [])];
-
-    // 2. Obsługa cykliczności z zapamiętaniem poprzedniego terminu
-    if (bill.billingCycle === 'jednorazowo') {
-      onUpdateBill(bill.id, {
-        status: 'paid',
-        previousDueDate: bill.dueDate,
-        paymentDate: payDate,
-        lastPaidAmount: bill.amount,
-        paymentHistory: updatedHistory,
-      });
-      showToast(`Opłacono jednorazowy rachunek "${bill.name}" (${bill.amount.toFixed(2)} PLN).`);
-    } else {
-      const nextDue = calculateNextDueDate(bill.dueDate, bill.billingCycle);
-      onUpdateBill(bill.id, {
-        status: 'pending',
-        previousDueDate: bill.dueDate,
-        dueDate: nextDue,
-        paymentDate: payDate,
-        lastPaidAmount: bill.amount,
-        paymentHistory: updatedHistory,
-      });
-      showToast(
-        `Opłacono rachunek stały "${bill.name}" (${bill.amount.toFixed(2)} PLN). Nowy termin: ${nextDue} (${bill.billingCycle}).`
-      );
+  const getPayDateContext = (dateStr: string) => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    if (!dateStr) return null;
+    if (dateStr === todayStr) {
+      return {
+        label: 'Dzisiaj (bieżący dzień)',
+        badgeClass: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+        description: 'Opłata zostanie zarejestrowana z dzisiejszą datą.',
+      };
     }
+    if (dateStr < todayStr) {
+      const diffMs = new Date(todayStr).getTime() - new Date(dateStr).getTime();
+      const days = Math.round(diffMs / (1000 * 60 * 60 * 24));
+      return {
+        label: `Opłata wsteczna (${days} ${days === 1 ? 'dzień' : 'dni'} temu)`,
+        badgeClass: 'bg-amber-50 text-amber-800 border-amber-200',
+        description: 'Rachunek został już zapłacony w przeszłości. Transakcja zostanie dopasowana do tego dnia.',
+      };
+    }
+    const diffMs = new Date(dateStr).getTime() - new Date(todayStr).getTime();
+    const days = Math.round(diffMs / (1000 * 60 * 60 * 24));
+    return {
+      label: `Opłata zaplanowana (za ${days} ${days === 1 ? 'dzień' : 'dni'})`,
+      badgeClass: 'bg-blue-50 text-blue-800 border-blue-200',
+      description: 'Opłata nastąpi za kilka dni. Wydatek i status zostaną zapisane z wybraną datą.',
+    };
   };
 
   /**
-   * Opłacenie rachunku zmiennego (z nową kwotą / odczytem) - powiązane z transakcją
+   * Otwarcie modala wyboru daty i opłacenia rachunku
    */
-  const handlePayVariableBill = (bill: Bill) => {
-    const edit = variableEdits[bill.id];
-    const customAmountStr = edit?.amount !== undefined ? edit.amount : bill.amount.toString();
-    const parsedAmount = parseFloat(customAmountStr);
+  const handleOpenPayModal = (bill: Bill) => {
+    const isFixed = bill.pricingType === 'fixed' || !bill.pricingType;
+    let initialAmount = bill.amount.toString();
+    let initialMeterCurr = '';
 
+    if (!isFixed && variableEdits[bill.id]) {
+      if (variableEdits[bill.id].amount !== undefined) {
+        initialAmount = variableEdits[bill.id].amount;
+      }
+      if (variableEdits[bill.id].meterCurr !== undefined) {
+        initialMeterCurr = variableEdits[bill.id].meterCurr || '';
+      }
+    } else if (bill.meterReading) {
+      initialMeterCurr = bill.meterReading.current ? bill.meterReading.current.toString() : '';
+    }
+
+    setPayModalBill(bill);
+    setPayModalAmount(initialAmount);
+    setPayModalMeterCurr(initialMeterCurr);
+    setPayModalDate(new Date().toISOString().split('T')[0]);
+  };
+
+  /**
+   * Zatwierdzenie opłacenia rachunku ze wskazaną datą
+   */
+  const handleConfirmPayment = () => {
+    if (!payModalBill) return;
+
+    const parsedAmount = parseFloat(payModalAmount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
       alert('Wprowadź prawidłową kwotę rachunku większą od 0.');
       return;
     }
 
-    const payDate = new Date().toISOString().split('T')[0];
+    if (!payModalDate) {
+      alert('Proszę wybrać datę opłacenia rachunku.');
+      return;
+    }
+
+    const bill = payModalBill;
+    const isVariable = bill.pricingType === 'variable';
     const periodName = getBillingPeriodName(bill.dueDate);
 
     // Zaktualizowany odczyt licznika jeśli podano
     let updatedMeter = bill.meterReading;
-    if (edit?.meterCurr && !isNaN(parseFloat(edit.meterCurr))) {
-      const currVal = parseFloat(edit.meterCurr);
+    if (payModalMeterCurr && !isNaN(parseFloat(payModalMeterCurr))) {
+      const currVal = parseFloat(payModalMeterCurr);
       updatedMeter = {
         previous: bill.meterReading?.current || 0,
         current: currVal,
         unit: bill.meterReading?.unit || 'kWh',
-        readingDate: payDate,
+        readingDate: payModalDate,
       };
     }
 
-    // 1. Zapisz transakcję z billId
+    // 1. Zapisz transakcję w wydatkach powiązaną z rachunkiem (billId)
     onAddTransaction({
       type: 'expense',
       amount: parsedAmount,
       category: 'Rachunki i media',
-      date: payDate,
+      date: payModalDate,
       title: `Rachunek: ${bill.name}`,
-      comment: `Opłacono rachunek zmienny (${bill.provider}) za okres ${periodName}: ${parsedAmount.toFixed(2)} PLN.${
-        updatedMeter ? ` Stan licznika: ${updatedMeter.current} ${updatedMeter.unit}.` : ''
-      }`,
+      comment: isVariable
+        ? `Opłacono rachunek zmienny (${bill.provider}) za okres ${periodName}: ${parsedAmount.toFixed(2)} PLN.${
+            updatedMeter ? ` Stan licznika: ${updatedMeter.current} ${updatedMeter.unit}.` : ''
+          }`
+        : `Opłacono opłatę stałą (${bill.provider}) za okres ${periodName}: ${parsedAmount.toFixed(2)} PLN.`,
       billId: bill.id,
     });
 
     const newHistoryItem = {
-      id: `hist-${Date.now()}`,
+      id: `hist-${Date.now()}-${bill.id}`,
       amount: parsedAmount,
-      paidDate: payDate,
+      paidDate: payModalDate,
       billingPeriod: periodName,
       meterReading: updatedMeter,
-      notes: `Opłata zmienna zaktualizowana i opłacona`,
+      notes: isVariable
+        ? `Opłata zmienna z datą ${payModalDate}`
+        : `Opłata stała z datą ${payModalDate}`,
     };
 
     const updatedHistory = [newHistoryItem, ...(bill.paymentHistory || [])];
@@ -441,12 +475,14 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         status: 'paid',
         amount: parsedAmount,
         previousDueDate: bill.dueDate,
-        paymentDate: payDate,
+        paymentDate: payModalDate,
         lastPaidAmount: parsedAmount,
         meterReading: updatedMeter,
         paymentHistory: updatedHistory,
       });
-      showToast(`Opłacono rachunek "${bill.name}" na kwotę ${parsedAmount.toFixed(2)} PLN.`);
+      showToast(
+        `Opłacono jednorazowy rachunek "${bill.name}" (${parsedAmount.toFixed(2)} PLN) z datą ${payModalDate}.`
+      );
     } else {
       const nextDue = calculateNextDueDate(bill.dueDate, bill.billingCycle);
       onUpdateBill(bill.id, {
@@ -454,13 +490,13 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         amount: parsedAmount,
         previousDueDate: bill.dueDate,
         dueDate: nextDue,
-        paymentDate: payDate,
+        paymentDate: payModalDate,
         lastPaidAmount: parsedAmount,
         meterReading: updatedMeter,
         paymentHistory: updatedHistory,
       });
       showToast(
-        `Opłacono ${bill.name} (${parsedAmount.toFixed(2)} PLN). Cykl przesunięty na: ${nextDue}.`
+        `Opłacono rachunek "${bill.name}" (${parsedAmount.toFixed(2)} PLN) z datą ${payModalDate}. Nowy termin: ${nextDue} (${bill.billingCycle}).`
       );
     }
 
@@ -470,6 +506,8 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
       delete copy[bill.id];
       return copy;
     });
+
+    setPayModalBill(null);
   };
 
   /**
@@ -479,7 +517,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
     const billsToPay = nearPendingFixedBills.filter((b) => selectedBatchBills.includes(b.id));
     if (billsToPay.length === 0) return;
 
-    const payDate = new Date().toISOString().split('T')[0];
+    const payDate = batchPayDate || new Date().toISOString().split('T')[0];
     let totalPaid = 0;
 
     billsToPay.forEach((bill) => {
@@ -501,7 +539,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         amount: bill.amount,
         paidDate: payDate,
         billingPeriod: periodName,
-        notes: 'Szybkie opłacenie rachunku',
+        notes: `Szybkie opłacenie z datą ${payDate}`,
       };
       const updatedHistory = [newHistoryItem, ...(bill.paymentHistory || [])];
 
@@ -529,7 +567,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
     setShowBatchPayModal(false);
     setSelectedBatchBills([]);
     showToast(
-      `Pomyślnie opłacono ${billsToPay.length} rachunków na łączną kwotę ${totalPaid.toFixed(2)} PLN!`
+      `Pomyślnie opłacono ${billsToPay.length} rachunków z datą ${payDate} na łączną kwotę ${totalPaid.toFixed(2)} PLN!`
     );
   };
 
@@ -929,19 +967,21 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
               <span>Oznacz jako do zapłaty</span>
             </button>
           ) : isFixed ? (
-            /* FIXED BILL: 1-click Pay Button */
+            /* FIXED BILL: Otwarcie okna wyboru daty i opłacenia */
             <button
-              onClick={() => handlePayFixedBill(bill)}
+              onClick={() => handleOpenPayModal(bill)}
               className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 shadow-xs shrink-0"
+              title="Wybierz datę i opłać rachunek"
             >
               <Check className="w-4 h-4" />
               <span>Opłać {bill.amount.toFixed(2)} PLN</span>
             </button>
           ) : (
-            /* VARIABLE BILL: Pay with edited amount */
+            /* VARIABLE BILL: Otwarcie okna wyboru daty i opłacenia */
             <button
-              onClick={() => handlePayVariableBill(bill)}
+              onClick={() => handleOpenPayModal(bill)}
               className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 shadow-xs shrink-0"
+              title="Wybierz datę i opłać rachunek"
             >
               <Check className="w-4 h-4" />
               <span>
@@ -1620,14 +1660,10 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                       <button
                         type="button"
                         onClick={() => {
-                          handlePayFixedBill(b);
-                          setSelectedBatchBills((prev) => prev.filter((id) => id !== b.id));
-                          if (nearPendingFixedBills.length <= 1) {
-                            setShowBatchPayModal(false);
-                          }
+                          handleOpenPayModal(b);
                         }}
                         className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-lg text-xs font-bold transition-colors flex items-center space-x-1 shadow-2xs"
-                        title="Zatwierdź i opłać tylko ten rachunek"
+                        title="Wybierz datę i opłać ten rachunek"
                       >
                         <Check className="w-3.5 h-3.5" />
                         <span>Zatwierdź</span>
@@ -1636,6 +1672,45 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                   </div>
                 );
               })}
+            </div>
+
+            {/* Data opłacenia dla operacji zbiorczej */}
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-700 flex items-center space-x-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Data realizacji płatności zbiorczej:</span>
+                </label>
+                {batchPayDate && (
+                  <span className="text-[10px] font-semibold text-slate-500">
+                    {batchPayDate === new Date().toISOString().split('T')[0]
+                      ? 'Dzisiaj'
+                      : batchPayDate}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={batchPayDate}
+                  onChange={(e) => setBatchPayDate(e.target.value)}
+                  className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-800 focus:ring-1 focus:ring-emerald-500 focus:outline-hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => setBatchPayDate(new Date().toISOString().split('T')[0])}
+                  className="px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-xs font-semibold whitespace-nowrap"
+                >
+                  Dzisiaj
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBatchPayDate(getYesterdayDate())}
+                  className="px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-xs font-semibold whitespace-nowrap"
+                >
+                  Wczoraj
+                </button>
+              </div>
             </div>
 
             {/* Summary of Selected Items */}
@@ -1679,6 +1754,227 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
           </div>
         </div>
       )}
+
+      {/* Modal wyboru daty i potwierdzenia opłacenia rachunku */}
+      {payModalBill && (() => {
+        const bill = payModalBill;
+        const meta = getServiceMeta(bill.serviceType);
+        const ServiceIcon = meta.icon;
+        const dateCtx = getPayDateContext(payModalDate);
+        const numAmount = parseFloat(payModalAmount);
+        const isValidAmount = !isNaN(numAmount) && numAmount > 0;
+        const nextDuePreview =
+          bill.billingCycle === 'jednorazowo'
+            ? null
+            : calculateNextDueDate(bill.dueDate, bill.billingCycle);
+
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl max-w-lg w-full p-6 border border-slate-200 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
+              {/* Header */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center space-x-3">
+                  <div
+                    className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0"
+                    style={{ backgroundColor: `${meta.color}15`, color: meta.color }}
+                  >
+                    <ServiceIcon className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-base text-slate-900 leading-tight">
+                      Opłać rachunek: {bill.name}
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Dostawca: <span className="font-semibold text-slate-700">{bill.provider}</span> • Termin z umowy:{' '}
+                      <span className="font-semibold text-slate-700">{bill.dueDate}</span>
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPayModalBill(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
+                  title="Zamknij"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Informacyjny komunikat o dacie */}
+              <div className="p-3.5 bg-emerald-50/70 border border-emerald-200/90 rounded-xl text-xs text-emerald-950 flex items-start space-x-2.5">
+                <Calendar className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <p className="font-bold">Wskaż datę wykonania opłaty:</p>
+                  <p className="text-emerald-800/90 text-[11px] leading-relaxed">
+                    Możesz wybrać datę dzisiejszą, wsteczną (gdy rachunek został już opłacony) lub przyszłą (gdy wiesz, że opłata nastąpi za kilka dni).
+                  </p>
+                </div>
+              </div>
+
+              {/* Wybór daty opłaty */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Data realizacji płatności:</span>
+                  </label>
+                  {dateCtx && (
+                    <span
+                      className={`px-2 py-0.5 text-[10px] font-bold rounded-md border ${dateCtx.badgeClass}`}
+                    >
+                      {dateCtx.label}
+                    </span>
+                  )}
+                </div>
+
+                <input
+                  type="date"
+                  value={payModalDate}
+                  onChange={(e) => setPayModalDate(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden transition-all"
+                />
+
+                {/* Szybkie przyciski wyboru daty */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setPayModalDate(new Date().toISOString().split('T')[0])}
+                    className={`px-2.5 py-1 text-xs rounded-lg font-semibold border transition-colors ${
+                      payModalDate === new Date().toISOString().split('T')[0]
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                        : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                    }`}
+                  >
+                    Dzisiaj
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPayModalDate(getYesterdayDate())}
+                    className={`px-2.5 py-1 text-xs rounded-lg font-semibold border transition-colors ${
+                      payModalDate === getYesterdayDate()
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                        : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                    }`}
+                  >
+                    Wczoraj
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPayModalDate(bill.dueDate)}
+                    className={`px-2.5 py-1 text-xs rounded-lg font-semibold border transition-colors ${
+                      payModalDate === bill.dueDate
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                        : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                    }`}
+                    title="Ustaw datę zgodną z terminem płatności z rachunku"
+                  >
+                    Termin rachunku ({bill.dueDate})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPayModalDate(getOffsetDate(3))}
+                    className="px-2.5 py-1 text-xs rounded-lg font-semibold border bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200 transition-colors"
+                  >
+                    +3 dni
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPayModalDate(getOffsetDate(7))}
+                    className="px-2.5 py-1 text-xs rounded-lg font-semibold border bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200 transition-colors"
+                  >
+                    +7 dni
+                  </button>
+                </div>
+              </div>
+
+              {/* Kwota i ewentualny stan licznika */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-800">
+                    Kwota do zapłaty (PLN):
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={payModalAmount}
+                      onChange={(e) => setPayModalAmount(e.target.value)}
+                      className="w-full px-3 py-2 text-sm font-black text-slate-900 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
+                      placeholder="0.00"
+                    />
+                    <span className="absolute right-3 top-2 text-xs font-bold text-slate-400">
+                      PLN
+                    </span>
+                  </div>
+                </div>
+
+                {bill.meterReading && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-800 flex items-center space-x-1">
+                      <Gauge className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Stan licznika ({bill.meterReading.unit}):</span>
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      placeholder={`Poprz: ${bill.meterReading.previous || bill.meterReading.current}`}
+                      value={payModalMeterCurr}
+                      onChange={(e) => setPayModalMeterCurr(e.target.value)}
+                      className="w-full px-3 py-2 text-sm font-bold text-slate-900 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden text-right"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Podsumowanie skutków opłacenia */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 text-xs text-slate-600 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">Okres rozliczeniowy:</span>
+                  <span className="font-semibold text-slate-800">
+                    {getBillingPeriodName(bill.dueDate)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">Zapis w transakcjach:</span>
+                  <span className="font-semibold text-emerald-700">
+                    Wydatek z datą: {payModalDate}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">Kolejny cykl płatności:</span>
+                  <span className="font-semibold text-slate-800">
+                    {nextDuePreview
+                      ? `${nextDuePreview} (${bill.billingCycle})`
+                      : 'Rachunek jednorazowy (zakończony)'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Dolne przyciski */}
+              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setPayModalBill(null)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+                >
+                  Anuluj
+                </button>
+                <button
+                  type="button"
+                  disabled={!isValidAmount || !payModalDate}
+                  onClick={handleConfirmPayment}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl flex items-center space-x-2 transition-all shadow-xs"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>
+                    Zatwierdź opłatę ({isValidAmount ? numAmount.toFixed(2) : '0.00'} PLN)
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Add Bill Modal */}
       {showAddModal && (

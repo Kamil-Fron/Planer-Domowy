@@ -133,3 +133,68 @@ export function findRolloverTransaction(
     return false;
   });
 }
+
+/**
+ * Zwraca maksymalny dozwolony miesiąc kalendarzowy (YYYY-MM).
+ * Zgodnie z zasadą: maksymalnym miesiącem jest bieżący miesiąc kalendarzowy,
+ * CHYBA ŻE w transakcjach istnieje jakikolwiek wpis w przyszłym miesiącu.
+ * Wtedy najdalszy miesiąc z transakcji jest dozwolony.
+ */
+export function getMaxAllowedMonth(transactions: Transaction[] = []): string {
+  const currentCal = getCurrentCalendarMonth();
+  let maxMonth = currentCal;
+
+  for (const t of transactions) {
+    if (t.date && t.date.length >= 7) {
+      const txMonth = t.date.slice(0, 7);
+      if (txMonth > maxMonth) {
+        maxMonth = txMonth;
+      }
+    }
+  }
+
+  return maxMonth;
+}
+
+/**
+ * Sprawdza czy można przejść do wskazanego miesiąca docelowego
+ */
+export function canNavigateToMonth(
+  targetMonth: string,
+  transactions: Transaction[] = []
+): boolean {
+  const maxMonth = getMaxAllowedMonth(transactions);
+  return targetMonth <= maxMonth;
+}
+
+/**
+ * Generuje listę dostępnych miesięcy do wyboru (od maksymalnego dozwolonego wstecz).
+ */
+export function getAvailableMonthOptions(
+  transactions: Transaction[] = []
+): { value: string; label: string }[] {
+  const maxMonth = getMaxAllowedMonth(transactions);
+  
+  // Minimalny domyślny miesiąc: 6 miesięcy wstecz lub najwcześniejsza transakcja
+  let minMonth = '2026-06';
+  for (const t of transactions) {
+    if (t.date && t.date.length >= 7) {
+      const txMonth = t.date.slice(0, 7);
+      if (txMonth < minMonth) {
+        minMonth = txMonth;
+      }
+    }
+  }
+
+  const options: { value: string; label: string }[] = [];
+  let curr = maxMonth;
+  // Bezpiecznik: max 36 miesięcy wstecz
+  let safetyCounter = 0;
+  while (curr >= minMonth && safetyCounter < 36) {
+    options.push({ value: curr, label: formatMonthName(curr) });
+    curr = getPreviousMonth(curr);
+    safetyCounter++;
+  }
+
+  return options;
+}

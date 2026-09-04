@@ -1,19 +1,22 @@
 import { useRef, useState, TouchEvent } from 'react';
-import { getNextMonth, getPreviousMonth } from '../utils/rollover';
+import { getNextMonth, getPreviousMonth, canNavigateToMonth } from '../utils/rollover';
+import { Transaction } from '../types';
 
 interface UseMonthSwipeOptions {
   selectedMonth: string;
   onMonthChange?: (newMonth: string) => void;
+  transactions?: Transaction[];
   threshold?: number;
 }
 
 export function useMonthSwipe({
   selectedMonth,
   onMonthChange,
+  transactions = [],
   threshold = 45,
 }: UseMonthSwipeOptions) {
   const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
-  const [swipeFeedback, setSwipeFeedback] = useState<'prev' | 'next' | null>(null);
+  const [swipeFeedback, setSwipeFeedback] = useState<'prev' | 'next' | 'blocked' | null>(null);
 
   const handleTouchStart = (e: TouchEvent) => {
     if (e.touches.length !== 1) return;
@@ -39,11 +42,17 @@ export function useMonthSwipe({
 
     if (Math.abs(deltaX) >= threshold && Math.abs(deltaX) > Math.abs(deltaY) * 1.3) {
       if (deltaX < 0) {
-        // Swiped left -> advance to next month
+        // Swiped left -> advance to next month (check if future month is allowed)
         const next = getNextMonth(selectedMonth);
-        setSwipeFeedback('next');
-        setTimeout(() => setSwipeFeedback(null), 350);
-        onMonthChange(next);
+        if (canNavigateToMonth(next, transactions)) {
+          setSwipeFeedback('next');
+          setTimeout(() => setSwipeFeedback(null), 350);
+          onMonthChange(next);
+        } else {
+          // Blocked: cannot advance beyond current month unless transactions exist
+          setSwipeFeedback('blocked');
+          setTimeout(() => setSwipeFeedback(null), 350);
+        }
       } else {
         // Swiped right -> go back to previous month
         const prev = getPreviousMonth(selectedMonth);
@@ -62,3 +71,4 @@ export function useMonthSwipe({
     swipeFeedback,
   };
 }
+

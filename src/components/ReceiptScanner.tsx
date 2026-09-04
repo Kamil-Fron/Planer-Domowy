@@ -19,8 +19,13 @@ import {
   Key,
   ShieldCheck,
   FileText,
+  Layers,
+  ListPlus,
+  CheckCircle2,
 } from 'lucide-react';
 import { ReceiptItemDetail, ReceiptScanResult, Transaction, ShoppingItem } from '../types';
+
+export type ReceiptSaveMode = 'consolidated' | 'by_category' | 'individual';
 import { INITIAL_CATEGORIES, SAMPLE_RECEIPTS } from '../mockData';
 import {
   checkAiAvailability,
@@ -59,7 +64,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   const [scanResult, setScanResult] = useState<ReceiptScanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [splitByCategory, setSplitByCategory] = useState(false);
+  const [saveMode, setSaveMode] = useState<ReceiptSaveMode>('consolidated');
   
   const [aiStatus, setAiStatus] = useState<AiStatusResult>({
     isConfigured: false,
@@ -210,8 +215,37 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
     }
 
     try {
-      if (splitByCategory) {
-        // Group items by category and create separate transaction per category
+      if (saveMode === 'individual') {
+        // Każda pozycja osobno jako niezależna transakcja (np. przy listach zbiorczych, PDF, wyciągach)
+        selectedItems.forEach((item) => {
+          const itemPrice = parseFloat(item.price.toFixed(2));
+          if (onAddTransaction) {
+            onAddTransaction({
+              type: 'expense',
+              amount: itemPrice,
+              category: item.category || scanResult.dominantCategory || 'Inne wydatki',
+              date: scanResult.date,
+              title: item.name,
+              comment: `Pozycja z dokumentu: ${scanResult.storeName || 'Skan'}${item.notes ? ` • ${item.notes}` : ''}`,
+              receiptStoreName: scanResult.storeName,
+              receiptItems: [item],
+            });
+          } else if (onReceiptScanned) {
+            onReceiptScanned({
+              title: item.name,
+              amount: itemPrice,
+              category: item.category || scanResult.dominantCategory || 'Inne wydatki',
+              date: scanResult.date,
+              items: [{ name: item.name, price: item.price, quantity: item.quantity }],
+            });
+          }
+        });
+
+        setSuccessMessage(
+          `Pomyślnie dodano ${selectedItems.length} osobnych transakcji z dokumentu na łączną kwotę ${selectedTotal.toFixed(2)} PLN!`
+        );
+      } else if (saveMode === 'by_category') {
+        // Grupuj pozycje według kategorii i utwórz osobną transakcję dla każdej kategorii
         const categoriesMap: Record<string, { total: number; items: ReceiptItemDetail[] }> = {};
         selectedItems.forEach((item) => {
           if (!categoriesMap[item.category]) {
@@ -244,8 +278,12 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
             });
           }
         });
+
+        setSuccessMessage(
+          `Pomyślnie dodano ${Object.keys(categoriesMap).length} transakcji pogrupowanych według kategorii na łączną kwotę ${selectedTotal.toFixed(2)} PLN!`
+        );
       } else {
-        // Create single consolidated transaction
+        // Jeden zbiorczy paragon (1 skonsolidowana transakcja)
         const totalSelected = parseFloat(selectedItems.reduce((s, i) => s + i.price, 0).toFixed(2));
         if (onAddTransaction) {
           onAddTransaction({
@@ -267,9 +305,11 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
             items: selectedItems.map((i) => ({ name: i.name, price: i.price, quantity: i.quantity })),
           });
         }
-      }
 
-      setSuccessMessage(`Pomyślnie dodano wydatek z paragonu (${selectedTotal.toFixed(2)} PLN) do budżetu domowego!`);
+        setSuccessMessage(
+          `Pomyślnie dodano 1 zbiorczy paragon ze sklepu ${scanResult.storeName} (${selectedTotal.toFixed(2)} PLN) do budżetu!`
+        );
+      }
     } catch (err: any) {
       console.error('Błąd zapisu paragonu:', err);
       setError(err?.message || 'Wystąpił błąd podczas zatwierdzania paragonu. Spróbuj ponownie.');
@@ -636,19 +676,102 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                 </h3>
               </div>
 
-              {/* Split Category Toggle */}
-              <div className="flex items-center space-x-2 text-xs">
-                <label className="flex items-center space-x-2 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={splitByCategory}
-                    onChange={(e) => setSplitByCategory(e.target.checked)}
-                    className="rounded-sm text-slate-900 focus:ring-slate-900"
-                  />
-                  <span className="font-medium text-slate-700">
-                    Rozdziel na osobne wydatki według kategorii w budżecie
-                  </span>
-                </label>
+            </div>
+
+            {/* Wybór sposobu zapisu do budżetu (np. dla paragonów, faktur lub zbiorczych list PDF) */}
+            <div className="p-4 bg-slate-50 border-b border-slate-200 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <Layers className="w-4 h-4 text-indigo-600" />
+                  Sposób zapisu do budżetu:
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  Dla wyciągów i zbiorczych list PDF możesz zapisać pozycje osobno lub pogrupować
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                {/* 1. Zbiorczy paragon */}
+                <button
+                  type="button"
+                  onClick={() => setSaveMode('consolidated')}
+                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                    saveMode === 'consolidated'
+                      ? 'bg-indigo-50/90 border-indigo-300 ring-2 ring-indigo-500/20 text-indigo-950 shadow-2xs'
+                      : 'bg-white border-slate-200 hover:bg-slate-100/80 text-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center space-x-2">
+                      <Receipt className={`w-4 h-4 ${saveMode === 'consolidated' ? 'text-indigo-600' : 'text-slate-500'}`} />
+                      <span className="text-xs font-bold">1 paragon (zbiorczo)</span>
+                    </div>
+                    {saveMode === 'consolidated' && <CheckCircle2 className="w-4 h-4 text-indigo-600" />}
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-snug">
+                    Pojedynczy wydatek na łączną sumę ze wszystkimi produktami w szczegółach.
+                  </p>
+                </button>
+
+                {/* 2. Grupowanie w kategorie */}
+                <button
+                  type="button"
+                  onClick={() => setSaveMode('by_category')}
+                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                    saveMode === 'by_category'
+                      ? 'bg-indigo-50/90 border-indigo-300 ring-2 ring-indigo-500/20 text-indigo-950 shadow-2xs'
+                      : 'bg-white border-slate-200 hover:bg-slate-100/80 text-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center space-x-2">
+                      <Layers className={`w-4 h-4 ${saveMode === 'by_category' ? 'text-indigo-600' : 'text-slate-500'}`} />
+                      <span className="text-xs font-bold">Grupuj w kategorie</span>
+                    </div>
+                    {saveMode === 'by_category' && <CheckCircle2 className="w-4 h-4 text-indigo-600" />}
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-snug">
+                    Po jednej transakcji dla każdej odnalezionej na dokumencie kategorii.
+                  </p>
+                </button>
+
+                {/* 3. Osobno każda pozycja */}
+                <button
+                  type="button"
+                  onClick={() => setSaveMode('individual')}
+                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                    saveMode === 'individual'
+                      ? 'bg-indigo-50/90 border-indigo-300 ring-2 ring-indigo-500/20 text-indigo-950 shadow-2xs'
+                      : 'bg-white border-slate-200 hover:bg-slate-100/80 text-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center space-x-2">
+                      <ListPlus className={`w-4 h-4 ${saveMode === 'individual' ? 'text-indigo-600' : 'text-slate-500'}`} />
+                      <span className="text-xs font-bold">Osobno każda pozycja</span>
+                    </div>
+                    {saveMode === 'individual' && <CheckCircle2 className="w-4 h-4 text-indigo-600" />}
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-snug">
+                    Każdy produkt z osobna jako niezależna transakcja w budżecie.
+                  </p>
+                </button>
+              </div>
+
+              {/* Dynamiczny wskaźnik wyniku wybranego trybu */}
+              <div className="text-[11px] text-indigo-900 bg-indigo-50/60 px-3 py-1.5 rounded-lg border border-indigo-100/80 flex items-center justify-between">
+                <span>
+                  {saveMode === 'consolidated' && 'Efekt: Zostanie utworzona 1 transakcja w budżecie.'}
+                  {saveMode === 'by_category' && (() => {
+                    const selectedCats = new Set(scanResult.items.filter((i) => i.selected).map((i) => i.category));
+                    return `Efekt: Zostaną utworzone ${selectedCats.size} transakcje według kategorii.`;
+                  })()}
+                  {saveMode === 'individual' &&
+                    `Efekt: Zostanie utworzonych ${scanResult.items.filter((i) => i.selected).length} osobnych transakcji w budżecie.`}
+                </span>
+                <span className="font-bold text-indigo-950">
+                  Łącznie: {selectedTotal.toFixed(2)} PLN
+                </span>
               </div>
             </div>
 

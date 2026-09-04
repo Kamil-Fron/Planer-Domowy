@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Wallet,
   Receipt,
@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { Bill, BudgetLimit, TabType, Transaction, Household, UserProfile, AppNotification } from '../types';
 import { generateAutomatedNotifications } from '../utils/notifications';
+import { getAvailableMonthOptions } from '../utils/rollover';
 
 interface NavbarProps {
   activeTab: TabType;
@@ -100,12 +101,9 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'reports', label: 'Wykresy & Raporty', icon: BarChart3 },
   ];
 
-  const monthOptions = [
-    { value: '2026-09', label: 'Wrzesień 2026' },
-    { value: '2026-08', label: 'Sierpień 2026' },
-    { value: '2026-07', label: 'Lipiec 2026' },
-    { value: '2026-06', label: 'Czerwiec 2026' },
-  ];
+  const monthOptions = useMemo(() => {
+    return getAvailableMonthOptions(transactions);
+  }, [transactions]);
 
   // Mobile main bottom tabs
   const mobileMainTabs: { id: TabType; label: string; icon: React.ComponentType<{ className?: string }> }[] = [

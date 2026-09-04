@@ -81,6 +81,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const { touchHandlers, swipeFeedback } = useMonthSwipe({
     selectedMonth,
     onMonthChange,
+    transactions,
   });
 
   // Month transactions
@@ -156,14 +157,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Main Balance Card with Touch Swipe for Mobile Month Switching */}
         <div
           {...touchHandlers}
-          className={`lg:col-span-2 bg-slate-900 text-white rounded-2xl p-6 shadow-xs relative overflow-hidden flex flex-col justify-between border border-slate-800 transition-transform duration-200 select-none touch-pan-y ${
+          className={`lg:col-span-2 bg-slate-900 text-white rounded-2xl p-6 shadow-xs relative overflow-hidden flex flex-col justify-between border transition-all duration-200 select-none touch-pan-y ${
             swipeFeedback === 'next'
-              ? '-translate-x-1.5 opacity-90'
+              ? '-translate-x-1.5 opacity-90 border-indigo-500/50'
               : swipeFeedback === 'prev'
-              ? 'translate-x-1.5 opacity-90'
-              : ''
+              ? 'translate-x-1.5 opacity-90 border-indigo-500/50'
+              : swipeFeedback === 'blocked'
+              ? 'border-amber-500/80 -translate-x-0.5 shadow-amber-500/20'
+              : 'border-slate-800'
           }`}
         >
+          {swipeFeedback === 'blocked' && (
+            <div className="absolute top-2 inset-x-0 mx-auto w-max z-30 px-3 py-1 bg-amber-500 text-slate-950 font-bold text-[10px] rounded-full shadow-lg animate-in fade-in zoom-in-95">
+              Przyszły miesiąc jest zablokowany (brak transakcji)
+            </div>
+          )}
           <div>
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center space-x-2 min-w-0">

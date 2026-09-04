@@ -40,6 +40,7 @@ import {
   getBillingPeriodName,
   getMultipleBillingPeriods,
 } from '../utils/billCycle';
+import { canNavigateToMonth } from '../utils/rollover';
 
 interface BillsManagerProps {
   bills: Bill[];
@@ -103,6 +104,9 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   const [variableEdits, setVariableEdits] = useState<
     Record<string, { amount: string; meterCurr?: string }>
   >({});
+
+  // Kwoty wpisane w oknie zbiorczego opłacania (dla rachunków zmiennych i stałych)
+  const [batchCustomAmounts, setBatchCustomAmounts] = useState<Record<string, string>>({});
 
   // Stan modala wyboru daty i potwierdzenia opłacenia rachunku
   const [payModalBill, setPayModalBill] = useState<Bill | null>(null);
@@ -350,11 +354,15 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   const totalRegisteredAmount = totalPendingAmount + totalPaidAmount;
   const registeredCount = filteredMonthPendingBills.length + settledHistoryItems.length;
 
-  // Rachunki stałe z bliskim terminem ważności (zaległe lub termin <= 14 dni) do szybkiej opłaty "Opłać"
-  const nearPendingFixedBills = bills.filter(
-    (b) => b.status !== 'paid' && (b.pricingType === 'fixed' || !b.pricingType) && isNearDue(b.dueDate)
+  // Wszystkie rachunki oczekujące z bliskim terminem ważności (zaległe lub termin <= 14 dni) do szybkiej opłaty "Opłać" (stałe i zmienne)
+  const nearPendingBills = bills.filter(
+    (b) => b.status !== 'paid' && isNearDue(b.dueDate)
   );
-  const totalNearPendingFixedAmount = nearPendingFixedBills.reduce((s, b) => s + b.amount, 0);
+  const totalNearPendingAmount = nearPendingBills.reduce((s, b) => {
+    const customAmtStr = batchCustomAmounts[b.id] ?? variableEdits[b.id]?.amount;
+    const val = customAmtStr !== undefined ? parseFloat(customAmtStr) : b.amount;
+    return s + (isNaN(val) || val <= 0 ? b.amount : val);
+  }, 0);
 
   // Overdue bills matching filter
   const filteredOverdueBills = bills.filter((b) => {
@@ -641,10 +649,23 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   };
 
   /**
-   * Szybkie opłacenie rachunków o bliskiej dacie ważności
+   * Otwarcie okna opłacenia rachunków z bliskim terminem
    */
-  const handleBatchPayFixed = () => {
-    const billsToPay = nearPendingFixedBills.filter((b) => selectedBatchBills.includes(b.id));
+  const handleOpenBatchPayModal = () => {
+    const initialAmounts: Record<string, string> = {};
+    nearPendingBills.forEach((b) => {
+      initialAmounts[b.id] = variableEdits[b.id]?.amount || b.amount.toString();
+    });
+    setBatchCustomAmounts(initialAmounts);
+    setSelectedBatchBills(nearPendingBills.map((b) => b.id));
+    setShowBatchPayModal(true);
+  };
+
+  /**
+   * Szybkie opłacenie rachunków o bliskiej dacie ważności (stałych oraz zmiennych)
+   */
+  const handleBatchPayAll = () => {
+    const billsToPay = nearPendingBills.filter((b) => selectedBatchBills.includes(b.id));
     if (billsToPay.length === 0) return;
 
     const payDate = batchPayDate || new Date().toISOString().split('T')[0];
@@ -652,7 +673,10 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
 
     billsToPay.forEach((bill) => {
       const periodName = getBillingPeriodName(bill.dueDate);
-      totalPaid += bill.amount;
+      const customStr = batchCustomAmounts[bill.id];
+      const parsedAmt = customStr !== undefined ? parseFloat(customStr) : bill.amount;
+      const finalAmount = isNaN(parsedAmt) || parsedAmt <= 0 ? bill.amount : parsedAmt;
+      totalPaid += finalAmount;
 
       const txId = `tx-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
       const historyId = `hist-${Date.now()}-${bill.id}`;
@@ -660,11 +684,13 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
       onAddTransaction({
         id: txId,
         type: 'expense',
-        amount: bill.amount,
+        amount: finalAmount,
         category: 'Rachunki i media',
         date: payDate,
         title: `Rachunek: ${bill.name}`,
-        comment: `Szybka płatność (${bill.provider}) za okres ${periodName}`,
+        comment: `Płatność (${bill.provider}) za okres ${periodName}${
+          bill.pricingType === 'variable' ? ' [opłata zmienna]' : ''
+        }`,
         billId: bill.id,
         billPaymentHistoryId: historyId,
         billPeriodDueDate: bill.dueDate,
@@ -673,30 +699,32 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
       const newHistoryItem: BillPaymentHistoryItem = {
         id: historyId,
         transactionId: txId,
-        amount: bill.amount,
+        amount: finalAmount,
         paidDate: payDate,
         billingPeriod: periodName,
         periodDueDate: bill.dueDate,
-        notes: `Szybkie opłacenie z datą ${payDate}`,
+        notes: `Opłacenie (${bill.pricingType === 'variable' ? 'kwota zmienna' : 'stała'}) z datą ${payDate}`,
       };
       const updatedHistory = [newHistoryItem, ...(bill.paymentHistory || [])];
 
       if (bill.billingCycle === 'jednorazowo') {
         onUpdateBill(bill.id, {
+          amount: finalAmount,
           status: 'paid',
           previousDueDate: bill.dueDate,
           paymentDate: payDate,
-          lastPaidAmount: bill.amount,
+          lastPaidAmount: finalAmount,
           paymentHistory: updatedHistory,
         });
       } else {
         const nextDue = calculateNextDueDate(bill.dueDate, bill.billingCycle);
         onUpdateBill(bill.id, {
+          amount: bill.pricingType === 'variable' ? finalAmount : bill.amount,
           status: 'pending',
           previousDueDate: bill.dueDate,
           dueDate: nextDue,
           paymentDate: payDate,
-          lastPaidAmount: bill.amount,
+          lastPaidAmount: finalAmount,
           paymentHistory: updatedHistory,
         });
       }
@@ -1483,13 +1511,28 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
             {formatMonthName(currentMonth)}
           </span>
 
-          <button
-            onClick={() => handleMonthChange(getAdjacentMonth(currentMonth, 1))}
-            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 transition-colors"
-            title="Następny miesiąc"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
+          {(() => {
+            const nextM = getAdjacentMonth(currentMonth, 1);
+            const canAdvance = canNavigateToMonth(nextM, transactions);
+            return (
+              <button
+                onClick={() => canAdvance && handleMonthChange(nextM)}
+                disabled={!canAdvance}
+                className={`p-1.5 rounded-lg border transition-colors ${
+                  canAdvance
+                    ? 'border-slate-200 hover:bg-slate-50 text-slate-700 cursor-pointer'
+                    : 'border-slate-100 text-slate-300 opacity-40 cursor-not-allowed'
+                }`}
+                title={
+                  canAdvance
+                    ? 'Następny miesiąc'
+                    : 'Przyszły miesiąc jest zablokowany (brak wpisów transakcyjnych)'
+                }
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            );
+          })()}
 
           {!isCurrentCalendarMonth && (
             <button
@@ -1557,7 +1600,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
       </div>
 
       {/* Quick Pay Alert Banner for Bills with near due date */}
-      {nearPendingFixedBills.length > 0 && (
+      {nearPendingBills.length > 0 && (
         <div className="bg-emerald-50/80 border border-emerald-200/90 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3.5 shadow-xs">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
@@ -1565,26 +1608,23 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
             </div>
             <div>
               <p className="text-xs sm:text-sm font-bold text-emerald-950">
-                Rachunki z bliskim terminem do opłacenia: {nearPendingFixedBills.length}{' '}
-                {nearPendingFixedBills.length === 1 ? 'pozycja' : 'pozycje'} (
-                {totalNearPendingFixedAmount.toFixed(2)} PLN)
+                Rachunki z bliskim terminem do opłacenia: {nearPendingBills.length}{' '}
+                {nearPendingBills.length === 1 ? 'pozycja' : 'pozycje'} (
+                {totalNearPendingAmount.toFixed(2)} PLN)
               </p>
               <p className="text-[11px] text-emerald-700 mt-0.5">
-                Termin płatności przypada w ciągu najbliższych 14 dni lub upłynął. Możesz uregulować je jednym kliknięciem.
+                Termin płatności przypada w ciągu najbliższych 14 dni lub upłynął. Obejmuje wszystkie rachunki (stałe i zmienne z opcją zmiany kwoty).
               </p>
             </div>
           </div>
 
           <button
-            onClick={() => {
-              setSelectedBatchBills(nearPendingFixedBills.map((b) => b.id));
-              setShowBatchPayModal(true);
-            }}
-            className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs sm:text-sm font-bold rounded-xl flex items-center justify-center space-x-2 transition-all shadow-xs shrink-0"
-            title="Opłać rachunki z bliskim terminem ważności"
+            onClick={handleOpenBatchPayModal}
+            className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs sm:text-sm font-bold rounded-xl flex items-center justify-center space-x-2 transition-all shadow-xs shrink-0 cursor-pointer"
+            title="Opłać wszystkie rachunki z bliskim terminem ważności"
           >
             <Check className="w-4 h-4" />
-            <span>Opłać ({totalNearPendingFixedAmount.toFixed(2)} PLN)</span>
+            <span>Opłać ({totalNearPendingAmount.toFixed(2)} PLN)</span>
           </button>
         </div>
       )}
@@ -1914,22 +1954,22 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
               </div>
               <div>
                 <h3 className="font-bold text-base text-slate-900">
-                  Rachunki z bliskim terminem ważności
+                  Rachunki do opłacenia
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Zatwierdź każdy rachunek osobno lub ureguluj wybrane pozycje zbiorczo.
+                  Ureguluj wszystkie oczekujące rachunki (stałe i zmienne). Dla zmiennych możesz wpisać dokładną kwotę z faktury.
                 </p>
               </div>
             </div>
 
             {/* Selection Toolbar */}
             <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
-              <span className="font-medium">Lista do opłacenia ({nearPendingFixedBills.length}):</span>
+              <span className="font-medium">Lista do opłacenia ({nearPendingBills.length}):</span>
               <div className="flex items-center space-x-2 font-semibold">
                 <button
                   type="button"
-                  onClick={() => setSelectedBatchBills(nearPendingFixedBills.map((b) => b.id))}
-                  className="text-emerald-700 hover:text-emerald-800 transition-colors"
+                  onClick={() => setSelectedBatchBills(nearPendingBills.map((b) => b.id))}
+                  className="text-emerald-700 hover:text-emerald-800 transition-colors cursor-pointer"
                 >
                   Zaznacz wszystkie
                 </button>
@@ -1937,7 +1977,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                 <button
                   type="button"
                   onClick={() => setSelectedBatchBills([])}
-                  className="text-slate-500 hover:text-slate-700 transition-colors"
+                  className="text-slate-500 hover:text-slate-700 transition-colors cursor-pointer"
                 >
                   Odznacz
                 </button>
@@ -1945,13 +1985,14 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
             </div>
 
             {/* List with Individual Pay Buttons */}
-            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-              {nearPendingFixedBills.map((b) => {
+            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+              {nearPendingBills.map((b) => {
                 const isSelected = selectedBatchBills.includes(b.id);
+                const isVariable = b.pricingType === 'variable';
                 return (
                   <div
                     key={b.id}
-                    className={`p-3 rounded-xl border flex items-center justify-between gap-3 text-xs transition-colors ${
+                    className={`p-3 rounded-xl border flex items-center justify-between gap-2.5 text-xs transition-colors ${
                       isSelected
                         ? 'bg-emerald-50/60 border-emerald-200'
                         : 'bg-slate-50 border-slate-100 hover:bg-slate-100/70'
@@ -1971,17 +2012,47 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                         className="rounded-sm text-emerald-600 focus:ring-emerald-600 w-4 h-4 shrink-0"
                       />
                       <div className="truncate">
-                        <span className="font-bold text-slate-800 block truncate">{b.name}</span>
+                        <div className="flex items-center space-x-1.5 truncate">
+                          <span className="font-bold text-slate-800 truncate">{b.name}</span>
+                          <span
+                            className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
+                              isVariable
+                                ? 'bg-blue-100 text-blue-700 border border-blue-200'
+                                : 'bg-slate-200 text-slate-700'
+                            }`}
+                          >
+                            {isVariable ? 'Zmienny' : 'Stały'}
+                          </span>
+                        </div>
                         <span className="text-[10px] text-slate-400 block capitalize">
                           {b.provider} • Termin: {b.dueDate}
                         </span>
                       </div>
                     </div>
 
-                    <div className="flex items-center space-x-2.5 shrink-0">
-                      <span className="font-black text-slate-900 whitespace-nowrap">
-                        {b.amount.toFixed(2)} PLN
-                      </span>
+                    <div className="flex items-center space-x-2 shrink-0">
+                      {isVariable ? (
+                        <div className="flex items-center space-x-1 bg-blue-50/80 border border-blue-200 rounded-lg px-1.5 py-1">
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={batchCustomAmounts[b.id] ?? b.amount}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setBatchCustomAmounts((prev) => ({ ...prev, [b.id]: val }));
+                            }}
+                            className="w-16 px-1 py-0.5 text-right text-xs font-black text-slate-900 bg-white border border-blue-300 rounded focus:border-blue-500 focus:outline-hidden"
+                            placeholder="0.00"
+                            title="Zmień kwotę do opłacenia dla tego rachunku zmiennego"
+                          />
+                          <span className="text-[10px] font-bold text-blue-900">PLN</span>
+                        </div>
+                      ) : (
+                        <span className="font-black text-slate-900 whitespace-nowrap text-xs">
+                          {b.amount.toFixed(2)} PLN
+                        </span>
+                      )}
 
                       {/* Individual Approval Button */}
                       <button
@@ -1989,11 +2060,11 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                         onClick={() => {
                           handleOpenPayModal(b);
                         }}
-                        className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-lg text-xs font-bold transition-colors flex items-center space-x-1 shadow-2xs"
-                        title="Wybierz datę i opłać ten rachunek"
+                        className="px-2 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-lg text-xs font-bold transition-colors flex items-center space-x-1 shadow-2xs cursor-pointer"
+                        title="Wybierz datę i opłać tylko ten rachunek"
                       >
                         <Check className="w-3.5 h-3.5" />
-                        <span>Zatwierdź</span>
+                        <span className="hidden sm:inline">Zatwierdź</span>
                       </button>
                     </div>
                   </div>
@@ -2026,14 +2097,14 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                 <button
                   type="button"
                   onClick={() => setBatchPayDate(new Date().toISOString().split('T')[0])}
-                  className="px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-xs font-semibold whitespace-nowrap"
+                  className="px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-xs font-semibold whitespace-nowrap cursor-pointer"
                 >
                   Dzisiaj
                 </button>
                 <button
                   type="button"
                   onClick={() => setBatchPayDate(getYesterdayDate())}
-                  className="px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-xs font-semibold whitespace-nowrap"
+                  className="px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-xs font-semibold whitespace-nowrap cursor-pointer"
                 >
                   Wczoraj
                 </button>
@@ -2045,13 +2116,17 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
               <div>
                 <span className="text-xs font-semibold text-emerald-900 block">Zaznaczono do opłacenia:</span>
                 <span className="text-[11px] text-emerald-700">
-                  {selectedBatchBills.length} z {nearPendingFixedBills.length} rachunków
+                  {selectedBatchBills.length} z {nearPendingBills.length} rachunków
                 </span>
               </div>
               <span className="text-lg font-black text-emerald-700">
-                {nearPendingFixedBills
+                {nearPendingBills
                   .filter((b) => selectedBatchBills.includes(b.id))
-                  .reduce((sum, b) => sum + b.amount, 0)
+                  .reduce((sum, b) => {
+                    const customVal = batchCustomAmounts[b.id];
+                    const parsed = customVal !== undefined ? parseFloat(customVal) : b.amount;
+                    return sum + (isNaN(parsed) || parsed <= 0 ? b.amount : parsed);
+                  }, 0)
                   .toFixed(2)}{' '}
                 PLN
               </span>
@@ -2062,15 +2137,15 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
               <button
                 type="button"
                 onClick={() => setShowBatchPayModal(false)}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
               >
                 Zamknij
               </button>
               <button
                 type="button"
                 disabled={selectedBatchBills.length === 0}
-                onClick={handleBatchPayFixed}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs rounded-xl shadow-xs flex items-center space-x-1.5 transition-all"
+                onClick={handleBatchPayAll}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs rounded-xl shadow-xs flex items-center space-x-1.5 transition-all cursor-pointer"
               >
                 <Check className="w-4 h-4" />
                 <span>

@@ -67,6 +67,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
   const { touchHandlers, swipeFeedback } = useMonthSwipe({
     selectedMonth,
     onMonthChange,
+    transactions,
   });
 
   // Filtered list
@@ -191,16 +192,24 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
       </div>
 
       {/* KPI Cards - Clean, concise with mobile gesture support */}
-      <div
-        {...touchHandlers}
-        className={`grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 transition-transform duration-200 select-none touch-pan-y ${
-          swipeFeedback === 'next'
-            ? '-translate-x-1.5 opacity-90'
-            : swipeFeedback === 'prev'
-            ? 'translate-x-1.5 opacity-90'
-            : ''
-        }`}
-      >
+      <div className="relative">
+        {swipeFeedback === 'blocked' && (
+          <div className="absolute -top-3 inset-x-0 mx-auto w-max z-30 px-3 py-1 bg-amber-500 text-slate-950 font-bold text-[10px] rounded-full shadow-lg animate-in fade-in zoom-in-95">
+            Przyszły miesiąc jest zablokowany (brak transakcji)
+          </div>
+        )}
+        <div
+          {...touchHandlers}
+          className={`grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 transition-transform duration-200 select-none touch-pan-y ${
+            swipeFeedback === 'next'
+              ? '-translate-x-1.5 opacity-90'
+              : swipeFeedback === 'prev'
+              ? 'translate-x-1.5 opacity-90'
+              : swipeFeedback === 'blocked'
+              ? '-translate-x-0.5 opacity-90'
+              : ''
+          }`}
+        >
         <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between min-w-0">
           <div className="min-w-0 flex-1">
             <span className="text-xs text-slate-500 font-medium block truncate">Dochody</span>
@@ -254,6 +263,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
           </div>
         </div>
       </div>
+    </div>
 
       {/* Mobile gesture hint */}
       <div className="sm:hidden text-center text-[10px] text-slate-400 py-0.5">

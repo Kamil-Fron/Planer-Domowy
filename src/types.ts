@@ -42,6 +42,8 @@ export interface Transaction {
   isRecurring?: boolean;
   receiptId?: string;
   billId?: string; // ID powiązanego rachunku
+  billPaymentHistoryId?: string; // ID powiązanego wpisu w historii rachunku
+  billPeriodDueDate?: string; // Termin płatności cyklu, którego dotyczy ta transakcja
   receiptItems?: ReceiptItemDetail[];
   receiptStoreName?: string;
   createdAt: string;
@@ -102,6 +104,8 @@ export interface BillPaymentHistoryItem {
   meterReading?: MeterReading;
   cycleCount?: number; // np. 2 jeśli opłacono za 2 okresy rozliczeniowe
   isRollover?: boolean; // true jeśli to wpis o kumulacji / przeniesieniu na kolejny okres
+  periodDueDate?: string; // Pierwotny termin płatności cyklu, którego dotyczy wpis (YYYY-MM-DD)
+  transactionId?: string; // ID powiązanej transakcji w wydatkach
 }
 
 export interface Bill {

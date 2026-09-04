@@ -31,8 +31,9 @@ import {
   ArrowRightCircle,
   CalendarPlus,
   Info,
+  AlertCircle,
 } from 'lucide-react';
-import { Bill, UtilityServiceType, Transaction, BillPricingType } from '../types';
+import { Bill, UtilityServiceType, Transaction, BillPricingType, BillPaymentHistoryItem } from '../types';
 import {
   calculateNextDueDate,
   calculatePreviousDueDate,
@@ -45,13 +46,13 @@ interface BillsManagerProps {
   onAddBill: (bill: Omit<Bill, 'id' | 'createdAt'> & { id?: string }) => void;
   onUpdateBill: (id: string, updates: Partial<Bill>) => void;
   onDeleteBill: (id: string) => void;
-  onAddTransaction: (transaction: Omit<Transaction, 'id' | 'createdAt'>) => void;
+  onAddTransaction: (transaction: Omit<Transaction, 'id' | 'createdAt'> & { id?: string }) => void;
   pushEnabled: boolean;
   onTogglePush: (enabled: boolean) => void;
   selectedMonth?: string;
   onMonthChange?: (month: string) => void;
   transactions?: Transaction[];
-  onDeleteTransaction?: (id: string) => void;
+  onDeleteTransaction?: (id: string, skipBillRevert?: boolean) => void;
 }
 
 const formatMonthName = (monthStr: string) => {
@@ -149,6 +150,10 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   const [meterPrev, setMeterPrev] = useState('');
   const [meterCurr, setMeterCurr] = useState('');
   const [meterUnit, setMeterUnit] = useState('kWh');
+
+  // Quick DueDate Editing
+  const [editingDueDateBillId, setEditingDueDateBillId] = useState<string | null>(null);
+  const [tempDueDate, setTempDueDate] = useState<string>('');
 
   // Service helpers
   const getServiceMeta = (type: UtilityServiceType) => {
@@ -537,8 +542,12 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
       };
     }
 
-    // 1. Zapisz transakcję w wydatkach powiązaną z rachunkiem (billId)
+    const txId = `tx-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const historyId = `hist-${Date.now()}-${bill.id}`;
+
+    // 1. Zapisz transakcję w wydatkach powiązaną z rachunkiem (billId, billPaymentHistoryId, billPeriodDueDate)
     onAddTransaction({
+      id: txId,
       type: 'expense',
       amount: parsedAmount,
       category: 'Rachunki i media',
@@ -555,12 +564,16 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
             }`
           : `Opłacono opłatę stałą (${bill.provider}) za okres ${periodName}: ${parsedAmount.toFixed(2)} PLN.`,
       billId: bill.id,
+      billPaymentHistoryId: historyId,
+      billPeriodDueDate: bill.dueDate,
     });
 
-    const newHistoryItem = {
-      id: `hist-${Date.now()}-${bill.id}`,
+    const newHistoryItem: BillPaymentHistoryItem = {
+      id: historyId,
+      transactionId: txId,
       amount: parsedAmount,
       paidDate: payModalDate,
+      periodDueDate: bill.dueDate, // Precyzyjnie zapamiętany termin tego okresu
       billingPeriod: periodName,
       cycleCount: cycles,
       meterReading: updatedMeter,
@@ -641,7 +654,11 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
       const periodName = getBillingPeriodName(bill.dueDate);
       totalPaid += bill.amount;
 
+      const txId = `tx-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const historyId = `hist-${Date.now()}-${bill.id}`;
+
       onAddTransaction({
+        id: txId,
         type: 'expense',
         amount: bill.amount,
         category: 'Rachunki i media',
@@ -649,13 +666,17 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         title: `Rachunek: ${bill.name}`,
         comment: `Szybka płatność (${bill.provider}) za okres ${periodName}`,
         billId: bill.id,
+        billPaymentHistoryId: historyId,
+        billPeriodDueDate: bill.dueDate,
       });
 
-      const newHistoryItem = {
-        id: `hist-${Date.now()}-${bill.id}`,
+      const newHistoryItem: BillPaymentHistoryItem = {
+        id: historyId,
+        transactionId: txId,
         amount: bill.amount,
         paidDate: payDate,
         billingPeriod: periodName,
+        periodDueDate: bill.dueDate,
         notes: `Szybkie opłacenie z datą ${payDate}`,
       };
       const updatedHistory = [newHistoryItem, ...(bill.paymentHistory || [])];
@@ -693,7 +714,13 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
    */
   const handleTogglePending = (bill: Bill) => {
     if (bill.status === 'paid') {
-      onUpdateBill(bill.id, { status: 'pending', paymentDate: undefined });
+      const restoredDueDate = bill.previousDueDate || bill.dueDate;
+      onUpdateBill(bill.id, {
+        status: 'pending',
+        dueDate: restoredDueDate,
+        paymentDate: undefined,
+        previousDueDate: undefined,
+      });
       showToast(`Rachunek "${bill.name}" oznaczono ponownie jako do zapłaty.`);
     }
   };
@@ -705,17 +732,30 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
     const history = bill.paymentHistory || [];
     const itemToRevert = historyItemId
       ? history.find((h) => h.id === historyItemId)
-      : history.find((h) => h.paidDate.startsWith(currentMonth));
+      : history.find((h) => !h.isRollover && h.paidDate.startsWith(currentMonth)) ||
+        history.find((h) => !h.isRollover) ||
+        history[0];
 
-    // 1. Usuń powiązany wpis z historii płatności
-    const updatedHistory = historyItemId
-      ? history.filter((h) => h.id !== historyItemId)
-      : history.filter((h) => !h.paidDate.startsWith(currentMonth));
+    if (!itemToRevert && bill.status !== 'paid') {
+      showToast('Nie znaleziono wpisu opłaty do cofnięcia.');
+      return;
+    }
 
-    // 2. Przywróć poprzedni termin (sprzed opłacenia)
+    // 1. Wyznacz precyzyjnie pierwotny termin do przywrócenia:
+    // Jeśli wpis historii ma zapamiętany pierwotny termin tego okresu (periodDueDate), używamy go!
+    // Dzięki temu termin powraca DOKŁADNIE do okresu, który cofamy, bez względu na inne okresy.
+    const cyclesToRevert = itemToRevert?.cycleCount || 1;
     const restoredDueDate =
-      bill.previousDueDate || calculatePreviousDueDate(bill.dueDate, bill.billingCycle);
+      itemToRevert?.periodDueDate ||
+      bill.previousDueDate ||
+      calculatePreviousDueDate(bill.dueDate, bill.billingCycle, cyclesToRevert);
 
+    // 2. Usuń WYŁĄCZNIE ten jeden konkretny wpis z historii płatności
+    const updatedHistory = itemToRevert
+      ? history.filter((h) => h.id !== itemToRevert.id)
+      : history;
+
+    // 3. Zaktualizuj rachunek (POJEDYNCZA atomowa aktualizacja stanu)
     onUpdateBill(bill.id, {
       status: 'pending',
       dueDate: restoredDueDate,
@@ -725,26 +765,38 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
       lastPaidAmount: updatedHistory[0]?.amount,
     });
 
-    // 3. Usuń powiązaną transakcję z historii transakcji, aby zachować spójność
+    // 4. Usuń powiązaną transakcję ze spisu transakcji z flagą skipBillRevert: true,
+    // aby handleDeleteTransaction w App.tsx NIE próbował cofać rachunku po raz drugi!
     if (onDeleteTransaction && transactions) {
       const matchTx = transactions.find((t) => {
+        // Priorytet 1: bezpośrednie powiązanie po ID wpisu historii lub transakcji
+        if (itemToRevert?.transactionId && t.id === itemToRevert.transactionId) return true;
+        if (itemToRevert?.id && t.billPaymentHistoryId === itemToRevert.id) return true;
         if (t.billId === bill.id) {
+          // Priorytet 2: po terminie okresu rozliczeniowego
+          if (itemToRevert?.periodDueDate && t.billPeriodDueDate === itemToRevert.periodDueDate) {
+            return true;
+          }
+          // Priorytet 3: po kwocie i dacie opłaty
           if (itemToRevert) {
             return (
               Math.abs(t.amount - itemToRevert.amount) < 0.05 &&
-              (t.date === itemToRevert.paidDate || t.date.startsWith(currentMonth))
+              (t.date === itemToRevert.paidDate ||
+                t.date.slice(0, 7) === itemToRevert.paidDate.slice(0, 7))
             );
           }
           return t.date.startsWith(currentMonth);
         }
         return false;
       });
+
       if (matchTx) {
-        onDeleteTransaction(matchTx.id);
+        onDeleteTransaction(matchTx.id, true);
       }
     }
 
-    showToast(`Cofnięto opłacenie rachunku "${bill.name}". Powrócił do listy "Do zapłaty".`);
+    const periodLabel = itemToRevert?.billingPeriod || formatMonthName(currentMonth);
+    showToast(`Cofnięto opłatę za okres "${periodLabel}". Rachunek powrócił do "Do zapłaty".`);
   };
 
   // Handle Create Bill
@@ -887,14 +939,73 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
 
             <div className="flex items-center space-x-1">
               <button
+                type="button"
+                onClick={() => {
+                  if (editingDueDateBillId === bill.id) {
+                    setEditingDueDateBillId(null);
+                  } else {
+                    setEditingDueDateBillId(bill.id);
+                    setTempDueDate(bill.dueDate);
+                  }
+                }}
+                className={`transition-colors p-1 rounded-md ${
+                  editingDueDateBillId === bill.id
+                    ? 'text-indigo-600 bg-indigo-50'
+                    : 'text-slate-300 hover:text-indigo-600'
+                }`}
+                title="Zmień termin płatności"
+              >
+                <Calendar className="w-4 h-4" />
+              </button>
+              <button
                 onClick={() => onDeleteBill(bill.id)}
-                className="text-slate-300 hover:text-rose-600 transition-colors p-1"
+                className="text-slate-300 hover:text-rose-600 transition-colors p-1 rounded-md"
                 title="Usuń rachunek"
               >
                 <Trash2 className="w-4 h-4" />
               </button>
             </div>
           </div>
+
+          {/* Inline Due Date Editor */}
+          {editingDueDateBillId === bill.id && (
+            <div className="mt-2.5 p-2 bg-indigo-50/80 border border-indigo-200 rounded-xl flex items-center justify-between gap-2 animate-in fade-in">
+              <div className="flex items-center space-x-1.5 min-w-0">
+                <Calendar className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                <span className="text-[11px] font-semibold text-indigo-900 shrink-0">Termin:</span>
+                <input
+                  type="date"
+                  value={tempDueDate}
+                  onChange={(e) => setTempDueDate(e.target.value)}
+                  className="text-xs bg-white border border-indigo-200 rounded-lg px-2 py-1 text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+              <div className="flex items-center space-x-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (tempDueDate) {
+                      onUpdateBill(bill.id, { dueDate: tempDueDate });
+                      showToast(`Zaktualizowano termin "${bill.name}" na ${tempDueDate}.`);
+                      setEditingDueDateBillId(null);
+                    }
+                  }}
+                  className="p-1 text-emerald-600 hover:bg-emerald-100 rounded-md transition-colors"
+                  title="Zapisz termin"
+                >
+                  <Check className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingDueDateBillId(null)}
+                  className="p-1 text-slate-400 hover:bg-slate-200 rounded-md transition-colors"
+                  title="Anuluj"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Badges: Fixed vs Variable & Cycle */}
           <div className="mt-3 flex items-center justify-between">
@@ -1045,6 +1156,51 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
               </span>
             </div>
           ) : null}
+
+          {/* Smart Auto-Resolution: Gdy rachunek ma termin z przeszłego okresu, a transakcja/opłata już za niego istnieje */}
+          {(() => {
+            const billCycleMonth = bill.dueDate.slice(0, 7);
+            if (bill.status !== 'paid' && billCycleMonth < currentMonth) {
+              const matchingPaidTx = transactions?.find(
+                (t) =>
+                  t.billId === bill.id &&
+                  (t.date.slice(0, 7) === billCycleMonth || t.billPeriodDueDate === bill.dueDate)
+              );
+
+              if (matchingPaidTx) {
+                return (
+                  <div className="mb-3 p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-950 space-y-1.5 shadow-2xs">
+                    <div className="flex items-start space-x-1.5">
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-bold block">
+                          Wykryto opłacony okres ({formatMonthName(billCycleMonth)})
+                        </span>
+                        <p className="text-[11px] text-amber-800">
+                          W rejestrze wydatków istnieje już opłata z dnia {matchingPaidTx.date} ({matchingPaidTx.amount.toFixed(2)} PLN).
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextDue = calculateNextDueDate(bill.dueDate, bill.billingCycle);
+                        onUpdateBill(bill.id, {
+                          dueDate: nextDue,
+                          status: 'pending',
+                        });
+                        showToast(`Zaktualizowano termin "${bill.name}" do właściwego cyklu (${nextDue}).`);
+                      }}
+                      className="w-full py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold flex items-center justify-center space-x-1 shadow-2xs transition-colors"
+                    >
+                      <span>Przesuń termin na bieżący okres rozliczeniowy</span>
+                    </button>
+                  </div>
+                );
+              }
+            }
+            return null;
+          })()}
 
           {/* Notes */}
           {bill.notes && (

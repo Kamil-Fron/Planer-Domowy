@@ -23,11 +23,15 @@ import {
   ListPlus,
   CheckCircle2,
   Clipboard,
+  ArrowDownLeft,
+  ArrowUpRight,
+  TrendingUp,
+  TrendingDown,
 } from 'lucide-react';
-import { ReceiptItemDetail, ReceiptScanResult, Transaction, ShoppingItem } from '../types';
+import { ReceiptItemDetail, ReceiptScanResult, Transaction, ShoppingItem, TransactionType } from '../types';
 
 export type ReceiptSaveMode = 'consolidated' | 'by_category' | 'individual';
-import { INITIAL_CATEGORIES, SAMPLE_RECEIPTS } from '../mockData';
+import { INITIAL_CATEGORIES, INITIAL_INCOME_CATEGORIES, SAMPLE_RECEIPTS } from '../mockData';
 import {
   checkAiAvailability,
   scanReceiptWithAI,
@@ -240,16 +244,28 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
 
       if (data) {
         const defaultDocDate = data.date || new Date().toISOString().split('T')[0];
-        // Initialize selection status and retain individual item dates (especially for multi-date PDF statements)
-        const itemsWithSelection: ReceiptItemDetail[] = (data.items || []).map((item: any) => ({
-          name: item.name,
-          price: Number(item.price) || 0,
-          quantity: Number(item.quantity) || 1,
-          category: item.category || data.dominantCategory || 'Jedzenie i artykuły spożywcze',
-          date: item.date || defaultDocDate,
-          notes: item.notes || '',
-          selected: true,
-        }));
+        // Initialize selection status, item types (income vs expense), and retain individual item dates (especially for multi-date PDF statements)
+        const itemsWithSelection: ReceiptItemDetail[] = (data.items || []).map((item: any) => {
+          const isItemIncome =
+            item.type === 'income' ||
+            (INITIAL_INCOME_CATEGORIES as readonly string[]).includes(item.category) ||
+            /wpłata|uznanie|wynagrodzenie|pensja|premia|zwrot|pożyczka|kredyt|świadczenie|800\+|darowizna|sprzedaż/i.test(item.name || '');
+
+          const itemType: TransactionType = isItemIncome ? 'income' : 'expense';
+          const defaultCat = itemType === 'income' ? 'Inne wpływy' : (data.dominantCategory || 'Jedzenie i artykuły spożywcze');
+          const category = item.category || defaultCat;
+
+          return {
+            name: item.name,
+            type: itemType,
+            price: Math.abs(Number(item.price)) || 0,
+            quantity: Number(item.quantity) || 1,
+            category,
+            date: item.date || defaultDocDate,
+            notes: item.notes || '',
+            selected: true,
+          };
+        });
 
         setScanResult({
           storeName: data.storeName || 'Sklep / Dokument',
@@ -289,11 +305,17 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
       currency: sample.currency,
       dominantCategory: sample.dominantCategory,
       summary: sample.summary,
-      items: sample.items.map((i) => ({
-        ...i,
-        date: (i as any).date || docDate,
-        selected: true,
-      })),
+      items: sample.items.map((i) => {
+        const itemType: TransactionType =
+          (i as any).type ||
+          ((INITIAL_INCOME_CATEGORIES as readonly string[]).includes(i.category) ? 'income' : 'expense');
+        return {
+          ...i,
+          type: itemType,
+          date: (i as any).date || docDate,
+          selected: true,
+        };
+      }),
     });
   };
 
@@ -302,6 +324,29 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
     if (!scanResult) return;
     const updatedItems = [...scanResult.items];
     updatedItems[index].selected = !updatedItems[index].selected;
+    setScanResult({ ...scanResult, items: updatedItems });
+  };
+
+  // Toggle transaction type (expense vs income) for an individual item
+  const handleToggleItemType = (index: number) => {
+    if (!scanResult) return;
+    const updatedItems = [...scanResult.items];
+    const currentType = updatedItems[index].type === 'income' ? 'income' : 'expense';
+    const newType: TransactionType = currentType === 'income' ? 'expense' : 'income';
+    updatedItems[index].type = newType;
+
+    // Adapt category if needed
+    if (newType === 'income') {
+      const isAlreadyIncomeCat = (INITIAL_INCOME_CATEGORIES as readonly string[]).includes(updatedItems[index].category);
+      if (!isAlreadyIncomeCat) {
+        updatedItems[index].category = INITIAL_INCOME_CATEGORIES[0];
+      }
+    } else {
+      const isAlreadyExpenseCat = INITIAL_CATEGORIES.some((c) => c.name === updatedItems[index].category);
+      if (!isAlreadyExpenseCat) {
+        updatedItems[index].category = INITIAL_CATEGORIES[0].name;
+      }
+    }
     setScanResult({ ...scanResult, items: updatedItems });
   };
 
@@ -333,27 +378,36 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
     }
 
     try {
+      const incomeItems = selectedItems.filter((i) => i.type === 'income');
+      const expenseItems = selectedItems.filter((i) => i.type !== 'income');
+      const incomeTotal = incomeItems.reduce((s, i) => s + i.price, 0);
+      const expenseTotal = expenseItems.reduce((s, i) => s + i.price, 0);
+
       if (saveMode === 'individual') {
-        // Każda pozycja osobno jako niezależna transakcja z własną datą (np. przy wyciągach bankowych, zestawieniach PDF, paragonach)
+        // Każda pozycja osobno jako niezależna transakcja z własną datą i właściwym typem (wydatek lub wpływ)
         selectedItems.forEach((item) => {
           const itemPrice = parseFloat(item.price.toFixed(2));
           const itemDate = item.date || scanResult.date;
+          const itemType: TransactionType = item.type === 'income' ? 'income' : 'expense';
+          const defaultCategory = itemType === 'income' ? 'Inne wpływy' : (scanResult.dominantCategory || 'Inne wydatki');
+          const cat = item.category || defaultCategory;
+
           if (onAddTransaction) {
             onAddTransaction({
-              type: 'expense',
+              type: itemType,
               amount: itemPrice,
-              category: item.category || scanResult.dominantCategory || 'Inne wydatki',
+              category: cat,
               date: itemDate,
               title: item.name,
-              comment: `Pozycja z dokumentu: ${scanResult.storeName || 'Skan'}${item.notes ? ` • ${item.notes}` : ''}`,
+              comment: `${itemType === 'income' ? 'Wpływ' : 'Wydatek'} z dokumentu: ${scanResult.storeName || 'Skan'}${item.notes ? ` • ${item.notes}` : ''}`,
               receiptStoreName: scanResult.storeName,
-              receiptItems: [{ ...item, date: itemDate }],
+              receiptItems: [{ ...item, type: itemType, date: itemDate }],
             });
           } else if (onReceiptScanned) {
             onReceiptScanned({
               title: item.name,
               amount: itemPrice,
-              category: item.category || scanResult.dominantCategory || 'Inne wydatki',
+              category: cat,
               date: itemDate,
               items: [{ name: item.name, price: item.price, quantity: item.quantity }],
             });
@@ -362,20 +416,30 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
 
         const uniqueDates = Array.from(new Set(selectedItems.map((i) => i.date || scanResult.date)));
         const datesInfo = uniqueDates.length > 1
-          ? ` z ${uniqueDates.length} różnymi datami transakcji`
+          ? ` w ${uniqueDates.length} różnych datach`
           : ` z datą ${uniqueDates[0] || scanResult.date}`;
 
+        const summaryParts: string[] = [];
+        if (incomeItems.length > 0) {
+          summaryParts.push(`${incomeItems.length} wpływów (+${incomeTotal.toFixed(2)} PLN)`);
+        }
+        if (expenseItems.length > 0) {
+          summaryParts.push(`${expenseItems.length} wydatków (${expenseTotal.toFixed(2)} PLN)`);
+        }
+
         setSuccessMessage(
-          `Pomyślnie dodano ${selectedItems.length} osobnych transakcji z dokumentu${datesInfo} na łączną kwotę ${selectedTotal.toFixed(2)} PLN!`
+          `Pomyślnie dodano ${selectedItems.length} osobnych transakcji (${summaryParts.join(', ')})${datesInfo}!`
         );
       } else if (saveMode === 'by_category') {
-        // Grupuj pozycje według (data + kategoria), aby nie scalać operacji z różnych dni na wyciągach PDF!
-        const groupsMap: Record<string, { category: string; date: string; total: number; items: ReceiptItemDetail[] }> = {};
+        // Grupuj pozycje według (typ + data + kategoria), aby zachować podział na wpływy i wydatki oraz różne daty!
+        const groupsMap: Record<string, { type: TransactionType; category: string; date: string; total: number; items: ReceiptItemDetail[] }> = {};
         selectedItems.forEach((item) => {
           const itemDate = item.date || scanResult.date;
-          const groupKey = `${itemDate}___${item.category}`;
+          const itemType: TransactionType = item.type === 'income' ? 'income' : 'expense';
+          const groupKey = `${itemType}___${itemDate}___${item.category}`;
           if (!groupsMap[groupKey]) {
             groupsMap[groupKey] = {
+              type: itemType,
               category: item.category,
               date: itemDate,
               total: 0,
@@ -388,14 +452,15 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
 
         Object.values(groupsMap).forEach((group) => {
           const catAmount = parseFloat(group.total.toFixed(2));
+          const isInc = group.type === 'income';
           if (onAddTransaction) {
             onAddTransaction({
-              type: 'expense',
+              type: group.type,
               amount: catAmount,
               category: group.category,
               date: group.date,
-              title: `${scanResult.storeName} (${group.category})`,
-              comment: `Pozycje (${group.items.length}): ${group.items.map((i) => i.name).join(', ')}`,
+              title: `${scanResult.storeName} (${isInc ? 'Wpływ' : 'Wydatek'}: ${group.category})`,
+              comment: `${isInc ? 'Wpływy' : 'Wydatki'} (${group.items.length}): ${group.items.map((i) => i.name).join(', ')}`,
               receiptStoreName: scanResult.storeName,
               receiptItems: group.items,
             });
@@ -414,34 +479,71 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
         const datesInfo = uniqueDates.length > 1 ? ` w ${uniqueDates.length} różnych terminach` : '';
 
         setSuccessMessage(
-          `Pomyślnie dodano ${Object.keys(groupsMap).length} transakcji pogrupowanych według kategorii i dat${datesInfo} na łączną kwotę ${selectedTotal.toFixed(2)} PLN!`
+          `Pomyślnie dodano ${Object.keys(groupsMap).length} pogrupowanych transakcji (wpływy/wydatki według kategorii i dat${datesInfo})!`
         );
       } else {
-        // Jeden zbiorczy paragon (1 skonsolidowana transakcja)
-        const totalSelected = parseFloat(selectedItems.reduce((s, i) => s + i.price, 0).toFixed(2));
-        if (onAddTransaction) {
-          onAddTransaction({
-            type: 'expense',
-            amount: totalSelected,
-            category: scanResult.dominantCategory,
-            date: scanResult.date,
-            title: `Paragon: ${scanResult.storeName}`,
-            comment: `Zakup ${selectedItems.length} pozycji. Sklep: ${scanResult.storeName}. ${scanResult.summary || ''}`,
-            receiptStoreName: scanResult.storeName,
-            receiptItems: selectedItems,
-          });
-        } else if (onReceiptScanned) {
-          onReceiptScanned({
-            title: `Paragon: ${scanResult.storeName}`,
-            amount: totalSelected,
-            category: scanResult.dominantCategory,
-            date: scanResult.date,
-            items: selectedItems.map((i) => ({ name: i.name, price: i.price, quantity: i.quantity })),
-          });
+        // Jeden zbiorczy zapis - jeśli są zarówno wydatki jak i wpływy, utwórz po 1 transakcji dla każdego typu
+        let createdCount = 0;
+        if (expenseItems.length > 0) {
+          const totalExpense = parseFloat(expenseTotal.toFixed(2));
+          if (onAddTransaction) {
+            onAddTransaction({
+              type: 'expense',
+              amount: totalExpense,
+              category: scanResult.dominantCategory || 'Inne wydatki',
+              date: scanResult.date,
+              title: `${scanResult.storeName} (Wydatki zbiorczo)`,
+              comment: `Zakup ${expenseItems.length} pozycji. Sklep/Dokument: ${scanResult.storeName}. ${scanResult.summary || ''}`,
+              receiptStoreName: scanResult.storeName,
+              receiptItems: expenseItems,
+            });
+          } else if (onReceiptScanned) {
+            onReceiptScanned({
+              title: `Paragon: ${scanResult.storeName}`,
+              amount: totalExpense,
+              category: scanResult.dominantCategory,
+              date: scanResult.date,
+              items: expenseItems.map((i) => ({ name: i.name, price: i.price, quantity: i.quantity })),
+            });
+          }
+          createdCount++;
         }
 
+        if (incomeItems.length > 0) {
+          const totalIncomeVal = parseFloat(incomeTotal.toFixed(2));
+          const dominantIncomeCat = (INITIAL_INCOME_CATEGORIES as readonly string[]).includes(scanResult.dominantCategory)
+            ? scanResult.dominantCategory
+            : (incomeItems[0]?.category || 'Inne wpływy');
+
+          if (onAddTransaction) {
+            onAddTransaction({
+              type: 'income',
+              amount: totalIncomeVal,
+              category: dominantIncomeCat,
+              date: scanResult.date,
+              title: `${scanResult.storeName} (Wpływy zbiorczo)`,
+              comment: `Wpływ ${incomeItems.length} pozycji z wyciągu/dokumentu: ${scanResult.storeName}.`,
+              receiptStoreName: scanResult.storeName,
+              receiptItems: incomeItems,
+            });
+          } else if (onReceiptScanned && expenseItems.length === 0) {
+            onReceiptScanned({
+              title: `Wpływ: ${scanResult.storeName}`,
+              amount: totalIncomeVal,
+              category: dominantIncomeCat,
+              date: scanResult.date,
+              items: incomeItems.map((i) => ({ name: i.name, price: i.price, quantity: i.quantity })),
+            });
+          }
+          createdCount++;
+        }
+
+        const detailsMsg: string[] = [];
+        if (expenseItems.length > 0) detailsMsg.push(`wydatki: ${expenseTotal.toFixed(2)} PLN`);
+        if (incomeItems.length > 0) detailsMsg.push(`wpływy: +${incomeTotal.toFixed(2)} PLN`);
+
         setSuccessMessage(
-          `Pomyślnie dodano 1 zbiorczy paragon ze sklepu ${scanResult.storeName} (${selectedTotal.toFixed(2)} PLN) do budżetu!`
+          `Pomyślnie dodano ${createdCount} transakcję(-e) zbiorczą(-e) (${detailsMsg.join(', ')}) ze źródła ${scanResult.storeName}!`
         );
       }
     } catch (err: any) {
@@ -450,8 +552,13 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
     }
   };
 
-  const selectedTotal =
-    scanResult?.items.filter((i) => i.selected).reduce((s, i) => s + i.price, 0) || 0;
+  const selectedItems = scanResult?.items.filter((i) => i.selected) || [];
+  const selectedExpenses = selectedItems.filter((i) => i.type !== 'income');
+  const selectedIncomes = selectedItems.filter((i) => i.type === 'income');
+  const selectedExpenseTotal = selectedExpenses.reduce((s, i) => s + i.price, 0);
+  const selectedIncomeTotal = selectedIncomes.reduce((s, i) => s + i.price, 0);
+  const selectedTotal = selectedItems.reduce((s, i) => s + i.price, 0);
+  const hasIncomes = (scanResult?.items || []).some((i) => i.type === 'income');
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-6">
@@ -783,17 +890,26 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                       onChange={(e) => setScanResult({ ...scanResult, dominantCategory: e.target.value })}
                       className="text-xs px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-900 font-semibold border border-indigo-200 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
                     >
-                      {INITIAL_CATEGORIES.map((cat) => (
-                        <option key={cat.name} value={cat.name}>
-                          {cat.name}
-                        </option>
-                      ))}
+                      <optgroup label="Kategorie wydatków">
+                        {INITIAL_CATEGORIES.map((cat) => (
+                          <option key={cat.name} value={cat.name}>
+                            {cat.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Kategorie wpływów">
+                        {INITIAL_INCOME_CATEGORIES.map((cat) => (
+                          <option key={cat} value={cat}>
+                            {cat}
+                          </option>
+                        ))}
+                      </optgroup>
                     </select>
                   </div>
                   <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
                     <span className="flex items-center space-x-1.5 font-medium">
                       <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                      <span>Data zakupu:</span>
+                      <span>Data zakupu / wyciągu:</span>
                       <input
                         type="date"
                         value={scanResult.date}
@@ -806,11 +922,34 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                 </div>
               </div>
 
-              <div className="text-left md:text-right shrink-0 bg-slate-50 md:bg-transparent p-3 md:p-0 rounded-xl border md:border-0 border-slate-100">
-                <span className="text-xs text-slate-500 block">Suma z paragonu</span>
-                <span className="text-2xl font-black text-slate-900">
-                  {scanResult.totalAmount.toFixed(2)} PLN
-                </span>
+              <div className="text-left md:text-right shrink-0 bg-slate-50 md:bg-transparent p-3 md:p-0 rounded-xl border md:border-0 border-slate-100 space-y-1">
+                {hasIncomes ? (
+                  <>
+                    <div className="flex items-center md:justify-end gap-2 text-xs">
+                      <span className="text-slate-500">Wydatki:</span>
+                      <span className="font-bold text-slate-800">{selectedExpenseTotal.toFixed(2)} PLN</span>
+                    </div>
+                    <div className="flex items-center md:justify-end gap-2 text-xs">
+                      <span className="text-emerald-600 font-semibold flex items-center gap-1">
+                        <TrendingUp className="w-3.5 h-3.5" /> Wpływy:
+                      </span>
+                      <span className="font-bold text-emerald-700">+{selectedIncomeTotal.toFixed(2)} PLN</span>
+                    </div>
+                    <div className="pt-1 border-t border-slate-200/80">
+                      <span className="text-[11px] text-slate-400 block">Bilans dokumentu</span>
+                      <span className={`text-xl font-black ${selectedIncomeTotal - selectedExpenseTotal >= 0 ? 'text-emerald-700' : 'text-slate-900'}`}>
+                        {(selectedIncomeTotal - selectedExpenseTotal).toFixed(2)} PLN
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-xs text-slate-500 block">Suma z paragonu</span>
+                    <span className="text-2xl font-black text-slate-900">
+                      {scanResult.totalAmount.toFixed(2)} PLN
+                    </span>
+                  </>
+                )}
               </div>
             </div>
 
@@ -830,7 +969,6 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                   Odczytane pozycje ({scanResult.items.length})
                 </h3>
               </div>
-
             </div>
 
             {/* Wybór sposobu zapisu do budżetu (np. dla paragonów, faktur lub zbiorczych list PDF) */}
@@ -841,7 +979,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                   Sposób zapisu do budżetu:
                 </span>
                 <span className="text-[11px] text-slate-500">
-                  Dla wyciągów i zbiorczych list PDF możesz zapisać pozycje osobno lub pogrupować
+                  Dla wyciągów i zestawień możesz zapisać każdą operację osobno z jej własną datą i typem (wpływ/wydatek)
                 </span>
               </div>
 
@@ -859,12 +997,14 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center space-x-2">
                       <Receipt className={`w-4 h-4 ${saveMode === 'consolidated' ? 'text-indigo-600' : 'text-slate-500'}`} />
-                      <span className="text-xs font-bold">1 paragon (zbiorczo)</span>
+                      <span className="text-xs font-bold">1 paragon / zbiorczo</span>
                     </div>
                     {saveMode === 'consolidated' && <CheckCircle2 className="w-4 h-4 text-indigo-600" />}
                   </div>
                   <p className="text-[11px] text-slate-500 leading-snug">
-                    Pojedynczy wydatek na łączną sumę ze wszystkimi produktami w szczegółach.
+                    {hasIncomes
+                      ? 'Utworzy zbiorcze transakcje (oddzielnie dla wpływów i wydatków) ze szczegółami pozycji.'
+                      : 'Pojedynczy wydatek na łączną sumę ze wszystkimi produktami w szczegółach.'}
                   </p>
                 </button>
 
@@ -886,7 +1026,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                     {saveMode === 'by_category' && <CheckCircle2 className="w-4 h-4 text-indigo-600" />}
                   </div>
                   <p className="text-[11px] text-slate-500 leading-snug">
-                    Po jednej transakcji dla każdej odnalezionej na dokumencie kategorii.
+                    Grupuj pozycje według kategorii, dat oraz typu operacji (wpływ vs wydatek).
                   </p>
                 </button>
 
@@ -908,119 +1048,195 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                     {saveMode === 'individual' && <CheckCircle2 className="w-4 h-4 text-indigo-600" />}
                   </div>
                   <p className="text-[11px] text-slate-500 leading-snug">
-                    Każdy produkt z osobna jako niezależna transakcja w budżecie.
+                    Każda linia jako niezależna transakcja z indywidualną datą i właściwym typem (wpływ/wydatek).
                   </p>
                 </button>
               </div>
 
               {/* Dynamiczny wskaźnik wyniku wybranego trybu */}
-              <div className="text-[11px] text-indigo-900 bg-indigo-50/60 px-3 py-1.5 rounded-lg border border-indigo-100/80 flex items-center justify-between">
+              <div className="text-[11px] text-indigo-900 bg-indigo-50/60 px-3 py-1.5 rounded-lg border border-indigo-100/80 flex flex-wrap items-center justify-between gap-2">
                 <span>
-                  {saveMode === 'consolidated' && 'Efekt: Zostanie utworzona 1 transakcja w budżecie.'}
+                  {saveMode === 'consolidated' && (
+                    hasIncomes && selectedExpenses.length > 0
+                      ? 'Efekt: Zostaną utworzone 2 transakcje zbiorcze (1 dla wydatków, 1 dla wpływów).'
+                      : 'Efekt: Zostanie utworzona 1 transakcja w budżecie.'
+                  )}
                   {saveMode === 'by_category' && (() => {
-                    const selectedCats = new Set(scanResult.items.filter((i) => i.selected).map((i) => i.category));
-                    return `Efekt: Zostaną utworzone ${selectedCats.size} transakcje według kategorii.`;
+                    const groupsCount = new Set(selectedItems.map((i) => `${i.type}___${i.date || scanResult.date}___${i.category}`)).size;
+                    return `Efekt: Zostaną utworzone ${groupsCount} transakcje według kategorii, dat i typów.`;
                   })()}
                   {saveMode === 'individual' &&
-                    `Efekt: Zostanie utworzonych ${scanResult.items.filter((i) => i.selected).length} osobnych transakcji w budżecie.`}
+                    `Efekt: Zostanie utworzonych ${selectedItems.length} osobnych transakcji w budżecie (z własnymi datami i typami).`}
                 </span>
-                <span className="font-bold text-indigo-950">
-                  Łącznie: {selectedTotal.toFixed(2)} PLN
-                </span>
+                <div className="flex items-center space-x-3 text-xs">
+                  {selectedIncomes.length > 0 && (
+                    <span className="font-bold text-emerald-700">
+                      Wpływy: +{selectedIncomeTotal.toFixed(2)} PLN
+                    </span>
+                  )}
+                  {selectedExpenses.length > 0 && (
+                    <span className="font-bold text-slate-900">
+                      Wydatki: {selectedExpenseTotal.toFixed(2)} PLN
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 
             <div className="divide-y divide-slate-100">
-              {scanResult.items.map((item, idx) => (
-                <div
-                  key={idx}
-                  className={`p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 hover:bg-slate-50/80 transition-colors ${
-                    !item.selected ? 'opacity-50 bg-slate-50/50' : ''
-                  }`}
-                >
-                  <div className="flex items-center space-x-3 flex-1 min-w-0 w-full sm:w-auto">
-                    <input
-                      type="checkbox"
-                      checked={item.selected}
-                      onChange={() => handleToggleItem(idx)}
-                      className="rounded-sm text-slate-900 focus:ring-slate-900 w-4 h-4 shrink-0"
-                    />
-                    <div className="min-w-0 flex-1">
+              {scanResult.items.map((item, idx) => {
+                const isIncome = item.type === 'income';
+                return (
+                  <div
+                    key={idx}
+                    className={`p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 hover:bg-slate-50/80 transition-colors ${
+                      !item.selected ? 'opacity-50 bg-slate-50/50' : isIncome ? 'bg-emerald-50/20' : ''
+                    }`}
+                  >
+                    <div className="flex items-center space-x-3 flex-1 min-w-0 w-full sm:w-auto">
                       <input
-                        type="text"
-                        value={item.name}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setScanResult((prev) => {
-                            if (!prev) return null;
-                            const newItems = [...prev.items];
-                            newItems[idx] = { ...newItems[idx], name: val };
-                            return { ...prev, items: newItems };
-                          });
-                        }}
-                        className="text-xs sm:text-sm font-semibold text-slate-900 w-full bg-transparent hover:bg-slate-50 border-b border-transparent hover:border-slate-200 focus:border-indigo-500 focus:outline-hidden px-1 py-0.5 rounded-sm"
-                        title="Kliknij, aby poprawić nazwę pozycji"
+                        type="checkbox"
+                        checked={item.selected}
+                        onChange={() => handleToggleItem(idx)}
+                        className="rounded-sm text-slate-900 focus:ring-slate-900 w-4 h-4 shrink-0"
                       />
-                      {item.notes && <p className="text-[11px] text-slate-500 px-1">{item.notes}</p>}
+                      <div className="min-w-0 flex-1">
+                        <input
+                          type="text"
+                          value={item.name}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setScanResult((prev) => {
+                              if (!prev) return null;
+                              const newItems = [...prev.items];
+                              newItems[idx] = { ...newItems[idx], name: val };
+                              return { ...prev, items: newItems };
+                            });
+                          }}
+                          className="text-xs sm:text-sm font-semibold text-slate-900 w-full bg-transparent hover:bg-slate-50 border-b border-transparent hover:border-slate-200 focus:border-indigo-500 focus:outline-hidden px-1 py-0.5 rounded-sm"
+                          title="Kliknij, aby poprawić nazwę pozycji"
+                        />
+                        {item.notes && <p className="text-[11px] text-slate-500 px-1">{item.notes}</p>}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+                      {/* Przełącznik typu: Wydatek vs Wpływ */}
+                      <button
+                        type="button"
+                        onClick={() => handleToggleItemType(idx)}
+                        className={`flex items-center space-x-1 px-2.5 py-1 rounded-xl text-xs font-semibold transition-all border cursor-pointer ${
+                          isIncome
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                            : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                        }`}
+                        title="Kliknij, aby przełączyć między Wpływem a Wydatkiem"
+                      >
+                        {isIncome ? (
+                          <>
+                            <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Wpływ</span>
+                          </>
+                        ) : (
+                          <>
+                            <ArrowUpRight className="w-3.5 h-3.5 text-rose-600" />
+                            <span>Wydatek</span>
+                          </>
+                        )}
+                      </button>
+
+                      {/* Individual Date for item (important for bank statements / multi-date PDFs) */}
+                      <div
+                        className="flex items-center space-x-1 bg-slate-100/90 border border-slate-200 rounded-xl px-2 py-1"
+                        title="Data tej konkretnej operacji/pozycji (przydatne przy wyciągach bankowych i zestawieniach PDF)"
+                      >
+                        <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
+                        <input
+                          type="date"
+                          value={item.date || scanResult.date}
+                          onChange={(e) => handleItemDateChange(idx, e.target.value)}
+                          className="text-[11px] bg-transparent text-slate-700 font-medium focus:outline-hidden cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Category Selector for individual item */}
+                      <select
+                        value={item.category}
+                        onChange={(e) => handleItemCategoryChange(idx, e.target.value)}
+                        className={`text-xs border rounded-xl px-2.5 py-1.5 font-medium focus:outline-hidden focus:ring-1 ${
+                          isIncome
+                            ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900 focus:ring-emerald-500'
+                            : 'bg-slate-100 border-slate-200 text-slate-700 focus:ring-indigo-500'
+                        }`}
+                      >
+                        {isIncome ? (
+                          <optgroup label="Kategorie wpływów">
+                            {INITIAL_INCOME_CATEGORIES.map((cat) => (
+                              <option key={cat} value={cat}>
+                                {cat}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ) : (
+                          <optgroup label="Kategorie wydatków">
+                            {INITIAL_CATEGORIES.map((cat) => (
+                              <option key={cat.name} value={cat.name}>
+                                {cat.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </select>
+
+                      {/* Price with edit ability */}
+                      <div className="flex items-center space-x-1 shrink-0">
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={item.price}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value) || 0;
+                            setScanResult((prev) => {
+                              if (!prev) return null;
+                              const newItems = [...prev.items];
+                              newItems[idx] = { ...newItems[idx], price: val };
+                              return { ...prev, items: newItems };
+                            });
+                          }}
+                          className={`w-20 text-right text-xs sm:text-sm font-bold bg-transparent hover:bg-slate-50 border border-transparent hover:border-slate-200 rounded-md px-1 py-0.5 focus:outline-hidden ${
+                            isIncome
+                              ? 'text-emerald-700 focus:border-emerald-500'
+                              : 'text-slate-900 focus:border-indigo-500'
+                          }`}
+                        />
+                        <span className={`text-xs font-bold ${isIncome ? 'text-emerald-700' : 'text-slate-600'}`}>
+                          zł
+                        </span>
+                      </div>
                     </div>
                   </div>
-
-                  <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
-                    {/* Individual Date for item (important for bank statements / multi-date PDFs) */}
-                    <div
-                      className="flex items-center space-x-1 bg-slate-100/90 border border-slate-200 rounded-xl px-2 py-1"
-                      title="Data tej konkretnej operacji/pozycji (przydatne przy wyciągach bankowych i zestawieniach PDF)"
-                    >
-                      <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
-                      <input
-                        type="date"
-                        value={item.date || scanResult.date}
-                        onChange={(e) => handleItemDateChange(idx, e.target.value)}
-                        className="text-[11px] bg-transparent text-slate-700 font-medium focus:outline-hidden cursor-pointer"
-                      />
-                    </div>
-
-                    {/* Category Selector for individual item */}
-                    <select
-                      value={item.category}
-                      onChange={(e) => handleItemCategoryChange(idx, e.target.value)}
-                      className="text-xs bg-slate-100 border border-slate-200 rounded-xl px-2.5 py-1.5 font-medium text-slate-700 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
-                    >
-                      {INITIAL_CATEGORIES.map((cat) => (
-                        <option key={cat.name} value={cat.name}>
-                          {cat.name}
-                        </option>
-                      ))}
-                    </select>
-
-                    {/* Price with edit ability */}
-                    <div className="flex items-center space-x-1 shrink-0">
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={item.price}
-                        onChange={(e) => {
-                          const val = parseFloat(e.target.value) || 0;
-                          setScanResult((prev) => {
-                            if (!prev) return null;
-                            const newItems = [...prev.items];
-                            newItems[idx] = { ...newItems[idx], price: val };
-                            return { ...prev, items: newItems };
-                          });
-                        }}
-                        className="w-20 text-right text-xs sm:text-sm font-bold text-slate-900 bg-transparent hover:bg-slate-50 border border-transparent hover:border-slate-200 focus:border-indigo-500 rounded-md px-1 py-0.5 focus:outline-hidden"
-                      />
-                      <span className="text-xs font-bold text-slate-600">zł</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Bottom Actions Bar */}
             <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="text-xs text-slate-600">
-                Wybrano pozycji: <span className="font-bold text-slate-900">{scanResult.items.filter((i) => i.selected).length}</span> z {scanResult.items.length} (Suma wybranych: <span className="font-bold text-slate-900">{selectedTotal.toFixed(2)} PLN</span>)
+              <div className="text-xs text-slate-600 space-y-0.5">
+                <div>
+                  Wybrano pozycji: <span className="font-bold text-slate-900">{selectedItems.length}</span> z {scanResult.items.length}
+                </div>
+                <div className="flex items-center space-x-2 text-[11px]">
+                  {selectedIncomes.length > 0 && (
+                    <span className="font-semibold text-emerald-700">
+                      Wpływy: +{selectedIncomeTotal.toFixed(2)} PLN
+                    </span>
+                  )}
+                  {selectedExpenses.length > 0 && (
+                    <span className="font-semibold text-slate-700">
+                      Wydatki: {selectedExpenseTotal.toFixed(2)} PLN
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div className="flex items-center space-x-3 w-full sm:w-auto">

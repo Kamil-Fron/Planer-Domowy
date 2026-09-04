@@ -146,18 +146,21 @@ async function scanReceiptDirectClient(
 Przeanalizuj dołączony dokument (paragon, fakturę, wyciąg bankowy lub plik PDF) i wyodrębnij:
 1. storeName: Nazwa sklepu / stacji paliw / wystawcy faktury / banku / sprzedawcy (np. Pieprzyk, Biedronka, Lidl, Orlen, Castorama, Rossmann, Tauron, mBank itp.).
 2. date: Główna data dokumentu lub ostatniej operacji (w formacie YYYY-MM-DD). Jeśli niewidoczna, użyj bieżącej daty.
-3. totalAmount: Łączna kwota do zapłaty (liczba w PLN, np. 111.31).
+3. totalAmount: Łączna kwota do zapłaty lub obrotu (liczba w PLN, np. 111.31).
 4. currency: Waluta (zwykle "PLN").
 5. receiptNumber: Numer paragonu, faktury lub NIP (jeśli widoczny, inaczej "").
-6. dominantCategory: Dominująca kategoria całego dokumentu spośród: ["Jedzenie i artykuły spożywcze", "Remont i dom", "Dla kotów i zwierząt", "Rachunki i media", "Zdrowie i kosmetyki", "Transport i paliwo", "Rozrywka i hobby", "Odzież i obuwie", "Edukacja i książki", "Inne wydatki"].
-7. summary: Krótkie podsumowanie w języku polskim (np. "Zakup paliwa na stacji Pieprzyk" lub "Wyciąg z konta bankowego").
+6. dominantCategory: Dominująca kategoria całego dokumentu (wydatek lub wpływ).
+7. summary: Krótkie podsumowanie w języku polskim (np. "Zakup paliwa na stacji Pieprzyk" lub "Wyciąg z konta bankowego z wpływami i wydatkami").
 8. items: Lista pozycji zakupowych, operacji lub opłat z dokumentu.
 Dla KAŻDEJ pozycji wyodrębnij:
 - name: nazwa produktu/usługi lub operacji
-- price: kwota za pozycję (liczba dodatnia w PLN)
+- type: 'expense' (jeśli to wydatek, zakup, opłata, obciążenie) LUB 'income' (jeśli to wpływ, wynagrodzenie, zwrot za towar, wpłata gotówki, pożyczka/kredyt, świadczenie 800+, sprzedaż, uznanie)
+- price: kwota za pozycję (zawsze dodatnia liczba w PLN)
 - quantity: ilość sztuk lub waga (liczba, domyślnie 1)
-- category: kategoria wydatku
-- date: dokładna data tej konkretnej pozycji w formacie YYYY-MM-DD (BARDZO WAŻNE: na wyciągach bankowych, zestawieniach PDF lub listach pozycje mogą mieć różne daty operacji/księgowania - przypisz dla każdej pozycji jej faktyczną datę z dokumentu)
+- category:
+  * jeśli type='income', wybierz jedną z: ["Wypłata z etatu", "Premia / Bonus", "Gotówka", "Pożyczka / Kredyt", "Zwrot (zakupy, podatki)", "Freelance / Zlecenia", "Świadczenia / 800+", "Sprzedaż (Vinted, OLX)", "Prezent / Darowizna", "Odsetki / Inwestycje", "Alimenty", "Inne wpływy"]
+  * jeśli type='expense', wybierz jedną z: ["Jedzenie i artykuły spożywcze", "Remont i dom", "Dla kotów i zwierząt", "Rachunki i media", "Zdrowie i kosmetyki", "Transport i paliwo", "Rozrywka i hobby", "Odzież i obuwie", "Edukacja i książki", "Inne wydatki"]
+- date: dokładna data tej konkretnej pozycji w formacie YYYY-MM-DD (BARDZO WAŻNE: na wyciągach bankowych, zestawieniach PDF pozycje mogą mieć różne daty operacji/księgowania - przypisz dla każdej pozycji jej faktyczną datę z dokumentu)
 - notes: krótka notatka
 
 Zwróć wynik w czystym formacie JSON:
@@ -172,6 +175,7 @@ Zwróć wynik w czystym formacie JSON:
   "items": [
     {
       "name": "string",
+      "type": "expense",
       "price": 0.00,
       "quantity": 1,
       "category": "string",

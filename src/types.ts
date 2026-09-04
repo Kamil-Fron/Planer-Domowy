@@ -17,16 +17,23 @@ export type ExpenseCategory =
 export type IncomeCategory =
   | 'Wypłata z etatu'
   | 'Premia / Bonus'
-  | 'Freelance / Dodatkowe zlecenia'
+  | 'Gotówka'
+  | 'Pożyczka / Kredyt'
+  | 'Zwrot (zakupy, podatki)'
+  | 'Freelance / Zlecenia'
   | 'Świadczenia / 800+'
-  | 'Zwrot podatku / Inwestycje'
-  | 'Inne dochody';
+  | 'Sprzedaż (Vinted, OLX)'
+  | 'Prezent / Darowizna'
+  | 'Odsetki / Inwestycje'
+  | 'Alimenty'
+  | 'Inne wpływy';
 
 export interface ReceiptItemDetail {
   name: string;
   price: number;
   quantity?: number;
-  category: ExpenseCategory | string;
+  type?: TransactionType; // 'expense' | 'income'
+  category: ExpenseCategory | IncomeCategory | string;
   date?: string; // Indywidualna data pozycji z paragonu / wyciągu (YYYY-MM-DD)
   notes?: string;
   selected?: boolean;

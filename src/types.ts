@@ -27,6 +27,7 @@ export interface ReceiptItemDetail {
   price: number;
   quantity?: number;
   category: ExpenseCategory | string;
+  date?: string; // Indywidualna data pozycji z paragonu / wyciągu (YYYY-MM-DD)
   notes?: string;
   selected?: boolean;
 }

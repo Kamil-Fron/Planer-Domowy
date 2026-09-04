@@ -118,16 +118,23 @@ app.post("/api/scan-receipt", async (req, res) => {
     // Clean base64 data
     const cleanBase64 = imageBase64.replace(/^data:[^;]+;base64,/i, "").trim();
 
-    const prompt = `Jesteś precyzyjnym systemem OCR i asystentem finansowym do analizy paragonów fiskalnych, faktur VAT oraz dokumentów PDF/zdjęć w Polsce.
-Przeanalizuj dołączony dokument (paragon, fakturę lub plik PDF) i wyodrębnij:
-1. storeName: Nazwa sklepu / wystawcy faktury / sprzedawcy (np. Biedronka, Lidl, Castorama, Rossmann, PGNiG, Tauron, Orange itp.).
-2. date: Data transakcji lub wystawienia (w formacie YYYY-MM-DD). Jeśli niewidoczna, użyj bieżącej daty.
-3. totalAmount: Łączna kwota do zapłaty (liczba w PLN, np. 149.99).
+    const prompt = `Jesteś precyzyjnym systemem OCR i asystentem finansowym do analizy paragonów fiskalnych, faktur VAT, wyciągów bankowych oraz zestawień PDF/zdjęć w Polsce.
+Przeanalizuj dołączony dokument (paragon, fakturę, wyciąg bankowy lub plik PDF) i wyodrębnij:
+1. storeName: Nazwa sklepu / wystawcy faktury / banku / sprzedawcy (np. Biedronka, Lidl, Castorama, Rossmann, PGNiG, Tauron, mBank itp.).
+2. date: Główna data dokumentu lub data ostatniej operacji (w formacie YYYY-MM-DD). Jeśli niewidoczna, użyj bieżącej daty.
+3. totalAmount: Łączna kwota do zapłaty lub suma transakcji (liczba w PLN, np. 149.99).
 4. currency: Waluta (zwykle "PLN").
-5. receiptNumber: Numer paragonu, faktury lub NIP (jeśli widoczny, inaczej pusty ciąg "").
-6. dominantCategory: Dominująca kategoria całego paragonu spośród: ["Jedzenie i artykuły spożywcze", "Remont i dom", "Dla zwierząt i kotów", "Rachunki i media", "Zdrowie i kosmetyki", "Transport i paliwo", "Rozrywka i hobby", "Odzież i obuwie", "Inne"].
+5. receiptNumber: Numer paragonu, faktury, konta lub NIP (jeśli widoczny, inaczej pusty ciąg "").
+6. dominantCategory: Dominująca kategoria całego dokumentu spośród: ["Jedzenie i artykuły spożywcze", "Remont i dom", "Dla kotów i zwierząt", "Rachunki i media", "Zdrowie i kosmetyki", "Transport i paliwo", "Rozrywka i hobby", "Odzież i obuwie", "Edukacja i książki", "Inne wydatki"].
 7. summary: Krótkie podsumowanie w języku polskim (1-2 zdania).
-8. items: Lista pozycji zakupowych lub opłat z dokumentu (dla każdego produktu: name, price (liczba), quantity (liczba, domyślnie 1), category, notes).
+8. items: Lista pozycji zakupowych, operacji lub opłat z dokumentu.
+Dla KAŻDEJ pozycji wyodrębnij:
+- name: nazwa produktu/usługi lub opis operacji
+- price: kwota za pozycję (liczba dodatnia w PLN)
+- quantity: ilość sztuk lub waga (liczba, domyślnie 1)
+- category: kategoria wydatku
+- date: dokładna data tej konkretnej pozycji w formacie YYYY-MM-DD. BARDZO WAŻNE: Na wyciągach bankowych, zestawieniach PDF lub zbiorczych dokumentach pozycje mogą mieć różne daty operacji/księgowania. Jeśli dana pozycja ma własną datę w dokumencie, podaj ją tutaj; jeśli to pojedynczy paragon z jedną datą, podaj datę tego paragonu.
+- notes: krótka notatka (np. opis, metoda płatności, odbiorca).
 
 Zwróć wynik w formacie JSON zgodnym ze schematem.`;
 
@@ -151,23 +158,24 @@ Zwróć wynik w formacie JSON zgodnym ze schematem.`;
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            storeName: { type: Type.STRING, description: "Nazwa sklepu lub wystawcy paragonu" },
-            date: { type: Type.STRING, description: "Data w formacie YYYY-MM-DD" },
-            totalAmount: { type: Type.NUMBER, description: "Suma paragonu w PLN" },
+            storeName: { type: Type.STRING, description: "Nazwa sklepu lub wystawcy paragonu/dokumentu" },
+            date: { type: Type.STRING, description: "Główna data dokumentu w formacie YYYY-MM-DD" },
+            totalAmount: { type: Type.NUMBER, description: "Suma dokumentu w PLN" },
             currency: { type: Type.STRING, description: "Waluta, np. PLN" },
-            receiptNumber: { type: Type.STRING, description: "Numer paragonu" },
+            receiptNumber: { type: Type.STRING, description: "Numer paragonu/faktury/rachunku" },
             dominantCategory: { type: Type.STRING, description: "Główna kategoria wydatku" },
-            summary: { type: Type.STRING, description: "Krótkie podsumowanie paragonu" },
+            summary: { type: Type.STRING, description: "Krótkie podsumowanie dokumentu" },
             items: {
               type: Type.ARRAY,
-              description: "Pozycje na paragonie",
+              description: "Pozycje na paragonie lub wyciągu",
               items: {
                 type: Type.OBJECT,
                 properties: {
-                  name: { type: Type.STRING, description: "Nazwa produktu lub usługi" },
+                  name: { type: Type.STRING, description: "Nazwa produktu, usługi lub operacji" },
                   price: { type: Type.NUMBER, description: "Kwota za pozycję" },
                   quantity: { type: Type.NUMBER, description: "Ilość sztuk lub waga" },
                   category: { type: Type.STRING, description: "Kategoria wydatku" },
+                  date: { type: Type.STRING, description: "Indywidualna data danej pozycji w formacie YYYY-MM-DD (np. data operacji na wyciągu)" },
                   notes: { type: Type.STRING, description: "Krótka notatka" },
                 },
                 required: ["name", "price", "category"],

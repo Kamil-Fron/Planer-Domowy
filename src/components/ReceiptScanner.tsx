@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Upload,
   Camera,
@@ -22,6 +22,7 @@ import {
   Layers,
   ListPlus,
   CheckCircle2,
+  Clipboard,
 } from 'lucide-react';
 import { ReceiptItemDetail, ReceiptScanResult, Transaction, ShoppingItem } from '../types';
 
@@ -64,6 +65,8 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   const [scanResult, setScanResult] = useState<ReceiptScanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [pasteNotice, setPasteNotice] = useState<string | null>(null);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [saveMode, setSaveMode] = useState<ReceiptSaveMode>('consolidated');
   
   const [aiStatus, setAiStatus] = useState<AiStatusResult>({
@@ -94,20 +97,120 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
     refreshAiStatus();
   };
 
+  // Helper to load file (from input, drop, or clipboard)
+  const processFile = useCallback((file: File) => {
+    setSelectedFile(file);
+    setError(null);
+    setSuccessMessage(null);
+    setScanResult(null);
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setImagePreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
   // Handle file select
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setSelectedFile(file);
-      setError(null);
-      setSuccessMessage(null);
-      setScanResult(null);
+      processFile(e.target.files[0]);
+    }
+  };
 
-      const reader = new FileReader();
-      reader.onload = () => {
-        setImagePreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+  // Handle clipboard paste (both via shortcut and dropzone event)
+  const handlePasteEvent = useCallback((e: ClipboardEvent | React.ClipboardEvent) => {
+    // Don't intercept if user is typing text into an input or textarea
+    const activeEl = document.activeElement;
+    const isInputFocused = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
+
+    const clipboardData = (e as ClipboardEvent).clipboardData || (e as React.ClipboardEvent).clipboardData;
+    if (!clipboardData) return;
+
+    // First check items for image / pdf
+    const items = clipboardData.items;
+    if (items && items.length > 0) {
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) {
+            e.preventDefault();
+            processFile(file);
+            setPasteNotice('Wklejono obraz ze schowka!');
+            setTimeout(() => setPasteNotice(null), 4000);
+            return;
+          }
+        } else if (item.type === 'application/pdf') {
+          const file = item.getAsFile();
+          if (file) {
+            e.preventDefault();
+            processFile(file);
+            setPasteNotice('Wklejono plik PDF ze schowka!');
+            setTimeout(() => setPasteNotice(null), 4000);
+            return;
+          }
+        }
+      }
+    }
+
+    // Check files
+    if (clipboardData.files && clipboardData.files.length > 0) {
+      const file = clipboardData.files[0];
+      if (file.type.startsWith('image/') || file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+        if (!isInputFocused) {
+          e.preventDefault();
+          processFile(file);
+          setPasteNotice('Wklejono dokument ze schowka!');
+          setTimeout(() => setPasteNotice(null), 4000);
+        }
+      }
+    }
+  }, [processFile]);
+
+  // Global window paste listener when user is in the scan screen
+  useEffect(() => {
+    const onWindowPaste = (e: ClipboardEvent) => {
+      // Allow pasting in the initial document selection phase
+      if (!scanResult) {
+        handlePasteEvent(e);
+      }
+    };
+    window.addEventListener('paste', onWindowPaste);
+    return () => {
+      window.removeEventListener('paste', onWindowPaste);
+    };
+  }, [handlePasteEvent, scanResult]);
+
+  // Direct Clipboard button click handler (Clipboard API)
+  const handlePasteFromClipboardClick = async () => {
+    try {
+      if (!navigator.clipboard) {
+        setError('Twoja przeglądarka nie pozwala na bezpośredni odczyt schowka. Użyj skrótu klawiszowego Ctrl+V (lub Cmd+V).');
+        return;
+      }
+
+      if (navigator.clipboard.read) {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+          const targetType = item.types.find((t) => t.startsWith('image/') || t === 'application/pdf');
+          if (targetType) {
+            const blob = await item.getType(targetType);
+            const ext = targetType.startsWith('image/') ? targetType.split('/')[1] || 'png' : 'pdf';
+            const file = new File([blob], `schowek_${Date.now()}.${ext}`, { type: targetType });
+            processFile(file);
+            setPasteNotice('Pomyślnie wklejono dokument ze schowka!');
+            setTimeout(() => setPasteNotice(null), 4000);
+            return;
+          }
+        }
+        setError('W schowku nie znaleziono obrazu ani pliku PDF. Skopiuj zrzut ekranu lub plik (Ctrl+C) i spróbuj ponownie.');
+      } else {
+        setError('Kliknij na to okno i wciśnij Ctrl+V (lub Cmd+V na Macu), aby wkleić obraz ze schowka.');
+      }
+    } catch (err: any) {
+      console.warn('Clipboard read error:', err);
+      setError('Aby wkleić obraz ze schowka, naciśnij skrót Ctrl+V (lub Cmd+V na Macu) na klawiaturze.');
     }
   };
 
@@ -136,24 +239,26 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
       const data = await scanReceiptWithAI(dataToSend, effectiveMime);
 
       if (data) {
-        // Initialize selection status
+        const defaultDocDate = data.date || new Date().toISOString().split('T')[0];
+        // Initialize selection status and retain individual item dates (especially for multi-date PDF statements)
         const itemsWithSelection: ReceiptItemDetail[] = (data.items || []).map((item: any) => ({
           name: item.name,
           price: Number(item.price) || 0,
           quantity: Number(item.quantity) || 1,
           category: item.category || data.dominantCategory || 'Jedzenie i artykuły spożywcze',
+          date: item.date || defaultDocDate,
           notes: item.notes || '',
           selected: true,
         }));
 
         setScanResult({
-          storeName: data.storeName || 'Sklep',
-          date: data.date || new Date().toISOString().split('T')[0],
+          storeName: data.storeName || 'Sklep / Dokument',
+          date: defaultDocDate,
           totalAmount: Number(data.totalAmount) || itemsWithSelection.reduce((s, i) => s + i.price, 0),
           currency: data.currency || 'PLN',
           receiptNumber: data.receiptNumber || '',
           dominantCategory: data.dominantCategory || 'Jedzenie i artykuły spożywcze',
-          summary: data.summary || 'Pomyślnie przeanalizowano pozycje paragonu.',
+          summary: data.summary || 'Pomyślnie przeanalizowano pozycje z dokumentu.',
           items: itemsWithSelection,
         });
       } else {
@@ -176,14 +281,19 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
     setImagePreview(null);
     setError(null);
     setSuccessMessage(null);
+    const docDate = sample.date || new Date().toISOString().split('T')[0];
     setScanResult({
       storeName: sample.storeName,
-      date: sample.date,
+      date: docDate,
       totalAmount: sample.totalAmount,
       currency: sample.currency,
       dominantCategory: sample.dominantCategory,
       summary: sample.summary,
-      items: sample.items.map((i) => ({ ...i, selected: true })),
+      items: sample.items.map((i) => ({
+        ...i,
+        date: (i as any).date || docDate,
+        selected: true,
+      })),
     });
   };
 
@@ -203,6 +313,14 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
     setScanResult({ ...scanResult, items: updatedItems });
   };
 
+  // Update individual date of an item (e.g. For bank statement lines)
+  const handleItemDateChange = (index: number, newDate: string) => {
+    if (!scanResult) return;
+    const updatedItems = [...scanResult.items];
+    updatedItems[index].date = newDate;
+    setScanResult({ ...scanResult, items: updatedItems });
+  };
+
   // Save parsed receipt into budget
   const handleSaveToBudget = () => {
     if (!scanResult) return;
@@ -216,71 +334,87 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
 
     try {
       if (saveMode === 'individual') {
-        // Każda pozycja osobno jako niezależna transakcja (np. przy listach zbiorczych, PDF, wyciągach)
+        // Każda pozycja osobno jako niezależna transakcja z własną datą (np. przy wyciągach bankowych, zestawieniach PDF, paragonach)
         selectedItems.forEach((item) => {
           const itemPrice = parseFloat(item.price.toFixed(2));
+          const itemDate = item.date || scanResult.date;
           if (onAddTransaction) {
             onAddTransaction({
               type: 'expense',
               amount: itemPrice,
               category: item.category || scanResult.dominantCategory || 'Inne wydatki',
-              date: scanResult.date,
+              date: itemDate,
               title: item.name,
               comment: `Pozycja z dokumentu: ${scanResult.storeName || 'Skan'}${item.notes ? ` • ${item.notes}` : ''}`,
               receiptStoreName: scanResult.storeName,
-              receiptItems: [item],
+              receiptItems: [{ ...item, date: itemDate }],
             });
           } else if (onReceiptScanned) {
             onReceiptScanned({
               title: item.name,
               amount: itemPrice,
               category: item.category || scanResult.dominantCategory || 'Inne wydatki',
-              date: scanResult.date,
+              date: itemDate,
               items: [{ name: item.name, price: item.price, quantity: item.quantity }],
             });
           }
         });
 
+        const uniqueDates = Array.from(new Set(selectedItems.map((i) => i.date || scanResult.date)));
+        const datesInfo = uniqueDates.length > 1
+          ? ` z ${uniqueDates.length} różnymi datami transakcji`
+          : ` z datą ${uniqueDates[0] || scanResult.date}`;
+
         setSuccessMessage(
-          `Pomyślnie dodano ${selectedItems.length} osobnych transakcji z dokumentu na łączną kwotę ${selectedTotal.toFixed(2)} PLN!`
+          `Pomyślnie dodano ${selectedItems.length} osobnych transakcji z dokumentu${datesInfo} na łączną kwotę ${selectedTotal.toFixed(2)} PLN!`
         );
       } else if (saveMode === 'by_category') {
-        // Grupuj pozycje według kategorii i utwórz osobną transakcję dla każdej kategorii
-        const categoriesMap: Record<string, { total: number; items: ReceiptItemDetail[] }> = {};
+        // Grupuj pozycje według (data + kategoria), aby nie scalać operacji z różnych dni na wyciągach PDF!
+        const groupsMap: Record<string, { category: string; date: string; total: number; items: ReceiptItemDetail[] }> = {};
         selectedItems.forEach((item) => {
-          if (!categoriesMap[item.category]) {
-            categoriesMap[item.category] = { total: 0, items: [] };
+          const itemDate = item.date || scanResult.date;
+          const groupKey = `${itemDate}___${item.category}`;
+          if (!groupsMap[groupKey]) {
+            groupsMap[groupKey] = {
+              category: item.category,
+              date: itemDate,
+              total: 0,
+              items: [],
+            };
           }
-          categoriesMap[item.category].total += item.price;
-          categoriesMap[item.category].items.push(item);
+          groupsMap[groupKey].total += item.price;
+          groupsMap[groupKey].items.push(item);
         });
 
-        Object.entries(categoriesMap).forEach(([catName, group]) => {
+        Object.values(groupsMap).forEach((group) => {
           const catAmount = parseFloat(group.total.toFixed(2));
           if (onAddTransaction) {
             onAddTransaction({
               type: 'expense',
               amount: catAmount,
-              category: catName,
-              date: scanResult.date,
-              title: `Paragon: ${scanResult.storeName} (${catName})`,
-              comment: `Produkty (${group.items.length}): ${group.items.map((i) => i.name).join(', ')}`,
+              category: group.category,
+              date: group.date,
+              title: `${scanResult.storeName} (${group.category})`,
+              comment: `Pozycje (${group.items.length}): ${group.items.map((i) => i.name).join(', ')}`,
               receiptStoreName: scanResult.storeName,
               receiptItems: group.items,
             });
           } else if (onReceiptScanned) {
             onReceiptScanned({
-              title: `Paragon: ${scanResult.storeName} (${catName})`,
+              title: `${scanResult.storeName} (${group.category})`,
               amount: catAmount,
-              category: catName,
-              date: scanResult.date,
+              category: group.category,
+              date: group.date,
               items: group.items.map((i) => ({ name: i.name, price: i.price, quantity: i.quantity })),
             });
           }
         });
 
+        const uniqueDates = Array.from(new Set(Object.values(groupsMap).map((g) => g.date)));
+        const datesInfo = uniqueDates.length > 1 ? ` w ${uniqueDates.length} różnych terminach` : '';
+
         setSuccessMessage(
-          `Pomyślnie dodano ${Object.keys(categoriesMap).length} transakcji pogrupowanych według kategorii na łączną kwotę ${selectedTotal.toFixed(2)} PLN!`
+          `Pomyślnie dodano ${Object.keys(groupsMap).length} transakcji pogrupowanych według kategorii i dat${datesInfo} na łączną kwotę ${selectedTotal.toFixed(2)} PLN!`
         );
       } else {
         // Jeden zbiorczy paragon (1 skonsolidowana transakcja)
@@ -467,25 +601,26 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
           onDragOver={(e) => {
             e.preventDefault();
             e.stopPropagation();
+            setIsDraggingOver(true);
+          }}
+          onDragLeave={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsDraggingOver(false);
           }}
           onDrop={(e) => {
             e.preventDefault();
             e.stopPropagation();
+            setIsDraggingOver(false);
             if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-              const file = e.dataTransfer.files[0];
-              setSelectedFile(file);
-              setError(null);
-              setSuccessMessage(null);
-              setScanResult(null);
-
-              const reader = new FileReader();
-              reader.onload = () => {
-                setImagePreview(reader.result as string);
-              };
-              reader.readAsDataURL(file);
+              processFile(e.dataTransfer.files[0]);
             }
           }}
-          className="bg-white rounded-2xl p-8 border border-slate-200 shadow-xs text-center hover:border-indigo-300 transition-colors"
+          className={`bg-white rounded-2xl p-8 border transition-all text-center shadow-xs ${
+            isDraggingOver
+              ? 'border-indigo-500 bg-indigo-50/50 ring-4 ring-indigo-500/10 scale-[1.01]'
+              : 'border-slate-200 hover:border-indigo-300'
+          }`}
         >
           <input
             type="file"
@@ -503,6 +638,13 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
             className="hidden"
           />
 
+          {pasteNotice && (
+            <div className="mb-4 inline-flex items-center space-x-2 px-3 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold rounded-full shadow-2xs animate-in fade-in slide-in-from-top-2">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+              <span>{pasteNotice}</span>
+            </div>
+          )}
+
           {imagePreview ? (
             <div className="max-w-md mx-auto space-y-4">
               {selectedFile?.type === 'application/pdf' ||
@@ -518,7 +660,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                         DOKUMENT PDF
                       </span>
                       <span className="text-sm font-bold text-slate-800 truncate max-w-[240px]">
-                        {selectedFile?.name || 'Dokument faktury / rachunku.pdf'}
+                        {selectedFile?.name || 'Dokument faktury / wyciągu.pdf'}
                       </span>
                     </div>
                     <p className="text-xs text-slate-500 mt-1">
@@ -571,9 +713,9 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
               <div className="w-16 h-16 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center mx-auto mb-4 border border-indigo-100">
                 <Upload className="w-7 h-7" />
               </div>
-              <h3 className="text-lg font-bold text-slate-900">Wgraj paragon lub plik PDF</h3>
+              <h3 className="text-lg font-bold text-slate-900">Wgraj paragon, fakturę lub wyciąg PDF</h3>
               <p className="text-sm text-slate-500 mt-1 max-w-sm mx-auto">
-                Obsługiwane formaty: <strong>PDF (faktury, rachunki)</strong> oraz zdjęcia <strong>JPG, PNG, WEBP</strong>. Możesz przeciągnąć plik tutaj.
+                Obsługiwane: <strong>pliki PDF (wyciągi, faktury)</strong> oraz zdjęcia <strong>JPG, PNG, WEBP</strong>. Możesz przeciągnąć plik lub wkleić ze schowka.
               </p>
 
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mt-6">
@@ -582,15 +724,28 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                   className="w-full sm:w-auto px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-semibold rounded-xl flex items-center justify-center space-x-2 transition-colors shadow-xs cursor-pointer"
                 >
                   <Upload className="w-4 h-4" />
-                  <span>Wybierz plik (PDF lub zdjęcie)</span>
+                  <span>Wybierz plik z dysku</span>
+                </button>
+                <button
+                  onClick={handlePasteFromClipboardClick}
+                  className="w-full sm:w-auto px-4 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs sm:text-sm font-semibold rounded-xl flex items-center justify-center space-x-2 transition-colors shadow-2xs cursor-pointer"
+                  title="Wklej zrzut ekranu lub plik ze schowka (lub naciśnij Ctrl+V)"
+                >
+                  <Clipboard className="w-4 h-4 text-indigo-600" />
+                  <span>Wklej ze schowka (Ctrl+V)</span>
                 </button>
                 <button
                   onClick={() => cameraInputRef.current?.click()}
-                  className="w-full sm:w-auto px-5 py-2.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs sm:text-sm font-semibold rounded-xl flex items-center justify-center space-x-2 transition-colors shadow-xs cursor-pointer"
+                  className="w-full sm:w-auto px-4 py-2.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs sm:text-sm font-semibold rounded-xl flex items-center justify-center space-x-2 transition-colors shadow-xs cursor-pointer"
                 >
-                  <Camera className="w-4 h-4 text-indigo-600" />
-                  <span>Zrób zdjęcie aparatem</span>
+                  <Camera className="w-4 h-4 text-slate-500" />
+                  <span>Aparat</span>
                 </button>
+              </div>
+
+              <div className="mt-5 inline-flex items-center space-x-2 text-xs text-slate-400 bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-full">
+                <Clipboard className="w-3.5 h-3.5 text-indigo-500" />
+                <span>Możesz w dowolnym momencie wcisnąć <kbd className="px-1.5 py-0.5 bg-white border border-slate-200 rounded-sm font-mono text-[10px] text-slate-700 font-semibold shadow-2xs">Ctrl + V</kbd> (lub <kbd className="px-1.5 py-0.5 bg-white border border-slate-200 rounded-sm font-mono text-[10px] text-slate-700 font-semibold shadow-2xs">⌘ + V</kbd>), aby wkleić zrzut ekranu</span>
               </div>
             </div>
           )}
@@ -810,7 +965,21 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                     </div>
                   </div>
 
-                  <div className="flex items-center space-x-3 w-full sm:w-auto justify-between sm:justify-end">
+                  <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+                    {/* Individual Date for item (important for bank statements / multi-date PDFs) */}
+                    <div
+                      className="flex items-center space-x-1 bg-slate-100/90 border border-slate-200 rounded-xl px-2 py-1"
+                      title="Data tej konkretnej operacji/pozycji (przydatne przy wyciągach bankowych i zestawieniach PDF)"
+                    >
+                      <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
+                      <input
+                        type="date"
+                        value={item.date || scanResult.date}
+                        onChange={(e) => handleItemDateChange(idx, e.target.value)}
+                        className="text-[11px] bg-transparent text-slate-700 font-medium focus:outline-hidden cursor-pointer"
+                      />
+                    </div>
+
                     {/* Category Selector for individual item */}
                     <select
                       value={item.category}

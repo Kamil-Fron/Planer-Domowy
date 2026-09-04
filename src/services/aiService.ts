@@ -142,16 +142,23 @@ async function scanReceiptDirectClient(
     detectedMime = compressedMime || mimeType || 'image/jpeg';
   }
 
-  const prompt = `Jesteś precyzyjnym systemem OCR i asystentem finansowym do analizy paragonów fiskalnych, faktur VAT oraz dokumentów PDF w Polsce.
-Przeanalizuj dołączony dokument (paragon, fakturę lub plik PDF) i wyodrębnij:
-1. storeName: Nazwa sklepu / stacji paliw / wystawcy faktury / sprzedawcy (np. Pieprzyk, Biedronka, Lidl, Orlen, Castorama, Rossmann, Tauron itp.).
-2. date: Data transakcji (w formacie YYYY-MM-DD). Jeśli niewidoczna, użyj bieżącej daty.
+  const prompt = `Jesteś precyzyjnym systemem OCR i asystentem finansowym do analizy paragonów fiskalnych, faktur VAT, wyciągów bankowych oraz dokumentów PDF w Polsce.
+Przeanalizuj dołączony dokument (paragon, fakturę, wyciąg bankowy lub plik PDF) i wyodrębnij:
+1. storeName: Nazwa sklepu / stacji paliw / wystawcy faktury / banku / sprzedawcy (np. Pieprzyk, Biedronka, Lidl, Orlen, Castorama, Rossmann, Tauron, mBank itp.).
+2. date: Główna data dokumentu lub ostatniej operacji (w formacie YYYY-MM-DD). Jeśli niewidoczna, użyj bieżącej daty.
 3. totalAmount: Łączna kwota do zapłaty (liczba w PLN, np. 111.31).
 4. currency: Waluta (zwykle "PLN").
 5. receiptNumber: Numer paragonu, faktury lub NIP (jeśli widoczny, inaczej "").
-6. dominantCategory: Dominująca kategoria całego dokumentu spośród: ["Transport i paliwo", "Jedzenie i artykuły spożywcze", "Remont i dom", "Dla zwierząt i kotów", "Rachunki i media", "Zdrowie i kosmetyki", "Rozrywka i hobby", "Odzież i obuwie", "Inne"].
-7. summary: Krótkie podsumowanie w języku polskim (np. "Zakup paliwa na stacji Pieprzyk" lub "Faktura za energię elektryczną").
-8. items: Lista pozycji zakupowych lub opłat z dokumentu (dla każdego produktu/usługi: name, price (liczba), quantity (liczba, domyślnie 1), category, notes).
+6. dominantCategory: Dominująca kategoria całego dokumentu spośród: ["Jedzenie i artykuły spożywcze", "Remont i dom", "Dla kotów i zwierząt", "Rachunki i media", "Zdrowie i kosmetyki", "Transport i paliwo", "Rozrywka i hobby", "Odzież i obuwie", "Edukacja i książki", "Inne wydatki"].
+7. summary: Krótkie podsumowanie w języku polskim (np. "Zakup paliwa na stacji Pieprzyk" lub "Wyciąg z konta bankowego").
+8. items: Lista pozycji zakupowych, operacji lub opłat z dokumentu.
+Dla KAŻDEJ pozycji wyodrębnij:
+- name: nazwa produktu/usługi lub operacji
+- price: kwota za pozycję (liczba dodatnia w PLN)
+- quantity: ilość sztuk lub waga (liczba, domyślnie 1)
+- category: kategoria wydatku
+- date: dokładna data tej konkretnej pozycji w formacie YYYY-MM-DD (BARDZO WAŻNE: na wyciągach bankowych, zestawieniach PDF lub listach pozycje mogą mieć różne daty operacji/księgowania - przypisz dla każdej pozycji jej faktyczną datę z dokumentu)
+- notes: krótka notatka
 
 Zwróć wynik w czystym formacie JSON:
 {
@@ -168,6 +175,7 @@ Zwróć wynik w czystym formacie JSON:
       "price": 0.00,
       "quantity": 1,
       "category": "string",
+      "date": "YYYY-MM-DD",
       "notes": "string"
     }
   ]

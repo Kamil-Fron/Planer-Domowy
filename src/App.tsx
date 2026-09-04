@@ -475,8 +475,10 @@ export default function App() {
           const isDirectMatch = !!(targetBillId && b.id === targetBillId);
           const isNameMatch =
             !targetBillId &&
-            deletedTx.category === 'Rachunki i media' &&
+            (deletedTx.category === 'Rachunki i media' || deletedTx.category === 'Rachunki') &&
             (b.name.toLowerCase() === cleanTitleName ||
+              cleanTitleName.includes(b.name.toLowerCase()) ||
+              b.name.toLowerCase().includes(cleanTitleName) ||
               (deletedTx.comment && deletedTx.comment.toLowerCase().includes(b.name.toLowerCase())));
 
           if (isDirectMatch || isNameMatch) {
@@ -510,14 +512,17 @@ export default function App() {
               removedItemIndex = 0;
             }
 
+            const targetHistoryItem = removedItemIndex !== -1 ? history[removedItemIndex] : null;
+            const cyclesToRevert = targetHistoryItem?.cycleCount || 1;
+
             const updatedHistory =
               removedItemIndex !== -1
                 ? history.filter((_, idx) => idx !== removedItemIndex)
                 : history;
 
-            // Przywróć poprzedni termin (np. wrzesień z października)
+            // Przywróć poprzedni termin (np. wrzesień z października lub o n cykli w tył)
             const restoredDueDate =
-              b.previousDueDate || calculatePreviousDueDate(b.dueDate, b.billingCycle);
+              b.previousDueDate || calculatePreviousDueDate(b.dueDate, b.billingCycle, cyclesToRevert);
 
             return {
               ...b,

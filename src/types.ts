@@ -100,6 +100,8 @@ export interface BillPaymentHistoryItem {
   billingPeriod?: string;
   notes?: string;
   meterReading?: MeterReading;
+  cycleCount?: number; // np. 2 jeśli opłacono za 2 okresy rozliczeniowe
+  isRollover?: boolean; // true jeśli to wpis o kumulacji / przeniesieniu na kolejny okres
 }
 
 export interface Bill {
@@ -119,6 +121,9 @@ export interface Bill {
   autoExpenseId?: string;
   previousDueDate?: string; // Poprzedni termin przed opłaceniem cyklu
   paymentHistory?: BillPaymentHistoryItem[];
+  accumulatedDebt?: number; // Skumulowana kwota z nieopłaconych poprzednich okresów
+  rolloverCount?: number; // Liczba przeniesionych / skumulowanych okresów
+  baseAmount?: number; // Kwota bazowa pojedynczego okresu przed kumulacją
   createdAt: string;
 }
 

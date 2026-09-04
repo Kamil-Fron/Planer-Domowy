@@ -27,12 +27,17 @@ import {
   CreditCard,
   Edit3,
   X,
+  FastForward,
+  ArrowRightCircle,
+  CalendarPlus,
+  Info,
 } from 'lucide-react';
 import { Bill, UtilityServiceType, Transaction, BillPricingType } from '../types';
 import {
   calculateNextDueDate,
   calculatePreviousDueDate,
   getBillingPeriodName,
+  getMultipleBillingPeriods,
 } from '../utils/billCycle';
 
 interface BillsManagerProps {
@@ -105,6 +110,14 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   );
   const [payModalAmount, setPayModalAmount] = useState<string>('');
   const [payModalMeterCurr, setPayModalMeterCurr] = useState<string>('');
+  const [payModalCycles, setPayModalCycles] = useState<number>(1); // Liczba opłacanych cykli (1 = bieżący, 2 = 2 z góry, etc.)
+
+  // Stan modala przeniesienia / kumulacji nieopłaconego rachunku na kolejny miesiąc
+  const [rolloverModalBill, setRolloverModalBill] = useState<Bill | null>(null);
+  const [rolloverNewDate, setRolloverNewDate] = useState<string>('');
+  const [rolloverMode, setRolloverMode] = useState<'accumulate' | 'defer_only'>('accumulate');
+  const [rolloverAmount, setRolloverAmount] = useState<string>('');
+  const [rolloverNote, setRolloverNote] = useState<string>('');
 
   // Stan daty w modalu opłat zbiorczych
   const [batchPayDate, setBatchPayDate] = useState<string>(
@@ -234,7 +247,9 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   // 2. Uregulowane opłaty w danym miesiącu:
   // Jeśli rachunek został opłacony w wybranym miesiącu (nawet z odległą datą ważności)
   const monthPaidBills = bills.filter((b) => {
-    const hasMonthPayment = b.paymentHistory?.some((h) => h.paidDate.startsWith(currentMonth));
+    const hasMonthPayment = b.paymentHistory?.some(
+      (h) => !h.isRollover && h.paidDate.startsWith(currentMonth)
+    );
     const isMarkedPaidInMonth = b.status === 'paid' && !!b.paymentDate?.startsWith(currentMonth);
     return hasMonthPayment || isMarkedPaidInMonth;
   });
@@ -278,8 +293,8 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
     }[] = [];
 
     filteredMonthPaidBills.forEach((b) => {
-      const monthPayments = (b.paymentHistory || []).filter((h) =>
-        h.paidDate.startsWith(currentMonth)
+      const monthPayments = (b.paymentHistory || []).filter(
+        (h) => !h.isRollover && h.paidDate.startsWith(currentMonth)
       );
 
       if (monthPayments.length > 0) {
@@ -406,6 +421,85 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
     setPayModalAmount(initialAmount);
     setPayModalMeterCurr(initialMeterCurr);
     setPayModalDate(new Date().toISOString().split('T')[0]);
+    setPayModalCycles(1);
+  };
+
+  /**
+   * Otwarcie okna przełożenia / kumulacji nieopłaconego rachunku na kolejny miesiąc
+   */
+  const handleOpenRolloverModal = (bill: Bill) => {
+    const nextDue = calculateNextDueDate(bill.dueDate, bill.billingCycle, 1);
+    const baseAmt = bill.baseAmount || bill.amount;
+    // Kwota z kumulacją: bieżąca nieopłacona kwota + kolejny cykl
+    const accumulatedTotal = bill.amount + baseAmt;
+
+    setRolloverModalBill(bill);
+    setRolloverNewDate(nextDue);
+    setRolloverMode('accumulate');
+    setRolloverAmount(accumulatedTotal.toFixed(2));
+    setRolloverNote(
+      `Nieopłacony rachunek za ${getBillingPeriodName(bill.dueDate)} przeniesiony na ${getBillingPeriodName(nextDue)} z kumulacją kwoty.`
+    );
+    // Jeśli był otwarty modal opłacenia, zamykamy go
+    setPayModalBill(null);
+  };
+
+  /**
+   * Zatwierdzenie przełożenia i kumulacji rachunku na kolejny okres
+   */
+  const handleConfirmRollover = () => {
+    if (!rolloverModalBill) return;
+    const bill = rolloverModalBill;
+    const parsedAmount = parseFloat(rolloverAmount);
+
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      alert('Proszę podać prawidłową kwotę po kumulacji.');
+      return;
+    }
+
+    if (!rolloverNewDate) {
+      alert('Proszę wybrać nowy termin płatności.');
+      return;
+    }
+
+    const baseAmt = bill.baseAmount || bill.amount;
+    const previousPeriod = getBillingPeriodName(bill.dueDate);
+    const targetPeriod = getBillingPeriodName(rolloverNewDate);
+    const debtAdded = rolloverMode === 'accumulate' ? baseAmt : 0;
+    const newDebt = (bill.accumulatedDebt || 0) + debtAdded;
+    const newRolloverCount = (bill.rolloverCount || 0) + 1;
+
+    const rolloverHistoryEntry = {
+      id: `rollover-${Date.now()}-${bill.id}`,
+      amount: bill.amount,
+      paidDate: new Date().toISOString().split('T')[0],
+      billingPeriod: previousPeriod,
+      isRollover: true,
+      notes:
+        rolloverMode === 'accumulate'
+          ? `Przeniesiono zaległość i skumulowano do ${targetPeriod} (nowa łączna kwota do zapłaty: ${parsedAmount.toFixed(2)} PLN)`
+          : `Odroczenie terminu płatności do ${targetPeriod} (kwota bez zmian: ${parsedAmount.toFixed(2)} PLN)`,
+    };
+
+    const updatedHistory = [rolloverHistoryEntry, ...(bill.paymentHistory || [])];
+
+    onUpdateBill(bill.id, {
+      dueDate: rolloverNewDate,
+      previousDueDate: bill.dueDate,
+      amount: parsedAmount,
+      baseAmount: baseAmt,
+      accumulatedDebt: newDebt,
+      rolloverCount: newRolloverCount,
+      paymentHistory: updatedHistory,
+      notes: rolloverNote || bill.notes,
+    });
+
+    setRolloverModalBill(null);
+    showToast(
+      rolloverMode === 'accumulate'
+        ? `Skumulowano rachunek "${bill.name}" na ${rolloverNewDate} (nowa kwota: ${parsedAmount.toFixed(2)} PLN).`
+        : `Przeniesiono termin rachunku "${bill.name}" na ${rolloverNewDate}.`
+    );
   };
 
   /**
@@ -427,7 +521,9 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
 
     const bill = payModalBill;
     const isVariable = bill.pricingType === 'variable';
-    const periodName = getBillingPeriodName(bill.dueDate);
+    const cycles = Math.max(1, payModalCycles);
+    const coveredPeriods = getMultipleBillingPeriods(bill.dueDate, bill.billingCycle, cycles);
+    const periodName = coveredPeriods.join(' + ');
 
     // Zaktualizowany odczyt licznika jeśli podano
     let updatedMeter = bill.meterReading;
@@ -448,11 +544,16 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
       category: 'Rachunki i media',
       date: payModalDate,
       title: `Rachunek: ${bill.name}`,
-      comment: isVariable
-        ? `Opłacono rachunek zmienny (${bill.provider}) za okres ${periodName}: ${parsedAmount.toFixed(2)} PLN.${
-            updatedMeter ? ` Stan licznika: ${updatedMeter.current} ${updatedMeter.unit}.` : ''
-          }`
-        : `Opłacono opłatę stałą (${bill.provider}) za okres ${periodName}: ${parsedAmount.toFixed(2)} PLN.`,
+      comment:
+        cycles > 1
+          ? `Opłacono za ${cycles} okresy rozliczeniowe z góry (${periodName}): ${parsedAmount.toFixed(2)} PLN.${
+              updatedMeter ? ` Stan licznika: ${updatedMeter.current} ${updatedMeter.unit}.` : ''
+            }`
+          : isVariable
+          ? `Opłacono rachunek zmienny (${bill.provider}) za okres ${periodName}: ${parsedAmount.toFixed(2)} PLN.${
+              updatedMeter ? ` Stan licznika: ${updatedMeter.current} ${updatedMeter.unit}.` : ''
+            }`
+          : `Opłacono opłatę stałą (${bill.provider}) za okres ${periodName}: ${parsedAmount.toFixed(2)} PLN.`,
       billId: bill.id,
     });
 
@@ -461,10 +562,14 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
       amount: parsedAmount,
       paidDate: payModalDate,
       billingPeriod: periodName,
+      cycleCount: cycles,
       meterReading: updatedMeter,
-      notes: isVariable
-        ? `Opłata zmienna z datą ${payModalDate}`
-        : `Opłata stała z datą ${payModalDate}`,
+      notes:
+        cycles > 1
+          ? `Opłacono za ${cycles} okresy (${periodName}) z datą ${payModalDate}`
+          : isVariable
+          ? `Opłata zmienna z datą ${payModalDate}`
+          : `Opłata stała z datą ${payModalDate}`,
     };
 
     const updatedHistory = [newHistoryItem, ...(bill.paymentHistory || [])];
@@ -479,24 +584,36 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         lastPaidAmount: parsedAmount,
         meterReading: updatedMeter,
         paymentHistory: updatedHistory,
+        accumulatedDebt: 0,
+        rolloverCount: 0,
       });
       showToast(
         `Opłacono jednorazowy rachunek "${bill.name}" (${parsedAmount.toFixed(2)} PLN) z datą ${payModalDate}.`
       );
     } else {
-      const nextDue = calculateNextDueDate(bill.dueDate, bill.billingCycle);
+      const nextDue = calculateNextDueDate(bill.dueDate, bill.billingCycle, cycles);
+      // Kwota bazowa dla kolejnego pojedynczego okresu (resetujemy skumulowaną zaległość)
+      const baseSingleAmount =
+        bill.baseAmount ||
+        (bill.amount / Math.max(1, (bill.rolloverCount || 0) + 1));
+
       onUpdateBill(bill.id, {
         status: 'pending',
-        amount: parsedAmount,
+        amount: baseSingleAmount,
+        baseAmount: baseSingleAmount,
         previousDueDate: bill.dueDate,
         dueDate: nextDue,
         paymentDate: payModalDate,
         lastPaidAmount: parsedAmount,
         meterReading: updatedMeter,
         paymentHistory: updatedHistory,
+        accumulatedDebt: 0,
+        rolloverCount: 0,
       });
       showToast(
-        `Opłacono rachunek "${bill.name}" (${parsedAmount.toFixed(2)} PLN) z datą ${payModalDate}. Nowy termin: ${nextDue} (${bill.billingCycle}).`
+        cycles > 1
+          ? `Opłacono "${bill.name}" za ${cycles} okresy z góry (${parsedAmount.toFixed(2)} PLN). Nowy termin: ${nextDue}.`
+          : `Opłacono rachunek "${bill.name}" (${parsedAmount.toFixed(2)} PLN) z datą ${payModalDate}. Nowy termin: ${nextDue} (${bill.billingCycle}).`
       );
     }
 
@@ -914,6 +1031,21 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
             </div>
           )}
 
+          {/* Accumulated Debt Banner */}
+          {bill.accumulatedDebt && bill.accumulatedDebt > 0 ? (
+            <div className="mb-3 px-3 py-2 bg-amber-50/90 border border-amber-200/90 rounded-xl text-xs text-amber-950 flex items-center justify-between shadow-2xs">
+              <div className="flex items-center space-x-1.5 min-w-0">
+                <Layers className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <span className="font-bold text-[11px] truncate">
+                  Skumulowana zaległość ({bill.rolloverCount || 1} {bill.rolloverCount === 1 ? 'okres' : 'okresy'})
+                </span>
+              </div>
+              <span className="font-extrabold text-[11px] text-amber-700 shrink-0">
+                +{bill.accumulatedDebt.toFixed(2)} PLN
+              </span>
+            </div>
+          ) : null}
+
           {/* Notes */}
           {bill.notes && (
             <p className="text-[11px] text-slate-500 mb-3 italic bg-slate-50 p-2 rounded-lg">
@@ -934,14 +1066,26 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                     className="flex items-center justify-between p-1.5 bg-white rounded-lg border border-slate-100 text-[11px]"
                   >
                     <div>
-                      <span className="font-semibold text-slate-800">
-                        {item.billingPeriod || item.paidDate}
-                      </span>
+                      <div className="flex items-center space-x-1">
+                        <span className="font-semibold text-slate-800">
+                          {item.billingPeriod || item.paidDate}
+                        </span>
+                        {item.isRollover && (
+                          <span className="px-1 py-0.2 rounded text-[9px] font-bold bg-amber-100 text-amber-800">
+                            Przełożenie
+                          </span>
+                        )}
+                        {item.cycleCount && item.cycleCount > 1 && (
+                          <span className="px-1 py-0.2 rounded text-[9px] font-bold bg-blue-100 text-blue-800">
+                            {item.cycleCount} okresy
+                          </span>
+                        )}
+                      </div>
                       <span className="text-slate-400 block text-[10px]">
-                        Zapłacono: {item.paidDate}
+                        {item.isRollover ? 'Przeniesiono: ' : 'Zapłacono: '}{item.paidDate}
                       </span>
                     </div>
-                    <span className="font-bold text-emerald-600">
+                    <span className={`font-bold ${item.isRollover ? 'text-amber-700' : 'text-emerald-600'}`}>
                       {item.amount.toFixed(2)} PLN
                     </span>
                   </div>
@@ -951,7 +1095,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
           )}
         </div>
 
-        {/* Bottom Action Area: Prominent Green Pay Button */}
+        {/* Bottom Action Area: Prominent Green Pay Button & Rollover Option */}
         <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
           <span className="text-[10px] text-slate-400 font-medium">
             {meta.label} • {bill.billingCycle}
@@ -966,28 +1110,44 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
               <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
               <span>Oznacz jako do zapłaty</span>
             </button>
-          ) : isFixed ? (
-            /* FIXED BILL: Otwarcie okna wyboru daty i opłacenia */
-            <button
-              onClick={() => handleOpenPayModal(bill)}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 shadow-xs shrink-0"
-              title="Wybierz datę i opłać rachunek"
-            >
-              <Check className="w-4 h-4" />
-              <span>Opłać {bill.amount.toFixed(2)} PLN</span>
-            </button>
           ) : (
-            /* VARIABLE BILL: Otwarcie okna wyboru daty i opłacenia */
-            <button
-              onClick={() => handleOpenPayModal(bill)}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 shadow-xs shrink-0"
-              title="Wybierz datę i opłać rachunek"
-            >
-              <Check className="w-4 h-4" />
-              <span>
-                Opłać {parseFloat(currentVariableEdit.amount || '0').toFixed(2)} PLN
-              </span>
-            </button>
+            <div className="flex items-center space-x-1.5 shrink-0">
+              {bill.billingCycle !== 'jednorazowo' && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenRolloverModal(bill)}
+                  className="px-2.5 py-2 bg-slate-100 hover:bg-amber-50 hover:text-amber-800 hover:border-amber-200 border border-slate-200 text-slate-600 rounded-xl text-xs font-semibold flex items-center space-x-1 transition-colors"
+                  title="Przełóż nieopłacony rachunek na kolejny okres (kumulacja kwoty)"
+                >
+                  <FastForward className="w-3.5 h-3.5 text-amber-600" />
+                  <span className="hidden sm:inline">Przełóż / Kumuluj</span>
+                </button>
+              )}
+
+              {isFixed ? (
+                /* FIXED BILL: Otwarcie okna wyboru daty i opłacenia */
+                <button
+                  onClick={() => handleOpenPayModal(bill)}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 shadow-xs shrink-0"
+                  title="Wybierz datę i opłać rachunek"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Opłać {bill.amount.toFixed(2)} PLN</span>
+                </button>
+              ) : (
+                /* VARIABLE BILL: Otwarcie okna wyboru daty i opłacenia */
+                <button
+                  onClick={() => handleOpenPayModal(bill)}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 shadow-xs shrink-0"
+                  title="Wybierz datę i opłać rachunek"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>
+                    Opłać {parseFloat(currentVariableEdit.amount || '0').toFixed(2)} PLN
+                  </span>
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -1025,6 +1185,12 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                       <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                       <span>Uregulowano</span>
                     </span>
+                    {item.historyItem?.cycleCount && item.historyItem.cycleCount > 1 && (
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 flex items-center space-x-1 shrink-0">
+                        <CalendarPlus className="w-3 h-3 text-blue-600" />
+                        <span>{item.historyItem.cycleCount} okresy z góry</span>
+                      </span>
+                    )}
                     <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider bg-slate-100 px-1.5 py-0.5 rounded-md">
                       {item.pricingType === 'variable' ? 'Zmienna' : 'Stała'}
                     </span>
@@ -1051,6 +1217,11 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                     <span>•</span>
                     <span className="capitalize text-slate-400">{item.billingCycle}</span>
                   </div>
+                  {item.historyItem?.notes && (
+                    <p className="text-[11px] text-slate-500 italic mt-1">
+                      {item.historyItem.notes}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -1766,7 +1937,11 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         const nextDuePreview =
           bill.billingCycle === 'jednorazowo'
             ? null
-            : calculateNextDueDate(bill.dueDate, bill.billingCycle);
+            : calculateNextDueDate(bill.dueDate, bill.billingCycle, payModalCycles);
+        const coveredPeriodsPreview =
+          bill.billingCycle === 'jednorazowo'
+            ? [getBillingPeriodName(bill.dueDate)]
+            : getMultipleBillingPeriods(bill.dueDate, bill.billingCycle, payModalCycles);
 
         return (
           <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
@@ -1887,6 +2062,71 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                 </div>
               </div>
 
+              {/* Wybór liczby okresów / Opłacenie z góry */}
+              {bill.billingCycle !== 'jednorazowo' && (
+                <div className="space-y-2 pt-1 border-t border-slate-100">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
+                      <CalendarPlus className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Okresy płatności (płatność z góry):</span>
+                    </label>
+                    <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
+                      {payModalCycles === 1 ? 'Bieżący okres (1 cykl)' : `${payModalCycles} okresy z góry`}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    {[1, 2, 3].map((c) => {
+                      const baseAmt =
+                        bill.baseAmount ||
+                        (bill.amount / Math.max(1, (bill.rolloverCount || 0) + 1));
+                      const isSelected = payModalCycles === c;
+                      const calculatedAmt = (baseAmt * c).toFixed(2);
+
+                      return (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => {
+                            setPayModalCycles(c);
+                            setPayModalAmount(calculatedAmt);
+                          }}
+                          className={`p-2.5 rounded-xl text-xs font-semibold border transition-all text-left flex flex-col justify-between ${
+                            isSelected
+                              ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          <span className="font-bold">
+                            {c === 1 ? '1 okres' : `${c} okresy ${c === 2 ? '(z góry)' : ''}`}
+                          </span>
+                          <span
+                            className={`text-[11px] mt-0.5 font-medium ${
+                              isSelected ? 'text-blue-100' : 'text-slate-500'
+                            }`}
+                          >
+                            {calculatedAmt} PLN
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {payModalCycles > 1 && (
+                    <div className="text-[11px] text-blue-900 bg-blue-50/80 border border-blue-200/80 p-2.5 rounded-xl flex items-start space-x-2">
+                      <Info className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-bold block">Płatność za {payModalCycles} okresy z góry:</span>
+                        <span>
+                          Obejmuje: {coveredPeriodsPreview.join(' + ')}. Kolejny termin płatności przesunie się na{' '}
+                          <strong>{nextDuePreview}</strong>.
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Kwota i ewentualny stan licznika */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                 <div className="space-y-1">
@@ -1931,7 +2171,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                 <div className="flex items-center justify-between">
                   <span className="text-slate-500">Okres rozliczeniowy:</span>
                   <span className="font-semibold text-slate-800">
-                    {getBillingPeriodName(bill.dueDate)}
+                    {coveredPeriodsPreview.join(' + ')}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
@@ -1949,6 +2189,31 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                   </span>
                 </div>
               </div>
+
+              {/* Opcja przeniesienia zaległości / kumulacji */}
+              {bill.billingCycle !== 'jednorazowo' && (
+                <div className="p-3 bg-amber-50/80 border border-amber-200/90 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs">
+                  <div className="flex items-start space-x-2">
+                    <Layers className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold text-amber-950 block">
+                        Nie opłacasz w tym terminie?
+                      </span>
+                      <span className="text-[11px] text-amber-800">
+                        Przełóż i skumuluj ten rachunek z kolejnym okresem rozliczeniowym.
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenRolloverModal(bill)}
+                    className="w-full sm:w-auto px-3 py-1.5 bg-white hover:bg-amber-100 border border-amber-300 text-amber-950 font-bold text-xs rounded-xl shadow-2xs whitespace-nowrap transition-colors flex items-center justify-center space-x-1 shrink-0"
+                  >
+                    <FastForward className="w-3.5 h-3.5 text-amber-700" />
+                    <span>Przełóż / Kumuluj</span>
+                  </button>
+                </div>
+              )}
 
               {/* Dolne przyciski */}
               <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
@@ -1968,6 +2233,238 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                   <Check className="w-4 h-4" />
                   <span>
                     Zatwierdź opłatę ({isValidAmount ? numAmount.toFixed(2) : '0.00'} PLN)
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Modal przeniesienia i kumulacji na kolejny miesiąc */}
+      {rolloverModalBill && (() => {
+        const bill = rolloverModalBill;
+        const meta = getServiceMeta(bill.serviceType);
+        const ServiceIcon = meta.icon;
+        const baseAmt =
+          bill.baseAmount || (bill.amount / Math.max(1, (bill.rolloverCount || 0) + 1));
+        const currentPeriod = getBillingPeriodName(bill.dueDate);
+        const nextDefaultDue = calculateNextDueDate(bill.dueDate, bill.billingCycle, 1);
+        const targetPeriod = getBillingPeriodName(rolloverNewDate || nextDefaultDue);
+
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl max-w-lg w-full p-6 border border-slate-200 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
+              {/* Header */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center space-x-3">
+                  <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 bg-amber-100 text-amber-700">
+                    <FastForward className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-base text-slate-900 leading-tight">
+                      Przełożenie i kumulacja rachunku
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {bill.name} • {bill.provider}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setRolloverModalBill(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
+                  title="Zamknij"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Wyjaśnienie */}
+              <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-950 flex items-start space-x-2.5">
+                <Info className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <p className="font-bold">Kumulacja rachunku na kolejny okres:</p>
+                  <p className="text-amber-900/90 text-[11px] leading-relaxed">
+                    Jeśli rachunek nie został opłacony w bieżącym terminie ({currentPeriod}), możesz przenieść zaległość na kolejny miesiąc ({targetPeriod}). Kwota zostanie skumulowana z kolejnym okresem rozliczeniowym.
+                  </p>
+                </div>
+              </div>
+
+              {/* Wybór trybu: Kumulacja kwoty czy tylko odroczenie terminu */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-800">
+                  Wybierz sposób przełożenia:
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRolloverMode('accumulate');
+                      setRolloverAmount((bill.amount + baseAmt).toFixed(2));
+                    }}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      rolloverMode === 'accumulate'
+                        ? 'bg-amber-50/80 border-amber-400 ring-2 ring-amber-400/20 shadow-2xs'
+                        : 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-1.5 mb-1">
+                      <Layers
+                        className={`w-4 h-4 ${
+                          rolloverMode === 'accumulate' ? 'text-amber-700' : 'text-slate-500'
+                        }`}
+                      />
+                      <span
+                        className={`text-xs font-bold ${
+                          rolloverMode === 'accumulate' ? 'text-amber-950' : 'text-slate-800'
+                        }`}
+                      >
+                        Kumuluj kwoty (2x)
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-tight">
+                      Dodaje koszt kolejnego cyklu: bieżąca ({bill.amount.toFixed(2)} zł) + kolejny ({baseAmt.toFixed(2)} zł) ={' '}
+                      {(bill.amount + baseAmt).toFixed(2)} zł
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRolloverMode('defer_only');
+                      setRolloverAmount(bill.amount.toFixed(2));
+                    }}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      rolloverMode === 'defer_only'
+                        ? 'bg-amber-50/80 border-amber-400 ring-2 ring-amber-400/20 shadow-2xs'
+                        : 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-1.5 mb-1">
+                      <Clock
+                        className={`w-4 h-4 ${
+                          rolloverMode === 'defer_only' ? 'text-amber-700' : 'text-slate-500'
+                        }`}
+                      />
+                      <span
+                        className={`text-xs font-bold ${
+                          rolloverMode === 'defer_only' ? 'text-amber-950' : 'text-slate-800'
+                        }`}
+                      >
+                        Tylko odrocz termin
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-tight">
+                      Przesuwa jedynie datę ważności, zachowując obecną kwotę do zapłaty ({bill.amount.toFixed(2)} zł)
+                    </p>
+                  </button>
+                </div>
+              </div>
+
+              {/* Nowy termin płatności */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Nowy termin płatności (kolejny okres):</span>
+                  </label>
+                  <span className="text-[10px] font-semibold text-slate-500">
+                    Dotychczas: {bill.dueDate}
+                  </span>
+                </div>
+
+                <input
+                  type="date"
+                  value={rolloverNewDate}
+                  onChange={(e) => setRolloverNewDate(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold text-slate-900 focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-hidden transition-all"
+                />
+
+                <div className="flex items-center gap-1.5 pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setRolloverNewDate(nextDefaultDue)}
+                    className="px-2.5 py-1 text-xs rounded-lg font-semibold border bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200"
+                  >
+                    Kolejny cykl wg umowy ({nextDefaultDue})
+                  </button>
+                </div>
+              </div>
+
+              {/* Nowa kwota po kumulacji z możliwością ręcznej korekty */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-800 flex items-center justify-between">
+                  <span>Nowa łączna kwota do zapłaty (PLN):</span>
+                  <span className="text-[11px] text-slate-400 font-normal">możesz edytować</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={rolloverAmount}
+                    onChange={(e) => setRolloverAmount(e.target.value)}
+                    className="w-full px-3 py-2 text-sm font-black text-amber-950 bg-amber-50/50 border border-amber-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                  />
+                  <span className="absolute right-3 top-2 text-xs font-bold text-amber-700">
+                    PLN
+                  </span>
+                </div>
+              </div>
+
+              {/* Notatka / Komentarz do kumulacji */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-800">
+                  Notatka / powód przeniesienia:
+                </label>
+                <input
+                  type="text"
+                  value={rolloverNote}
+                  onChange={(e) => setRolloverNote(e.target.value)}
+                  placeholder="np. Skumulowano opłatę za wrzesień z październikiem"
+                  className="w-full px-3 py-2 text-xs text-slate-700 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                />
+              </div>
+
+              {/* Podsumowanie */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 text-xs text-slate-600 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">Dotychczasowy okres:</span>
+                  <span className="font-semibold text-slate-700 line-through">{currentPeriod}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">Docelowy okres rozliczeniowy:</span>
+                  <span className="font-bold text-amber-800">{targetPeriod}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">Nowy termin płatności:</span>
+                  <span className="font-bold text-slate-800">{rolloverNewDate}</span>
+                </div>
+                <div className="flex items-center justify-between pt-1 border-t border-slate-200/60">
+                  <span className="text-slate-500 font-semibold">Do zapłaty łącznie:</span>
+                  <span className="font-black text-sm text-amber-800">
+                    {parseFloat(rolloverAmount || '0').toFixed(2)} PLN
+                  </span>
+                </div>
+              </div>
+
+              {/* Dolne przyciski */}
+              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setRolloverModalBill(null)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+                >
+                  Anuluj
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmRollover}
+                  className="px-5 py-2 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white text-xs font-bold rounded-xl flex items-center space-x-2 transition-all shadow-xs"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>
+                    Zatwierdź przełożenie ({parseFloat(rolloverAmount || '0').toFixed(2)} PLN)
                   </span>
                 </button>
               </div>

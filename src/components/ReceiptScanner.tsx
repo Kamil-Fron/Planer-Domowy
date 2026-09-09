@@ -32,6 +32,7 @@ import { ReceiptItemDetail, ReceiptScanResult, Transaction, ShoppingItem, Transa
 
 export type ReceiptSaveMode = 'consolidated' | 'by_category' | 'individual';
 import { INITIAL_CATEGORIES, INITIAL_INCOME_CATEGORIES, SAMPLE_RECEIPTS } from '../mockData';
+import { resolveRelativeDate, toLocalISODate, getRelativeDateBadge } from '../utils/dateParser';
 import {
   checkAiAvailability,
   scanReceiptWithAI,
@@ -240,11 +241,12 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
     setSuccessMessage(null);
 
     try {
-      const data = await scanReceiptWithAI(dataToSend, effectiveMime);
+      const todayISO = toLocalISODate(new Date());
+      const data = await scanReceiptWithAI(dataToSend, effectiveMime, todayISO);
 
       if (data) {
-        const defaultDocDate = data.date || new Date().toISOString().split('T')[0];
-        // Initialize selection status, item types (income vs expense), and retain individual item dates (especially for multi-date PDF statements)
+        const defaultDocDate = resolveRelativeDate(data.date, todayISO, data.summary);
+        // Initialize selection status, item types (income vs expense), and retain individual item dates (especially for multi-date PDF statements and Apple Pay)
         const itemsWithSelection: ReceiptItemDetail[] = (data.items || []).map((item: any) => {
           const isItemIncome =
             item.type === 'income' ||
@@ -255,13 +257,20 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
           const defaultCat = itemType === 'income' ? 'Inne wpływy' : (data.dominantCategory || 'Jedzenie i artykuły spożywcze');
           const category = item.category || defaultCat;
 
+          // Normalise relative dates (e.g. "Dziś", "Wczoraj", "Wtorek", "14:20" from Apple Pay) to absolute YYYY-MM-DD
+          const resolvedItemDate = resolveRelativeDate(
+            item.date,
+            defaultDocDate || todayISO,
+            `${item.name || ''} ${item.notes || ''}`
+          );
+
           return {
             name: item.name,
             type: itemType,
             price: Math.abs(Number(item.price)) || 0,
             quantity: Number(item.quantity) || 1,
             category,
-            date: item.date || defaultDocDate,
+            date: resolvedItemDate,
             notes: item.notes || '',
             selected: true,
           };
@@ -383,11 +392,17 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
       const incomeTotal = incomeItems.reduce((s, i) => s + i.price, 0);
       const expenseTotal = expenseItems.reduce((s, i) => s + i.price, 0);
 
+      const normalizedDocDate = resolveRelativeDate(scanResult.date, toLocalISODate(new Date()), scanResult.summary);
+
       if (saveMode === 'individual') {
         // Każda pozycja osobno jako niezależna transakcja z własną datą i właściwym typem (wydatek lub wpływ)
         selectedItems.forEach((item) => {
           const itemPrice = parseFloat(item.price.toFixed(2));
-          const itemDate = item.date || scanResult.date;
+          const itemDate = resolveRelativeDate(
+            item.date || normalizedDocDate,
+            normalizedDocDate,
+            `${item.name || ''} ${item.notes || ''}`
+          );
           const itemType: TransactionType = item.type === 'income' ? 'income' : 'expense';
           const defaultCategory = itemType === 'income' ? 'Inne wpływy' : (scanResult.dominantCategory || 'Inne wydatki');
           const cat = item.category || defaultCategory;
@@ -414,10 +429,16 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
           }
         });
 
-        const uniqueDates = Array.from(new Set(selectedItems.map((i) => i.date || scanResult.date)));
+        const uniqueDates = Array.from(
+          new Set(
+            selectedItems.map((i) =>
+              resolveRelativeDate(i.date || normalizedDocDate, normalizedDocDate, `${i.name || ''} ${i.notes || ''}`)
+            )
+          )
+        );
         const datesInfo = uniqueDates.length > 1
           ? ` w ${uniqueDates.length} różnych datach`
-          : ` z datą ${uniqueDates[0] || scanResult.date}`;
+          : ` z datą ${uniqueDates[0] || normalizedDocDate}`;
 
         const summaryParts: string[] = [];
         if (incomeItems.length > 0) {
@@ -434,7 +455,11 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
         // Grupuj pozycje według (typ + data + kategoria), aby zachować podział na wpływy i wydatki oraz różne daty!
         const groupsMap: Record<string, { type: TransactionType; category: string; date: string; total: number; items: ReceiptItemDetail[] }> = {};
         selectedItems.forEach((item) => {
-          const itemDate = item.date || scanResult.date;
+          const itemDate = resolveRelativeDate(
+            item.date || normalizedDocDate,
+            normalizedDocDate,
+            `${item.name || ''} ${item.notes || ''}`
+          );
           const itemType: TransactionType = item.type === 'income' ? 'income' : 'expense';
           const groupKey = `${itemType}___${itemDate}___${item.category}`;
           if (!groupsMap[groupKey]) {
@@ -491,7 +516,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
               type: 'expense',
               amount: totalExpense,
               category: scanResult.dominantCategory || 'Inne wydatki',
-              date: scanResult.date,
+              date: normalizedDocDate,
               title: `${scanResult.storeName} (Wydatki zbiorczo)`,
               comment: `Zakup ${expenseItems.length} pozycji. Sklep/Dokument: ${scanResult.storeName}. ${scanResult.summary || ''}`,
               receiptStoreName: scanResult.storeName,
@@ -502,7 +527,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
               title: `Paragon: ${scanResult.storeName}`,
               amount: totalExpense,
               category: scanResult.dominantCategory,
-              date: scanResult.date,
+              date: normalizedDocDate,
               items: expenseItems.map((i) => ({ name: i.name, price: i.price, quantity: i.quantity })),
             });
           }
@@ -520,7 +545,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
               type: 'income',
               amount: totalIncomeVal,
               category: dominantIncomeCat,
-              date: scanResult.date,
+              date: normalizedDocDate,
               title: `${scanResult.storeName} (Wpływy zbiorczo)`,
               comment: `Wpływ ${incomeItems.length} pozycji z wyciągu/dokumentu: ${scanResult.storeName}.`,
               receiptStoreName: scanResult.storeName,
@@ -531,7 +556,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
               title: `Wpływ: ${scanResult.storeName}`,
               amount: totalIncomeVal,
               category: dominantIncomeCat,
-              date: scanResult.date,
+              date: normalizedDocDate,
               items: incomeItems.map((i) => ({ name: i.name, price: i.price, quantity: i.quantity })),
             });
           }
@@ -916,6 +941,11 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                         onChange={(e) => setScanResult({ ...scanResult, date: e.target.value })}
                         className="border border-slate-200 rounded-md px-2 py-0.5 text-xs text-slate-800 bg-white font-semibold focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
                       />
+                      {getRelativeDateBadge(scanResult.date) && (
+                        <span className="text-[10px] font-semibold bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded-md border border-indigo-200/60">
+                          {getRelativeDateBadge(scanResult.date)}
+                        </span>
+                      )}
                     </span>
                     {scanResult.receiptNumber && <span>Nr: {scanResult.receiptNumber}</span>}
                   </div>
@@ -1145,10 +1175,10 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                         )}
                       </button>
 
-                      {/* Individual Date for item (important for bank statements / multi-date PDFs) */}
+                      {/* Individual Date for item (important for bank statements / multi-date PDFs / Apple Pay) */}
                       <div
-                        className="flex items-center space-x-1 bg-slate-100/90 border border-slate-200 rounded-xl px-2 py-1"
-                        title="Data tej konkretnej operacji/pozycji (przydatne przy wyciągach bankowych i zestawieniach PDF)"
+                        className="flex items-center space-x-1.5 bg-slate-100/90 border border-slate-200 rounded-xl px-2 py-1"
+                        title="Data tej konkretnej operacji/pozycji (przydatne przy wyciągach bankowych, zestawieniach PDF i Apple Pay)"
                       >
                         <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
                         <input
@@ -1157,6 +1187,11 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                           onChange={(e) => handleItemDateChange(idx, e.target.value)}
                           className="text-[11px] bg-transparent text-slate-700 font-medium focus:outline-hidden cursor-pointer"
                         />
+                        {getRelativeDateBadge(item.date || scanResult.date) && (
+                          <span className="text-[10px] font-bold bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-md leading-none">
+                            {getRelativeDateBadge(item.date || scanResult.date)}
+                          </span>
+                        )}
                       </div>
 
                       {/* Category Selector for individual item */}

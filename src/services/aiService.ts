@@ -1,4 +1,5 @@
 import { compressImageBase64 } from "../utils/imageCompressor";
+import { resolveRelativeDate, toLocalISODate } from "../utils/dateParser";
 
 // Helper to retrieve the Gemini API key from environment or local storage
 export function getStoredGeminiApiKey(): string {
@@ -120,9 +121,26 @@ function extractJson(rawInput: any): any {
 async function scanReceiptDirectClient(
   apiKey: string,
   imageBase64: string,
-  mimeType: string
+  mimeType: string,
+  referenceDate?: string
 ): Promise<any> {
   const isPdf = mimeType === 'application/pdf' || imageBase64.startsWith('data:application/pdf');
+
+  const today = referenceDate && /^\d{4}-\d{2}-\d{2}$/.test(referenceDate)
+    ? referenceDate
+    : toLocalISODate(new Date());
+
+  const todayDateObj = new Date(today + 'T12:00:00');
+  const daysOfWeekPl = ['niedziela', 'poniedziałek', 'wtorek', 'środa', 'czwartek', 'piątek', 'sobota'];
+  const currentDayName = daysOfWeekPl[todayDateObj.getDay()] || 'dzisiaj';
+
+  const yesterdayDate = new Date(todayDateObj);
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+  const yesterdayStr = toLocalISODate(yesterdayDate);
+
+  const dayBeforeYesterdayDate = new Date(todayDateObj);
+  dayBeforeYesterdayDate.setDate(dayBeforeYesterdayDate.getDate() - 2);
+  const dayBeforeYesterdayStr = toLocalISODate(dayBeforeYesterdayDate);
 
   let cleanBase64: string;
   let detectedMime: string;
@@ -142,15 +160,29 @@ async function scanReceiptDirectClient(
     detectedMime = compressedMime || mimeType || 'image/jpeg';
   }
 
-  const prompt = `Jesteś precyzyjnym systemem OCR i asystentem finansowym do analizy paragonów fiskalnych, faktur VAT, wyciągów bankowych oraz dokumentów PDF w Polsce.
-Przeanalizuj dołączony dokument (paragon, fakturę, wyciąg bankowy lub plik PDF) i wyodrębnij:
-1. storeName: Nazwa sklepu / stacji paliw / wystawcy faktury / banku / sprzedawcy (np. Pieprzyk, Biedronka, Lidl, Orlen, Castorama, Rossmann, Tauron, mBank itp.).
-2. date: Główna data dokumentu lub ostatniej operacji (w formacie YYYY-MM-DD). Jeśli niewidoczna, użyj bieżącej daty.
+  const prompt = `Jesteś precyzyjnym systemem OCR i asystentem finansowym do analizy paragonów fiskalnych, faktur VAT, wyciągów bankowych oraz zestawień PDF i zrzutów ekranu (w tym Apple Pay / Apple Wallet / kart płatniczych) w Polsce.
+
+BIEŻĄCY CZAS ODNIESIENIA:
+- Dzisiejsza data: ${today} (${currentDayName})
+- Wczorajsza data: ${yesterdayStr}
+- Przedwczorajsza data: ${dayBeforeYesterdayStr}
+
+SPECJALNA OBSŁUGA APPLE PAY / PORTFELA APPLE / APLIKACJI BANKOWYCH:
+Na zrzutach ekranu z Apple Pay, Apple Wallet, Revolut i bankowości mobilnej transakcje są często grupowane pod nagłówkami relatywnymi ("DZIŚ", "WCZORAJ", "PONIEDZIAŁEK" itp.) lub mają jedynie godzinę (np. "14:20", "09:15") zamiast pełnej daty kalendarzowej:
+- Każda pozycja pod nagłówkiem "Dziś" / "Dzisiaj" / "Today" lub oznaczona samą godziną -> przypisz date: "${today}"
+- Każda pozycja pod nagłówkiem "Wczoraj" / "Yesterday" -> przypisz date: "${yesterdayStr}"
+- Każda pozycja pod nagłówkiem "Przedwczoraj" -> przypisz date: "${dayBeforeYesterdayStr}"
+- Pozycje pod nagłówkiem dnia tygodnia (np. "Poniedziałek", "Wtorek", "Środa", "Czwartek", "Piątek", "Sobota", "Niedziela", "Monday", "Tuesday") -> wylicz datę ostatniego wystąpienia tego dnia tygodnia przed dzisiejszą datą (${today}) i podaj w formacie YYYY-MM-DD.
+- NIGDY nie zwracaj tekstu "dziś" czy "wczoraj" w polach date – ZAWSZE przelicz na bezwzględną datę kalendarzową YYYY-MM-DD!
+
+Przeanalizuj dołączony dokument (paragon, fakturę, wyciąg bankowy, zrzut Apple Pay lub plik PDF) i wyodrębnij:
+1. storeName: Nazwa sklepu / stacji paliw / wystawcy faktury / banku / sprzedawcy / źródła (np. Apple Pay, Pieprzyk, Biedronka, Lidl, Orlen, Castorama, Rossmann, Tauron, mBank itp.).
+2. date: Główna data dokumentu lub ostatniej operacji (w formacie YYYY-MM-DD). Jeśli niewidoczna, użyj bieżącej daty: ${today}.
 3. totalAmount: Łączna kwota do zapłaty lub obrotu (liczba w PLN, np. 111.31).
 4. currency: Waluta (zwykle "PLN").
-5. receiptNumber: Numer paragonu, faktury lub NIP (jeśli widoczny, inaczej "").
+5. receiptNumber: Numer paragonu, faktury, karty lub NIP (jeśli widoczny, inaczej "").
 6. dominantCategory: Dominująca kategoria całego dokumentu (wydatek lub wpływ).
-7. summary: Krótkie podsumowanie w języku polskim (np. "Zakup paliwa na stacji Pieprzyk" lub "Wyciąg z konta bankowego z wpływami i wydatkami").
+7. summary: Krótkie podsumowanie w języku polskim (np. "Zestawienie płatności Apple Pay" lub "Wyciąg z konta bankowego z wpływami i wydatkami").
 8. items: Lista pozycji zakupowych, operacji lub opłat z dokumentu.
 Dla KAŻDEJ pozycji wyodrębnij:
 - name: nazwa produktu/usługi lub operacji
@@ -160,8 +192,8 @@ Dla KAŻDEJ pozycji wyodrębnij:
 - category:
   * jeśli type='income', wybierz jedną z: ["Wypłata z etatu", "Premia / Bonus", "Gotówka", "Pożyczka / Kredyt", "Zwrot (zakupy, podatki)", "Freelance / Zlecenia", "Świadczenia / 800+", "Sprzedaż (Vinted, OLX)", "Prezent / Darowizna", "Odsetki / Inwestycje", "Alimenty", "Inne wpływy"]
   * jeśli type='expense', wybierz jedną z: ["Jedzenie i artykuły spożywcze", "Remont i dom", "Dla kotów i zwierząt", "Rachunki i media", "Zdrowie i kosmetyki", "Transport i paliwo", "Rozrywka i hobby", "Odzież i obuwie", "Edukacja i książki", "Inne wydatki"]
-- date: dokładna data tej konkretnej pozycji w formacie YYYY-MM-DD (BARDZO WAŻNE: na wyciągach bankowych, zestawieniach PDF pozycje mogą mieć różne daty operacji/księgowania - przypisz dla każdej pozycji jej faktyczną datę z dokumentu)
-- notes: krótka notatka
+- date: dokładna data tej konkretnej pozycji w formacie YYYY-MM-DD (BARDZO WAŻNE: na wyciągach bankowych, zestawieniach Apple Pay oraz PDF pozycje mogą mieć różne daty operacji/księgowania - przypisz dla każdej pozycji jej faktyczną datę z dokumentu)
+- notes: krótka notatka (np. opis, godzina płatności, metoda Apple Pay)
 
 Zwróć wynik w czystym formacie JSON:
 {
@@ -227,7 +259,17 @@ Zwróć wynik w czystym formacie JSON:
       }
 
       const resultData = await res.json();
-      return extractJson(resultData);
+      const extracted = extractJson(resultData);
+      if (extracted) {
+        extracted.date = resolveRelativeDate(extracted.date, today, extracted.summary);
+        if (Array.isArray(extracted.items)) {
+          extracted.items = extracted.items.map((item: any) => ({
+            ...item,
+            date: resolveRelativeDate(item.date, extracted.date || today, `${item.name || ''} ${item.notes || ''}`),
+          }));
+        }
+      }
+      return extracted;
     } catch (err: any) {
       console.warn(`Próba analizy modelem ${model} nie powiodła się:`, err);
       lastError = err;
@@ -321,25 +363,35 @@ Przygotuj zwięzłą, konkretną analizę w języku polskim w formacie JSON:
 }
 
 // Unified Service Call: Scan Receipt
-export async function scanReceiptWithAI(imageBase64: string, mimeType: string = "image/jpeg"): Promise<any> {
+export async function scanReceiptWithAI(
+  imageBase64: string,
+  mimeType: string = "image/jpeg",
+  referenceDate?: string
+): Promise<any> {
   // Auto-detect PDF from base64 if needed
   let effectiveMime = mimeType;
   if (imageBase64.startsWith("data:application/pdf") || mimeType === "application/pdf") {
     effectiveMime = "application/pdf";
   }
 
+  const todayStr = referenceDate && /^\d{4}-\d{2}-\d{2}$/.test(referenceDate)
+    ? referenceDate
+    : toLocalISODate(new Date());
+
+  let resultData: any = null;
+
   // 1. Try server endpoint first (Node / Express backend in AI Studio)
   try {
     const response = await fetch("/api/scan-receipt", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ imageBase64, mimeType: effectiveMime }),
+      body: JSON.stringify({ imageBase64, mimeType: effectiveMime, currentDate: todayStr }),
     });
 
     if (response.ok) {
       const resData = await response.json();
       if (resData.success && resData.data) {
-        return resData.data;
+        resultData = resData.data;
       }
     }
   } catch {
@@ -347,14 +399,29 @@ export async function scanReceiptWithAI(imageBase64: string, mimeType: string = 
   }
 
   // 2. Fallback to client-side direct API call (e.g. GitHub Pages)
-  const clientKey = getStoredGeminiApiKey();
-  if (!clientKey) {
-    throw new Error(
-      "Klucz GEMINI_API_KEY nie został skonfigurowany. Kliknij przycisk 'Skonfiguruj Gemini API' i podaj swój klucz z Google AI Studio."
-    );
+  if (!resultData) {
+    const clientKey = getStoredGeminiApiKey();
+    if (!clientKey) {
+      throw new Error(
+        "Klucz GEMINI_API_KEY nie został skonfigurowany. Kliknij przycisk 'Skonfiguruj Gemini API' i podaj swój klucz z Google AI Studio."
+      );
+    }
+
+    resultData = await scanReceiptDirectClient(clientKey, imageBase64, effectiveMime, todayStr);
   }
 
-  return await scanReceiptDirectClient(clientKey, imageBase64, effectiveMime);
+  // Final verification & sanitization of relative dates for document and individual items
+  if (resultData) {
+    resultData.date = resolveRelativeDate(resultData.date, todayStr, resultData.summary);
+    if (Array.isArray(resultData.items)) {
+      resultData.items = resultData.items.map((item: any) => ({
+        ...item,
+        date: resolveRelativeDate(item.date, resultData.date || todayStr, `${item.name || ''} ${item.notes || ''}`),
+      }));
+    }
+  }
+
+  return resultData;
 }
 
 // Unified Service Call: Financial Advice

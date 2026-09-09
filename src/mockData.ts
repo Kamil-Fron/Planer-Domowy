@@ -608,4 +608,21 @@ export const SAMPLE_RECEIPTS = [
       { name: 'Apteka Gemini - leki', price: 54.50, quantity: 1, type: 'expense', category: 'Zdrowie i kosmetyki', date: formatDate(-1), notes: 'Płatność BLIK' },
     ],
   },
+  {
+    id: 'rec-5',
+    title: 'Apple Pay - Zestawienie (Dziś, Wczoraj)',
+    storeName: 'Portfel Apple / Apple Pay',
+    date: formatDate(0),
+    totalAmount: 189.60,
+    currency: 'PLN',
+    dominantCategory: 'Jedzenie i artykuły spożywcze',
+    summary: 'Zestawienie płatności zbliżeniowych Apple Pay z relatywnymi oznaczeniami czasu (Dziś, Wczoraj, dni tygodnia) przeliczonymi na właściwe daty kalendarzowe.',
+    items: [
+      { name: 'Żabka - kawa i kanapka', price: 18.50, quantity: 1, type: 'expense', category: 'Jedzenie i artykuły spożywcze', date: formatDate(0), notes: 'Apple Pay: Dziś o 08:35' },
+      { name: 'Biedronka - szybkie zakupy', price: 47.20, quantity: 1, type: 'expense', category: 'Jedzenie i artykuły spożywcze', date: formatDate(0), notes: 'Apple Pay: Dziś o 14:15' },
+      { name: 'Uber - przejazd z pracy', price: 29.90, quantity: 1, type: 'expense', category: 'Transport i paliwo', date: formatDate(-1), notes: 'Apple Pay: Wczoraj o 19:40' },
+      { name: 'Apteka DOZ - witaminy', price: 34.00, quantity: 1, type: 'expense', category: 'Zdrowie i kosmetyki', date: formatDate(-1), notes: 'Apple Pay: Wczoraj o 12:10' },
+      { name: 'Rossmann - kosmetyki i chemia', price: 60.00, quantity: 1, type: 'expense', category: 'Zdrowie i kosmetyki', date: formatDate(-2), notes: 'Apple Pay: Przedwczoraj' },
+    ],
+  },
 ];

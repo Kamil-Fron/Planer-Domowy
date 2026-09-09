@@ -98,13 +98,30 @@ app.get("/api/health", (req, res) => {
 // Receipt Scanning Endpoint with Gemini Vision AI
 app.post("/api/scan-receipt", async (req, res) => {
   try {
-    const { imageBase64, mimeType } = req.body;
+    const { imageBase64, mimeType, currentDate } = req.body;
 
     if (!imageBase64) {
       return res.status(400).json({ success: false, error: "Brak danych obrazu paragonu." });
     }
 
     const ai = getGenAI();
+
+    // Reference dates for resolving relative time indicators (e.g., Apple Pay "Dziś", "Wczoraj", "Wtorek")
+    const today = (typeof currentDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(currentDate))
+      ? currentDate
+      : new Date().toISOString().split("T")[0];
+
+    const todayDateObj = new Date(today + "T12:00:00");
+    const daysOfWeekPl = ["niedziela", "poniedziałek", "wtorek", "środa", "czwartek", "piątek", "sobota"];
+    const currentDayName = daysOfWeekPl[todayDateObj.getDay()] || "dzisiaj";
+
+    const yesterdayDate = new Date(todayDateObj);
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+    const yesterdayStr = `${yesterdayDate.getFullYear()}-${String(yesterdayDate.getMonth() + 1).padStart(2, "0")}-${String(yesterdayDate.getDate()).padStart(2, "0")}`;
+
+    const dayBeforeYesterdayDate = new Date(todayDateObj);
+    dayBeforeYesterdayDate.setDate(dayBeforeYesterdayDate.getDate() - 2);
+    const dayBeforeYesterdayStr = `${dayBeforeYesterdayDate.getFullYear()}-${String(dayBeforeYesterdayDate.getMonth() + 1).padStart(2, "0")}-${String(dayBeforeYesterdayDate.getDate()).padStart(2, "0")}`;
 
     // Extract exact mime-type if embedded in data-uri or provided
     let detectedMime = mimeType || "image/jpeg";
@@ -118,26 +135,40 @@ app.post("/api/scan-receipt", async (req, res) => {
     // Clean base64 data
     const cleanBase64 = imageBase64.replace(/^data:[^;]+;base64,/i, "").trim();
 
-    const prompt = `Jesteś precyzyjnym systemem OCR i asystentem finansowym do analizy paragonów fiskalnych, faktur VAT, wyciągów bankowych oraz zestawień PDF/zdjęć w Polsce.
-Przeanalizuj dołączony dokument (paragon, fakturę, wyciąg bankowy lub plik PDF) i wyodrębnij:
-1. storeName: Nazwa sklepu / wystawcy faktury / banku / nadawcy / sprzedawcy (np. Biedronka, Lidl, Castorama, Rossmann, PGNiG, Tauron, mBank itp.).
-2. date: Główna data dokumentu lub data ostatniej operacji (w formacie YYYY-MM-DD). Jeśli niewidoczna, użyj bieżącej daty.
+    const prompt = `Jesteś precyzyjnym systemem OCR i asystentem finansowym do analizy paragonów fiskalnych, faktur VAT, wyciągów bankowych oraz zestawień PDF/zrzutów ekranu (w tym Apple Pay / Apple Wallet / kart płatniczych) w Polsce.
+
+BIEŻĄCY CZAS ODNIESIENIA:
+- Dzisiejsza data: ${today} (${currentDayName})
+- Wczorajsza data: ${yesterdayStr}
+- Przedwczorajsza data: ${dayBeforeYesterdayStr}
+
+SPECJALNA OBSŁUGA APPLE PAY / PORTFELA APPLE / APLIKACJI BANKOWYCH:
+Na zrzutach ekranu z Apple Pay, Apple Wallet, Revolut i bankowości mobilnej transakcje są często grupowane pod nagłówkami relatywnymi ("DZIŚ", "WCZORAJ", "PONIEDZIAŁEK" itp.) lub mają jedynie godzinę (np. "14:20", "09:15") zamiast pełnej daty kalendarzowej:
+- Każda pozycja pod nagłówkiem "Dziś" / "Dzisiaj" / "Today" lub oznaczona samą godziną -> przypisz date: "${today}"
+- Każda pozycja pod nagłówkiem "Wczoraj" / "Yesterday" -> przypisz date: "${yesterdayStr}"
+- Każda pozycja pod nagłówkiem "Przedwczoraj" -> przypisz date: "${dayBeforeYesterdayStr}"
+- Pozycje pod nagłówkiem dnia tygodnia (np. "Poniedziałek", "Wtorek", "Środa", "Czwartek", "Piątek", "Sobota", "Niedziela", "Monday", "Tuesday") -> wylicz datę ostatniego wystąpienia tego dnia tygodnia przed dzisiejszą datą (${today}) i podaj w formacie YYYY-MM-DD.
+- NIGDY nie zwracaj tekstu "dziś" czy "wczoraj" w polach date – ZAWSZE przelicz na bezwzględną datę kalendarzową YYYY-MM-DD!
+
+Przeanalizuj dołączony dokument (paragon, fakturę, wyciąg bankowy, zrzut Apple Pay lub plik PDF) i wyodrębnij:
+1. storeName: Nazwa sklepu / wystawcy faktury / banku / nadawcy / sprzedawcy / źródła (np. Apple Pay, Biedronka, Lidl, Uber, Castorama, Rossmann, PGNiG, Tauron, mBank itp.).
+2. date: Główna data dokumentu lub data ostatniej operacji (w formacie YYYY-MM-DD). Jeśli niewidoczna, użyj bieżącej daty: ${today}.
 3. totalAmount: Łączna kwota dokumentu lub suma transakcji (liczba w PLN, np. 149.99).
 4. currency: Waluta (zwykle "PLN").
-5. receiptNumber: Numer paragonu, faktury, konta lub NIP (jeśli widoczny, inaczej pusty ciąg "").
+5. receiptNumber: Numer paragonu, faktury, konta, karty lub NIP (jeśli widoczny, inaczej pusty ciąg "").
 6. dominantCategory: Dominująca kategoria całego dokumentu (wydatek lub wpływ).
-7. summary: Krótkie podsumowanie w języku polskim (1-2 zdania), np. informacja czy dokument zawiera zakupy, rachunki czy wyciąg z wpływami i wydatkami.
+7. summary: Krótkie podsumowanie w języku polskim (1-2 zdania), np. informacja o zrzucie Apple Pay, zakupach czy wyciągu z wpływami i wydatkami.
 8. items: Lista pozycji zakupowych, operacji lub opłat z dokumentu.
 Dla KAŻDEJ pozycji wyodrębnij:
-- name: nazwa produktu/usługi lub opis operacji/przelewu
+- name: nazwa produktu/usługi lub opis operacji/płatności/przelewu
 - type: 'expense' (jeśli to wydatek, zakup, opłata, obciążenie konta) LUB 'income' (jeśli to wpływ, wynagrodzenie, zwrot za towar/zakupy, wpłata gotówki, pożyczka/kredyt, świadczenie 800+, sprzedaż, uznanie konta)
 - price: kwota za pozycję (zawsze dodatnia liczba w PLN, np. 5200.00 lub 89.40)
 - quantity: ilość sztuk lub waga (liczba, domyślnie 1)
 - category:
   * jeśli type='income', wybierz najbardziej pasującą kategorię z listy: ["Wypłata z etatu", "Premia / Bonus", "Gotówka", "Pożyczka / Kredyt", "Zwrot (zakupy, podatki)", "Freelance / Zlecenia", "Świadczenia / 800+", "Sprzedaż (Vinted, OLX)", "Prezent / Darowizna", "Odsetki / Inwestycje", "Alimenty", "Inne wpływy"]
   * jeśli type='expense', wybierz najbardziej pasującą kategorię z listy: ["Jedzenie i artykuły spożywcze", "Remont i dom", "Dla kotów i zwierząt", "Rachunki i media", "Zdrowie i kosmetyki", "Transport i paliwo", "Rozrywka i hobby", "Odzież i obuwie", "Edukacja i książki", "Inne wydatki"]
-- date: dokładna data tej konkretnej pozycji w formacie YYYY-MM-DD. BARDZO WAŻNE: Na wyciągach bankowych, zestawieniach PDF lub zbiorczych dokumentach pozycje mogą mieć różne daty operacji/księgowania. Jeśli dana pozycja ma własną datę w dokumencie, podaj ją tutaj; jeśli to pojedynczy paragon z jedną datą, podaj datę tego paragonu.
-- notes: krótka notatka (np. opis, metoda płatności, odbiorca/nadawca przelewu).
+- date: dokładna data tej konkretnej pozycji w formacie YYYY-MM-DD. BARDZO WAŻNE: Na wyciągach bankowych, zestawieniach Apple Pay oraz PDF pozycje mogą mieć różne daty (np. część dziś, część wczoraj). Przypisz dla każdej pozycji jej faktyczną datę YYYY-MM-DD.
+- notes: krótka notatka (np. opis, godzina płatności, metoda płatności jak Apple Pay, odbiorca/nadawca).
 
 Zwróć wynik w formacie JSON zgodnym ze schematem.`;
 
@@ -192,6 +223,32 @@ Zwróć wynik w formacie JSON zgodnym ze schematem.`;
     });
 
     const parsedData = extractJsonFromText(response.text);
+
+    // Sanitize dates and handle any relative strings that the model may have returned
+    if (parsedData) {
+      if (!parsedData.date || !/^\d{4}-\d{2}-\d{2}$/.test(parsedData.date)) {
+        parsedData.date = today;
+      }
+      if (Array.isArray(parsedData.items)) {
+        parsedData.items = parsedData.items.map((item: any) => {
+          let itemDate = item.date;
+          if (!itemDate || !/^\d{4}-\d{2}-\d{2}$/.test(itemDate)) {
+            const context = `${itemDate || ''} ${item.name || ''} ${item.notes || ''}`.toLowerCase();
+            if (/wczoraj|yesterday/.test(context)) {
+              itemDate = yesterdayStr;
+            } else if (/przedwczoraj/.test(context)) {
+              itemDate = dayBeforeYesterdayStr;
+            } else {
+              itemDate = parsedData.date || today;
+            }
+          }
+          return {
+            ...item,
+            date: itemDate,
+          };
+        });
+      }
+    }
 
     return res.json({
       success: true,

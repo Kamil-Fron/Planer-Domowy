@@ -57,6 +57,11 @@ import { HouseholdModal } from './components/HouseholdModal';
 import { DeleteDataModal, DeleteSelection } from './components/DeleteDataModal';
 import { DataSafetyModal } from './components/DataSafetyModal';
 import { LoginScreen } from './components/LoginScreen';
+import { QuickAddModal } from './components/QuickAddModal';
+import { QuickAddFAB } from './components/QuickAddFAB';
+import { VersionInfoModal } from './components/VersionInfoModal';
+import { AppFooter } from './components/AppFooter';
+import { FeedbackToast, ToastData } from './components/FeedbackToast';
 import {
   checkAndTriggerBillNotifications,
   createActivityNotification,
@@ -84,10 +89,36 @@ export default function App() {
   const [isDataSafetyModalOpen, setIsDataSafetyModalOpen] = useState(false);
   const [householdModalTab, setHouseholdModalTab] = useState<'household' | 'firebase_config' | 'pwa' | 'delete_data'>('household');
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
+  const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
+  const [toastFeedback, setToastFeedback] = useState<ToastData | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'synced' | 'saving' | 'error' | 'offline'>('synced');
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(() => new Date());
   const [syncErrorMessage, setSyncErrorMessage] = useState<string | null>(null);
+
+  // Global Keyboard Shortcuts (UX): '+' or 'N' opens Quick Add anywhere
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+
+      if (e.key === '+' || e.key === '=' || e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        setIsQuickAddOpen((prev) => !prev);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Ref to prevent echo update loops when Firestore snapshot triggers local state update
   const isIncomingFirestoreUpdate = useRef(false);
@@ -449,6 +480,21 @@ export default function App() {
       `Nowa transakcja: ${typeLabel}`,
       `${transactionData.title} (${transactionData.amount.toFixed(2)} PLN)`
     );
+
+    return newTx.id;
+  };
+
+  const handleQuickAddTransaction = (
+    transactionData: Omit<Transaction, 'id' | 'createdAt'> & { id?: string }
+  ) => {
+    const newId = handleAddTransaction(transactionData);
+    setToastFeedback({
+      id: `toast-${Date.now()}`,
+      title: transactionData.title,
+      amount: transactionData.amount,
+      type: transactionData.type,
+      onUndo: () => handleDeleteTransaction(newId),
+    });
   };
 
   const handleDeleteTransaction = (id: string, skipBillRevert = false) => {
@@ -1465,6 +1511,8 @@ export default function App() {
         }}
         onOpenDeleteDataModal={() => setIsDeleteModalOpen(true)}
         onOpenDataSafetyModal={() => setIsDataSafetyModalOpen(true)}
+        onOpenQuickAdd={() => setIsQuickAddOpen(true)}
+        onOpenVersionInfo={() => setIsVersionModalOpen(true)}
         onClearNotifications={handleClearNotifications}
         onMarkNotificationRead={handleMarkNotificationRead}
       />
@@ -1535,7 +1583,7 @@ export default function App() {
             selectedMonth={selectedMonth}
             onNavigate={setActiveTab}
             onQuickAddTransaction={() => {
-              setActiveTab('transactions');
+              setIsQuickAddOpen(true);
             }}
             onAddTransaction={handleAddTransaction}
             onDeleteTransaction={handleDeleteTransaction}
@@ -1614,6 +1662,55 @@ export default function App() {
           />
         )}
       </main>
+
+      {/* Modern UX Footer with Author bobEKam and Version Info */}
+      <AppFooter
+        onOpenVersionInfo={() => setIsVersionModalOpen(true)}
+        onOpenQuickAdd={() => setIsQuickAddOpen(true)}
+      />
+
+      {/* Floating Action Button (FAB) for Quick Transaction Entry */}
+      <QuickAddFAB
+        onClick={() => setIsQuickAddOpen(true)}
+        isOpen={
+          isQuickAddOpen ||
+          isHouseholdModalOpen ||
+          isDataSafetyModalOpen ||
+          isDeleteModalOpen ||
+          isVersionModalOpen
+        }
+      />
+
+      {/* Intuitive Quick Add Transaction Modal */}
+      <QuickAddModal
+        isOpen={isQuickAddOpen}
+        onClose={() => setIsQuickAddOpen(false)}
+        onAddTransaction={handleQuickAddTransaction}
+        onOpenScanner={() => {
+          setIsQuickAddOpen(false);
+          setActiveTab('scanner');
+        }}
+        onSuccessFeedback={(title, amount, type) => {
+          setToastFeedback({
+            id: `toast-${Date.now()}`,
+            title,
+            amount,
+            type,
+          });
+        }}
+      />
+
+      {/* Version & UX Design Philosophy Modal (Author: bobEKam) */}
+      <VersionInfoModal
+        isOpen={isVersionModalOpen}
+        onClose={() => setIsVersionModalOpen(false)}
+      />
+
+      {/* Feedback Toast Notification with Undo */}
+      <FeedbackToast
+        toast={toastFeedback}
+        onClose={() => setToastFeedback(null)}
+      />
     </div>
   );
 }

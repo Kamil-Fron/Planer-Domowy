@@ -25,6 +25,8 @@ import {
   RefreshCw,
   HardDrive,
   LogOut,
+  Sparkles,
+  Info,
 } from 'lucide-react';
 import { Bill, BudgetLimit, TabType, Transaction, Household, UserProfile, AppNotification } from '../types';
 import { generateAutomatedNotifications } from '../utils/notifications';
@@ -48,6 +50,8 @@ interface NavbarProps {
   onOpenHouseholdModal: () => void;
   onOpenDeleteDataModal?: () => void;
   onOpenDataSafetyModal?: () => void;
+  onOpenQuickAdd?: () => void;
+  onOpenVersionInfo?: () => void;
   onClearNotifications?: () => void;
   onMarkNotificationRead?: (id: string) => void;
   onLogout?: () => void;
@@ -71,6 +75,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenHouseholdModal,
   onOpenDeleteDataModal,
   onOpenDataSafetyModal,
+  onOpenQuickAdd,
+  onOpenVersionInfo,
   onClearNotifications,
   onMarkNotificationRead,
   onLogout,
@@ -287,7 +293,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                         <button
                           onClick={() => {
                             setIsActionMenuOpen(false);
-                            onTabChange('transactions');
+                            if (onOpenQuickAdd) {
+                              onOpenQuickAdd();
+                            } else {
+                              onTabChange('transactions');
+                            }
                           }}
                           className="flex items-center space-x-2 p-2 rounded-xl text-left bg-slate-50 hover:bg-emerald-50 hover:text-emerald-800 text-slate-700 transition-colors group"
                         >
@@ -297,7 +307,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                         <button
                           onClick={() => {
                             setIsActionMenuOpen(false);
-                            onTabChange('transactions');
+                            if (onOpenQuickAdd) {
+                              onOpenQuickAdd();
+                            } else {
+                              onTabChange('transactions');
+                            }
                           }}
                           className="flex items-center space-x-2 p-2 rounded-xl text-left bg-slate-50 hover:bg-rose-50 hover:text-rose-800 text-slate-700 transition-colors group"
                         >
@@ -519,6 +533,27 @@ export const Navbar: React.FC<NavbarProps> = ({
                       </div>
                     )}
 
+                    {/* Opis wersji & UX (Autor: bobEKam) */}
+                    {onOpenVersionInfo && (
+                      <div className="p-2 border-t border-slate-100">
+                        <button
+                          onClick={() => {
+                            setIsActionMenuOpen(false);
+                            onOpenVersionInfo();
+                          }}
+                          className="w-full text-left p-2 rounded-xl text-xs font-semibold text-indigo-700 hover:bg-indigo-50 transition-colors flex items-center justify-between"
+                        >
+                          <div className="flex items-center space-x-2 min-w-0">
+                            <Sparkles className="w-4 h-4 text-indigo-600 shrink-0" />
+                            <span className="truncate">Opis wersji & UX • Autor: bobEKam</span>
+                          </div>
+                          <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-md border border-indigo-200/60">
+                            v2.5.0
+                          </span>
+                        </button>
+                      </div>
+                    )}
+
                     {/* 4. Usuwanie Danych (Kosz) */}
                     {onOpenDeleteDataModal && (
                       <div className="p-2 bg-slate-50/50">
@@ -658,6 +693,18 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <Home className="w-4 h-4 text-indigo-600" />
                   <span>Dom & PWA Telefon</span>
                 </button>
+                {onOpenVersionInfo && (
+                  <button
+                    onClick={() => {
+                      setShowMobileMoreMenu(false);
+                      onOpenVersionInfo();
+                    }}
+                    className="w-full text-left px-3.5 py-2.5 text-xs flex items-center space-x-2 font-semibold text-indigo-700 hover:bg-indigo-50 border-t border-slate-100"
+                  >
+                    <Sparkles className="w-4 h-4 text-indigo-600" />
+                    <span>Opis wersji & UX (bobEKam)</span>
+                  </button>
+                )}
                 {onOpenDeleteDataModal && (
                   <button
                     onClick={() => {

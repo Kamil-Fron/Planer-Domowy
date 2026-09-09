@@ -243,11 +243,23 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
         {/* Action Hub */}
         <div className="lg:col-span-2 bg-white rounded-2xl p-6 border border-slate-200 shadow-xs flex flex-col justify-between space-y-4">
-          <div>
-            <h3 className="text-sm font-bold text-slate-900 mb-1">Szybkie Akcje</h3>
-            <p className="text-xs text-slate-500">
-              Wygodne rejestrowanie paragonów AI, wpłat z komentarzem oraz tworzenie list zakupowych.
-            </p>
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 mb-1">Szybkie Akcje</h3>
+              <p className="text-xs text-slate-500">
+                Rejestrowanie paragonów AI, szybkie wpisy w 3 sekundy oraz listy zakupów.
+              </p>
+            </div>
+            {onQuickAddTransaction && (
+              <button
+                onClick={onQuickAddTransaction}
+                className="flex items-center space-x-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs active:scale-95 transition-all shrink-0"
+                title="Szybkie dodawanie wydatku lub wpływu (Skrót klawisza: + lub N)"
+              >
+                <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span>+ Szybki wpis</span>
+              </button>
+            )}
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">

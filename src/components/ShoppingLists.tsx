@@ -10,9 +10,11 @@ import {
   X,
   Pencil,
   Check,
+  Sparkles,
 } from 'lucide-react';
 import { ShoppingList, ShoppingItem, Transaction } from '../types';
 import confetti from 'canvas-confetti';
+import { getSmartShoppingSuggestions } from '../utils/frequentShoppingItems';
 
 interface ShoppingListsProps {
   shoppingLists: ShoppingList[];
@@ -110,6 +112,11 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('Spożywcze');
   const [customCategory, setCustomCategory] = useState('');
   const [isCreatingCustomCategory, setIsCreatingCustomCategory] = useState(false);
+
+  // Dynamic suggestions based on user frequent items + current shopping list
+  const smartSuggestions = useMemo(() => {
+    return getSmartShoppingSuggestions(shoppingItems, '');
+  }, [shoppingItems, isAddFormOpen]);
 
   // Edit Item State
   const [editingItem, setEditingItem] = useState<ShoppingItem | null>(null);
@@ -428,12 +435,41 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
               <button
                 type="submit"
                 disabled={!newItemName.trim()}
-                className="h-10 w-10 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl flex items-center justify-center transition-colors shadow-xs shrink-0"
+                className="h-10 w-10 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl flex items-center justify-center transition-colors shadow-xs shrink-0 cursor-pointer"
                 title="Dodaj"
               >
                 <Plus className="w-5 h-5 stroke-[2.5]" />
               </button>
             </div>
+
+            {/* Quick Frequent Suggestions chips */}
+            {smartSuggestions.length > 0 && (
+              <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] font-semibold text-slate-500 flex items-center space-x-1 mr-1">
+                  <Sparkles className="w-3 h-3 text-amber-500" />
+                  <span>Szybkie dodanie:</span>
+                </span>
+                {smartSuggestions.slice(0, 6).map((sug, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => {
+                      setNewItemName(sug.name);
+                      setSelectedCategory(sug.category);
+                    }}
+                    className={`inline-flex items-center space-x-1 px-2.5 py-1 rounded-xl text-xs font-semibold transition-all active:scale-95 border cursor-pointer ${
+                      sug.isFrequent
+                        ? 'bg-emerald-50 text-emerald-950 border-emerald-300 hover:bg-emerald-100'
+                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span>{sug.emoji}</span>
+                    <span>{sug.name}</span>
+                    <span className="text-[10px] text-slate-500 font-normal">({sug.category})</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </form>
         </div>
       )}

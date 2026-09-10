@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   X,
   Plus,
@@ -25,6 +25,11 @@ import {
 } from 'lucide-react';
 import { Transaction, TransactionType, ShoppingItem, ShoppingList } from '../types';
 import { INITIAL_CATEGORIES, INITIAL_INCOME_CATEGORIES } from '../mockData';
+import {
+  getSmartShoppingSuggestions,
+  recordShoppingItemUsage,
+  SmartSuggestionItem,
+} from '../utils/frequentShoppingItems';
 
 interface QuickAddModalProps {
   isOpen: boolean;
@@ -32,6 +37,7 @@ interface QuickAddModalProps {
   onAddTransaction: (transaction: Omit<Transaction, 'id' | 'createdAt'>) => void;
   onAddShoppingItem?: (item: Omit<ShoppingItem, 'id' | 'createdAt'>) => void;
   shoppingLists?: ShoppingList[];
+  shoppingItems?: ShoppingItem[];
   onOpenScanner: () => void;
   onSuccessFeedback?: (
     title: string,
@@ -106,6 +112,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
   onAddTransaction,
   onAddShoppingItem,
   shoppingLists = [],
+  shoppingItems = [],
   onOpenScanner,
   onSuccessFeedback,
 }) => {
@@ -129,6 +136,11 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
 
   const amountInputRef = useRef<HTMLInputElement>(null);
   const shoppingNameInputRef = useRef<HTMLInputElement>(null);
+
+  // Dynamic smart suggestions based on user's frequent items + current shopping list + popular defaults
+  const dynamicShoppingSuggestions = useMemo(() => {
+    return getSmartShoppingSuggestions(shoppingItems, '');
+  }, [shoppingItems, isOpen]);
 
   // Focus appropriate input on open or tab change
   useEffect(() => {
@@ -172,7 +184,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
     amountInputRef.current?.focus();
   };
 
-  const handleApplyShoppingSuggestion = (sug: ShoppingQuickSuggestion) => {
+  const handleApplyShoppingSuggestion = (sug: { name: string; category: string }) => {
     setShoppingItemName(sug.name);
     setShoppingCategory(sug.category);
     if (error) setError(null);
@@ -238,6 +250,9 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
       });
     }
 
+    // Save to frequent shopping items
+    recordShoppingItemUsage(trimmedName, shoppingCategory);
+
     if (onSuccessFeedback) {
       onSuccessFeedback(
         trimmedName,
@@ -266,9 +281,14 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
   const currentCategories = type === 'expense' ? EXPENSE_CATEGORIES : INITIAL_INCOME_CATEGORIES;
   const currentSuggestions = type === 'expense' ? EXPENSE_SUGGESTIONS : INCOME_SUGGESTIONS;
 
-  // Build combined shopping categories list (user's custom lists + default categories)
+  // Build combined shopping categories list (user's custom lists + default categories + category from suggestions)
   const availableShoppingOptions = Array.from(
-    new Set([...shoppingLists.map((l) => l.name), ...DEFAULT_SHOPPING_CATEGORIES])
+    new Set([
+      ...shoppingLists.map((l) => l.name),
+      ...DEFAULT_SHOPPING_CATEGORIES,
+      ...dynamicShoppingSuggestions.map((s) => s.category),
+      shoppingCategory,
+    ])
   );
 
   return (
@@ -624,22 +644,37 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
               </p>
             </div>
 
-            {/* Smart 1-Tap Grocery Suggestions */}
+            {/* Smart 1-Tap Grocery Suggestions based on frequency */}
             <div>
               <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5 flex items-center justify-between">
-                <span>Popularne artykuły domowe</span>
+                <span className="flex items-center space-x-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                  <span>
+                    {dynamicShoppingSuggestions.some((s) => s.isFrequent)
+                      ? 'Twoje częste zakupy & podpowiedzi'
+                      : 'Popularne artykuły domowe'}
+                  </span>
+                </span>
                 <span className="text-[10px] text-slate-400 font-normal">Kliknij, aby wstawić</span>
               </span>
-              <div className="flex flex-wrap gap-1.5">
-                {SHOPPING_QUICK_SUGGESTIONS.map((sug, idx) => (
+              <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto pr-1">
+                {dynamicShoppingSuggestions.map((sug, idx) => (
                   <button
                     key={idx}
                     type="button"
                     onClick={() => handleApplyShoppingSuggestion(sug)}
-                    className="flex items-center space-x-1 px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-emerald-50 hover:border-emerald-300 text-xs font-semibold text-slate-700 hover:text-emerald-900 transition-all active:scale-95 shadow-2xs cursor-pointer"
+                    className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition-all active:scale-95 shadow-2xs cursor-pointer ${
+                      sug.isFrequent
+                        ? 'bg-emerald-50/80 border-emerald-300 text-emerald-950 hover:bg-emerald-100 hover:border-emerald-400 font-bold'
+                        : 'border-slate-200 bg-white hover:bg-emerald-50 hover:border-emerald-300 text-slate-700 hover:text-emerald-900'
+                    }`}
+                    title={`Dodaj ${sug.name} (kategoria: ${sug.category})`}
                   >
                     <span>{sug.emoji}</span>
                     <span>{sug.name}</span>
+                    <span className="text-[10px] text-slate-500 font-medium ml-0.5 bg-slate-100/90 px-1.5 py-0.5 rounded-md border border-slate-200/60">
+                      {sug.category}
+                    </span>
                   </button>
                 ))}
               </div>

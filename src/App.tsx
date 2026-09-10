@@ -62,6 +62,7 @@ import { QuickAddFAB } from './components/QuickAddFAB';
 import { VersionInfoModal } from './components/VersionInfoModal';
 import { AppFooter } from './components/AppFooter';
 import { FeedbackToast, ToastData } from './components/FeedbackToast';
+import { recordShoppingItemUsage } from './utils/frequentShoppingItems';
 import {
   checkAndTriggerBillNotifications,
   createActivityNotification,
@@ -722,12 +723,44 @@ export default function App() {
   };
 
   const handleAddShoppingItem = (itemData: Omit<ShoppingItem, 'id' | 'createdAt'>) => {
+    const categoryName = itemData.category || 'Spożywcze';
+
+    // Ensure corresponding shopping list exists so category filters and groupings work seamlessly
+    const matchingList = shoppingLists.find(
+      (l) =>
+        l.name.toLowerCase() === categoryName.toLowerCase() ||
+        l.category.toLowerCase() === categoryName.toLowerCase()
+    );
+
+    let targetListId = itemData.listId;
+    if (!matchingList) {
+      const newListId = `list-${Date.now()}`;
+      targetListId = newListId;
+      const newList: ShoppingList = {
+        id: newListId,
+        name: categoryName,
+        category: categoryName,
+        icon: 'ShoppingCart',
+        color: '#10b981',
+        description: `Kategoria ${categoryName}`,
+        createdAt: new Date().toISOString(),
+      };
+      setShoppingLists((prev) => {
+        const updated = [...prev, newList];
+        saveShoppingLists(updated);
+        return updated;
+      });
+    }
+
     const newItem: ShoppingItem = {
       ...itemData,
+      listId: targetListId || `list-${Date.now()}`,
+      category: categoryName,
       id: `shop-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       createdAt: new Date().toISOString(),
       assignedTo: itemData.assignedTo || currentUser.name || 'Wszyscy',
     };
+
     lastLocalMutationTime.current = Date.now();
     hasUnsavedLocalChanges.current = true;
     setShoppingItems((prev) => {
@@ -735,7 +768,11 @@ export default function App() {
       saveShoppingItems(updated);
       return updated;
     });
-    logActivity('Dodano produkt do listy', `Dodano "${newItem.name}" (${newItem.quantity} ${newItem.unit})`);
+
+    // Save item frequency for smart dynamic suggestions
+    recordShoppingItemUsage(newItem.name, categoryName, newItem.unit);
+
+    logActivity('Dodano produkt do listy', `Dodano "${newItem.name}" (${newItem.quantity} ${newItem.unit || 'szt.'})`);
   };
 
   const handleToggleShoppingItem = (id: string) => {
@@ -1729,21 +1766,26 @@ export default function App() {
         }
       />
 
-      {/* Intuitive Quick Add Transaction Modal */}
+      {/* Intuitive Quick Add Transaction & Shopping Modal */}
       <QuickAddModal
         isOpen={isQuickAddOpen}
         onClose={() => setIsQuickAddOpen(false)}
         onAddTransaction={handleQuickAddTransaction}
+        onAddShoppingItem={handleAddShoppingItem}
+        shoppingLists={shoppingLists}
+        shoppingItems={shoppingItems}
         onOpenScanner={() => {
           setIsQuickAddOpen(false);
           setActiveTab('scanner');
         }}
-        onSuccessFeedback={(title, amount, type) => {
+        onSuccessFeedback={(title, amount, type, onUndo, subtitle) => {
           setToastFeedback({
             id: `toast-${Date.now()}`,
             title,
             amount,
             type,
+            onUndo,
+            subtitle,
           });
         }}
       />

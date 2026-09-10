@@ -54,6 +54,10 @@ export const FeedbackToast: React.FC<FeedbackToastProps> = ({ toast, onClose }) 
           </div>
           {toast.subtitle ? (
             <p className="text-[11px] text-slate-300 truncate">{toast.subtitle}</p>
+          ) : isShopping ? (
+            <p className="text-[11px] text-emerald-300 font-medium">
+              Dodano do listy zakupów
+            </p>
           ) : toast.amount !== undefined ? (
             <p className="text-[11px] text-slate-300">
               Zapisano: <strong className={toast.type === 'expense' ? 'text-rose-300' : 'text-emerald-300'}>

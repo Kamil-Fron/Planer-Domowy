@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ArrowDown,
   ArrowUp,
@@ -27,6 +27,10 @@ interface TransactionsManagerProps {
   onUpdateTransaction?: (id: string, updates: Partial<Transaction>) => void;
   selectedMonth: string;
   onMonthChange?: (month: string) => void;
+  initialFilterType?: 'all' | 'expense' | 'income' | null;
+  initialSearchQuery?: string;
+  initialSelectedTransactionId?: string | null;
+  onClearInitialState?: () => void;
 }
 
 export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
@@ -36,12 +40,53 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
   onUpdateTransaction,
   selectedMonth,
   onMonthChange,
+  initialFilterType,
+  initialSearchQuery,
+  initialSelectedTransactionId,
+  onClearInitialState,
 }) => {
-  const [filterType, setFilterType] = useState<'all' | 'expense' | 'income'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'expense' | 'income'>(
+    initialFilterType || 'all'
+  );
   const [filterCategory, setFilterCategory] = useState<string>('all');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(initialSearchQuery || '');
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedReceiptDetails, setSelectedReceiptDetails] = useState<Transaction | null>(null);
+
+  // Sync external navigation parameters (e.g. from Dashboard click on Net Balance, Income, Expense or Tx)
+  useEffect(() => {
+    if (initialFilterType) {
+      setFilterType(initialFilterType);
+    }
+  }, [initialFilterType]);
+
+  useEffect(() => {
+    if (initialSearchQuery !== undefined && initialSearchQuery !== '') {
+      setSearchQuery(initialSearchQuery);
+    }
+  }, [initialSearchQuery]);
+
+  useEffect(() => {
+    if (initialSelectedTransactionId) {
+      const targetTx = transactions.find((t) => t.id === initialSelectedTransactionId);
+      if (targetTx) {
+        if (targetTx.receiptItems && targetTx.receiptItems.length > 0) {
+          setSelectedReceiptDetails(targetTx);
+        } else {
+          setSearchQuery(targetTx.title);
+        }
+      }
+    }
+  }, [initialSelectedTransactionId, transactions]);
+
+  // Notify parent to clear initial parameters once consumed
+  useEffect(() => {
+    if (initialFilterType || initialSearchQuery || initialSelectedTransactionId) {
+      if (onClearInitialState) {
+        onClearInitialState();
+      }
+    }
+  }, [initialFilterType, initialSearchQuery, initialSelectedTransactionId, onClearInitialState]);
 
   // Edit Modal State
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);

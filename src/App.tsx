@@ -97,6 +97,37 @@ export default function App() {
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(() => new Date());
   const [syncErrorMessage, setSyncErrorMessage] = useState<string | null>(null);
 
+  // Deep navigation states from Dashboard & Notifications
+  const [navTxFilter, setNavTxFilter] = useState<'all' | 'expense' | 'income' | null>(null);
+  const [navTxSearch, setNavTxSearch] = useState<string>('');
+  const [navTxSelectedId, setNavTxSelectedId] = useState<string | null>(null);
+  const [navPayBillId, setNavPayBillId] = useState<string | null>(null);
+  const [navShoppingCategory, setNavShoppingCategory] = useState<string | null>(null);
+  const [navShoppingTab, setNavShoppingTab] = useState<'active' | 'completed' | null>(null);
+  const [navLimitCategory, setNavLimitCategory] = useState<string | null>(null);
+
+  const handleDashboardNavigate = (
+    tab: TabType,
+    options?: {
+      transactionFilter?: 'all' | 'income' | 'expense';
+      transactionSearch?: string;
+      selectedTxId?: string;
+      payBillId?: string;
+      shoppingCategory?: string;
+      shoppingTab?: 'active' | 'completed';
+      limitCategory?: string;
+    }
+  ) => {
+    if (options?.transactionFilter) setNavTxFilter(options.transactionFilter);
+    if (options?.transactionSearch !== undefined) setNavTxSearch(options.transactionSearch);
+    if (options?.selectedTxId) setNavTxSelectedId(options.selectedTxId);
+    if (options?.payBillId) setNavPayBillId(options.payBillId);
+    if (options?.shoppingCategory) setNavShoppingCategory(options.shoppingCategory);
+    if (options?.shoppingTab) setNavShoppingTab(options.shoppingTab);
+    if (options?.limitCategory) setNavLimitCategory(options.limitCategory);
+    setActiveTab(tab);
+  };
+
   // Global Keyboard Shortcuts (UX): '+' or 'N' opens Quick Add anywhere
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -151,9 +182,9 @@ export default function App() {
   });
 
   // Helper to record new activity notification
-  const logActivity = (title: string, message: string) => {
+  const logActivity = (title: string, message: string, relatedId?: string) => {
     const author = currentUser?.name || 'Domownik';
-    const notif = createActivityNotification(title, message, author, 'activity');
+    const notif = createActivityNotification(title, message, author, 'activity', relatedId);
     setNotifications((prev) => {
       const updated = [notif, ...prev.slice(0, 49)];
       saveNotifications(updated);
@@ -1515,6 +1546,7 @@ export default function App() {
         onOpenVersionInfo={() => setIsVersionModalOpen(true)}
         onClearNotifications={handleClearNotifications}
         onMarkNotificationRead={handleMarkNotificationRead}
+        onNavigate={handleDashboardNavigate}
       />
 
       {/* Household & Family Cloud Sync / Settings Modal */}
@@ -1581,7 +1613,7 @@ export default function App() {
             shoppingLists={shoppingLists}
             shoppingItems={shoppingItems}
             selectedMonth={selectedMonth}
-            onNavigate={setActiveTab}
+            onNavigate={handleDashboardNavigate}
             onQuickAddTransaction={() => {
               setIsQuickAddOpen(true);
             }}
@@ -1599,6 +1631,14 @@ export default function App() {
             onUpdateTransaction={handleUpdateTransaction}
             selectedMonth={selectedMonth}
             onMonthChange={setSelectedMonth}
+            initialFilterType={navTxFilter}
+            initialSearchQuery={navTxSearch}
+            initialSelectedTransactionId={navTxSelectedId}
+            onClearInitialState={() => {
+              setNavTxFilter(null);
+              setNavTxSearch('');
+              setNavTxSelectedId(null);
+            }}
           />
         )}
 
@@ -1623,6 +1663,10 @@ export default function App() {
             onDeleteItem={handleDeleteShoppingItem}
             onUpdateItem={handleUpdateShoppingItem}
             onAddTransaction={handleAddTransaction}
+            initialCategoryFilter={navShoppingCategory}
+            onClearInitialCategoryFilter={() => setNavShoppingCategory(null)}
+            initialTab={navShoppingTab}
+            onClearInitialTab={() => setNavShoppingTab(null)}
           />
         )}
 
@@ -1639,6 +1683,8 @@ export default function App() {
             onMonthChange={setSelectedMonth}
             transactions={transactions}
             onDeleteTransaction={handleDeleteTransaction}
+            initialPayBillId={navPayBillId}
+            onClearInitialPayBillId={() => setNavPayBillId(null)}
           />
         )}
 
@@ -1650,6 +1696,8 @@ export default function App() {
             onAddLimit={handleAddBudgetLimit}
             onDeleteLimit={handleDeleteBudgetLimit}
             selectedMonth={selectedMonth}
+            initialLimitCategory={navLimitCategory}
+            onClearInitialLimitCategory={() => setNavLimitCategory(null)}
           />
         )}
 

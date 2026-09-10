@@ -24,6 +24,10 @@ interface ShoppingListsProps {
   onDeleteItem: (id: string) => void;
   onUpdateItem?: (id: string, updates: Partial<ShoppingItem>) => void;
   onAddTransaction: (transaction: Omit<Transaction, 'id' | 'createdAt'>) => void;
+  initialCategoryFilter?: string | null;
+  onClearInitialCategoryFilter?: () => void;
+  initialTab?: 'active' | 'completed' | null;
+  onClearInitialTab?: () => void;
 }
 
 const DEFAULT_CATEGORIES = [
@@ -59,11 +63,46 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
   onToggleItem,
   onDeleteItem,
   onUpdateItem,
+  initialCategoryFilter,
+  onClearInitialCategoryFilter,
+  initialTab,
+  onClearInitialTab,
 }) => {
   // Tab: 'active' (Do kupienia) vs 'completed' (Kupione)
   const [activeTab, setActiveTab] = useState<'active' | 'completed'>('active');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>(
+    initialCategoryFilter || 'all'
+  );
+
+  // Sync category filter & tab if navigated from Dashboard or Notifications
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+      if (onClearInitialTab) {
+        onClearInitialTab();
+      }
+    } else if (initialCategoryFilter && initialCategoryFilter !== 'all') {
+      // Auto-detect if this category only has completed items
+      const catItems = shoppingItems.filter(
+        (i) =>
+          i.category?.toLowerCase() === initialCategoryFilter.toLowerCase() ||
+          shoppingLists.find((l) => l.id === i.listId)?.name?.toLowerCase() === initialCategoryFilter.toLowerCase()
+      );
+      if (catItems.length > 0 && catItems.every((i) => i.isCompleted)) {
+        setActiveTab('completed');
+      } else if (catItems.some((i) => !i.isCompleted)) {
+        setActiveTab('active');
+      }
+    }
+
+    if (initialCategoryFilter) {
+      setSelectedCategoryFilter(initialCategoryFilter);
+      if (onClearInitialCategoryFilter) {
+        onClearInitialCategoryFilter();
+      }
+    }
+  }, [initialCategoryFilter, initialTab]);
 
   // Hidden under plus button state
   const [isAddFormOpen, setIsAddFormOpen] = useState(false);
@@ -179,7 +218,12 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
   // If the currently selected category filter is not in currentTabCategories, reset to 'all'
   useEffect(() => {
     if (selectedCategoryFilter !== 'all') {
-      const exists = currentTabCategories.some((c) => c.category === selectedCategoryFilter);
+      const exists = currentTabCategories.some(
+        (c) =>
+          c.category.toLowerCase() === selectedCategoryFilter.toLowerCase() ||
+          selectedCategoryFilter.toLowerCase().includes(c.category.toLowerCase()) ||
+          c.category.toLowerCase().includes(selectedCategoryFilter.toLowerCase())
+      );
       if (!exists) {
         setSelectedCategoryFilter('all');
       }

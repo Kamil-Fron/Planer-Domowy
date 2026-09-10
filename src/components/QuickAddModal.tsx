@@ -19,17 +19,27 @@ import {
   Heart,
   Gift,
   Briefcase,
-  Undo2,
+  ShoppingCart,
+  CheckCircle2,
+  Package,
 } from 'lucide-react';
-import { Transaction, TransactionType } from '../types';
+import { Transaction, TransactionType, ShoppingItem, ShoppingList } from '../types';
 import { INITIAL_CATEGORIES, INITIAL_INCOME_CATEGORIES } from '../mockData';
 
 interface QuickAddModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAddTransaction: (transaction: Omit<Transaction, 'id' | 'createdAt'>) => void;
+  onAddShoppingItem?: (item: Omit<ShoppingItem, 'id' | 'createdAt'>) => void;
+  shoppingLists?: ShoppingList[];
   onOpenScanner: () => void;
-  onSuccessFeedback?: (title: string, amount: number, type: TransactionType, onUndo?: () => void) => void;
+  onSuccessFeedback?: (
+    title: string,
+    amount: number,
+    type: TransactionType | 'shopping',
+    onUndo?: () => void,
+    subtitle?: string
+  ) => void;
 }
 
 interface SmartSuggestion {
@@ -38,6 +48,16 @@ interface SmartSuggestion {
   type: TransactionType;
   icon: React.ComponentType<{ className?: string }>;
 }
+
+interface ShoppingQuickSuggestion {
+  name: string;
+  category: string;
+  unit: string;
+  estimatedPrice?: number;
+  emoji: string;
+}
+
+const EXPENSE_CATEGORIES = INITIAL_CATEGORIES.map((c) => c.name);
 
 const EXPENSE_SUGGESTIONS: SmartSuggestion[] = [
   { label: 'Biedronka / Lidl', category: 'Jedzenie i artykuły spożywcze', type: 'expense', icon: ShoppingBag },
@@ -56,15 +76,43 @@ const INCOME_SUGGESTIONS: SmartSuggestion[] = [
   { label: 'Prezent / Darowizna', category: 'Prezent / Darowizna', type: 'income', icon: Gift },
 ];
 
+const SHOPPING_QUICK_SUGGESTIONS: ShoppingQuickSuggestion[] = [
+  { name: 'Chleb żytni', category: 'Spożywcze', unit: 'szt.', estimatedPrice: 4.5, emoji: '🥖' },
+  { name: 'Mleko 3.2%', category: 'Spożywcze', unit: 'szt.', estimatedPrice: 3.8, emoji: '🥛' },
+  { name: 'Masło ekstra', category: 'Spożywcze', unit: 'szt.', estimatedPrice: 7.5, emoji: '🧈' },
+  { name: 'Jajka wolny wybieg (10 szt)', category: 'Spożywcze', unit: 'op.', estimatedPrice: 12.0, emoji: '🥚' },
+  { name: 'Kawa ziarnista', category: 'Spożywcze', unit: 'op.', estimatedPrice: 45.0, emoji: '☕' },
+  { name: 'Pomidory malinowe', category: 'Spożywcze', unit: 'kg', estimatedPrice: 14.0, emoji: '🍅' },
+  { name: 'Banany', category: 'Spożywcze', unit: 'kg', estimatedPrice: 6.5, emoji: '🍌' },
+  { name: 'Karma dla zwierząt', category: 'Dla kotów i zwierząt', unit: 'op.', estimatedPrice: 35.0, emoji: '🐾' },
+  { name: 'Papier toaletowy', category: 'Dom i chemia', unit: 'op.', estimatedPrice: 18.0, emoji: '🧻' },
+  { name: 'Proszek / Płyn do prania', category: 'Dom i chemia', unit: 'szt.', estimatedPrice: 39.0, emoji: '🧴' },
+];
+
+const DEFAULT_SHOPPING_CATEGORIES = [
+  'Spożywcze',
+  'Dom i chemia',
+  'Remont i ogród',
+  'Dla kotów i zwierząt',
+  'Kosmetyki i zdrowie',
+  'Inne',
+];
+
 const QUICK_AMOUNTS = [10, 20, 50, 100, 200];
 
 export const QuickAddModal: React.FC<QuickAddModalProps> = ({
   isOpen,
   onClose,
   onAddTransaction,
+  onAddShoppingItem,
+  shoppingLists = [],
   onOpenScanner,
   onSuccessFeedback,
 }) => {
+  // Main Tab Mode: 'transaction' or 'shopping'
+  const [activeTabMode, setActiveTabMode] = useState<'transaction' | 'shopping'>('transaction');
+
+  // Transaction form state
   const [type, setType] = useState<TransactionType>('expense');
   const [amount, setAmount] = useState<string>('');
   const [title, setTitle] = useState<string>('');
@@ -73,25 +121,30 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
   const [comment, setComment] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
 
-  const amountInputRef = useRef<HTMLInputElement>(null);
+  // Shopping form state (simplified: only title/description & category)
+  const [shoppingItemName, setShoppingItemName] = useState<string>('');
+  const [shoppingCategory, setShoppingCategory] = useState<string>('Spożywcze');
+  const [keepShoppingOpen, setKeepShoppingOpen] = useState<boolean>(false);
+  const [shoppingSuccessBadge, setShoppingSuccessBadge] = useState<string | null>(null);
 
-  // Auto-focus amount on open
+  const amountInputRef = useRef<HTMLInputElement>(null);
+  const shoppingNameInputRef = useRef<HTMLInputElement>(null);
+
+  // Focus appropriate input on open or tab change
   useEffect(() => {
     if (isOpen) {
       setError(null);
-      setType('expense');
-      setAmount('');
-      setTitle('');
-      setCategory('Jedzenie i artykuły spożywcze');
-      setDate(new Date().toISOString().split('T')[0]);
-      setComment('');
-
+      setShoppingSuccessBadge(null);
       const timer = setTimeout(() => {
-        amountInputRef.current?.focus();
+        if (activeTabMode === 'transaction') {
+          amountInputRef.current?.focus();
+        } else {
+          shoppingNameInputRef.current?.focus();
+        }
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [isOpen]);
+  }, [isOpen, activeTabMode]);
 
   // Update default category when switching type
   const handleTypeChange = (newType: TransactionType) => {
@@ -119,7 +172,14 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
     amountInputRef.current?.focus();
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleApplyShoppingSuggestion = (sug: ShoppingQuickSuggestion) => {
+    setShoppingItemName(sug.name);
+    setShoppingCategory(sug.category);
+    if (error) setError(null);
+    shoppingNameInputRef.current?.focus();
+  };
+
+  const handleSubmitTransaction = (e: React.FormEvent) => {
     e.preventDefault();
     const cleanAmount = parseFloat(amount.replace(',', '.'));
 
@@ -149,10 +209,67 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
     onClose();
   };
 
+  const handleSubmitShopping = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmedName = shoppingItemName.trim();
+    if (!trimmedName) {
+      setError('Wpisz nazwę pozycji do kupienia');
+      shoppingNameInputRef.current?.focus();
+      return;
+    }
+
+    // Determine target listId if a matching list exists
+    const matchingList = shoppingLists.find(
+      (l) =>
+        l.name.toLowerCase() === shoppingCategory.toLowerCase() ||
+        l.category.toLowerCase() === shoppingCategory.toLowerCase()
+    );
+
+    const listId = matchingList ? matchingList.id : (shoppingLists[0]?.id || `list-${Date.now()}`);
+
+    if (onAddShoppingItem) {
+      onAddShoppingItem({
+        name: trimmedName,
+        category: shoppingCategory,
+        quantity: 1,
+        unit: 'szt.',
+        isCompleted: false,
+        listId,
+      });
+    }
+
+    if (onSuccessFeedback) {
+      onSuccessFeedback(
+        trimmedName,
+        0,
+        'shopping',
+        undefined,
+        `Dodano do listy zakupów (${shoppingCategory})`
+      );
+    }
+
+    if (keepShoppingOpen) {
+      setShoppingSuccessBadge(`Dodano: "${trimmedName}". Możesz dodać kolejną pozycję.`);
+      setShoppingItemName('');
+      setError(null);
+      setTimeout(() => setShoppingSuccessBadge(null), 3000);
+      shoppingNameInputRef.current?.focus();
+    } else {
+      setShoppingItemName('');
+      setError(null);
+      onClose();
+    }
+  };
+
   if (!isOpen) return null;
 
-  const currentCategories = type === 'expense' ? INITIAL_CATEGORIES : INITIAL_INCOME_CATEGORIES;
+  const currentCategories = type === 'expense' ? EXPENSE_CATEGORIES : INITIAL_INCOME_CATEGORIES;
   const currentSuggestions = type === 'expense' ? EXPENSE_SUGGESTIONS : INCOME_SUGGESTIONS;
+
+  // Build combined shopping categories list (user's custom lists + default categories)
+  const availableShoppingOptions = Array.from(
+    new Set([...shoppingLists.map((l) => l.name), ...DEFAULT_SHOPPING_CATEGORIES])
+  );
 
   return (
     <div
@@ -170,16 +287,24 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
         className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col max-h-[92vh]"
       >
         {/* Modal Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-slate-50/50">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 bg-slate-50/70">
           <div className="flex items-center space-x-2.5">
-            <div className="w-9 h-9 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-xs">
-              <Zap className="w-5 h-5" />
+            <div
+              className={`w-9 h-9 rounded-2xl flex items-center justify-center text-white shadow-xs transition-colors ${
+                activeTabMode === 'transaction' ? 'bg-indigo-600' : 'bg-emerald-600'
+              }`}
+            >
+              {activeTabMode === 'transaction' ? <Zap className="w-5 h-5" /> : <ShoppingCart className="w-5 h-5" />}
             </div>
             <div>
               <h2 id="quick-add-title" className="text-base font-bold text-slate-900 tracking-tight">
-                Szybkie Dodawanie
+                Szybki Wpis
               </h2>
-              <p className="text-xs text-slate-500">Zapisz transakcję w 3 sekundy</p>
+              <p className="text-xs text-slate-500">
+                {activeTabMode === 'transaction'
+                  ? 'Zapisz transakcję w 3 sekundy'
+                  : 'Dodaj produkt do listy zakupów jednym kliknięciem'}
+              </p>
             </div>
           </div>
           <button
@@ -192,168 +317,213 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
           </button>
         </div>
 
-        {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-5 overflow-y-auto space-y-4 flex-1">
-          {error && (
-            <div className="p-3 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-700 font-semibold flex items-center justify-between">
-              <span>{error}</span>
+        {/* Master Mode Switcher: Transakcja vs Do listy zakupów */}
+        <div className="px-5 pt-3 pb-1 border-b border-slate-100 bg-white">
+          <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-2xl">
+            <button
+              type="button"
+              id="quick-add-tab-transaction"
+              onClick={() => {
+                setActiveTabMode('transaction');
+                setError(null);
+              }}
+              className={`flex items-center justify-center space-x-2 py-2 rounded-xl text-xs font-bold transition-all ${
+                activeTabMode === 'transaction'
+                  ? 'bg-white text-slate-900 shadow-xs scale-[1.01]'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Transakcja (Finanse)</span>
+            </button>
+            <button
+              type="button"
+              id="quick-add-tab-shopping"
+              onClick={() => {
+                setActiveTabMode('shopping');
+                setError(null);
+              }}
+              className={`flex items-center justify-center space-x-2 py-2 rounded-xl text-xs font-bold transition-all ${
+                activeTabMode === 'shopping'
+                  ? 'bg-white text-slate-900 shadow-xs scale-[1.01]'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <ShoppingCart className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Do listy zakupów</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Error message */}
+        {error && (
+          <div className="mx-5 mt-3 p-3 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-700 font-semibold flex items-center justify-between animate-in fade-in duration-150">
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              className="text-rose-500 hover:text-rose-800 text-xs px-1"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* Success badge inside modal if keep-open is enabled */}
+        {shoppingSuccessBadge && (
+          <div className="mx-5 mt-3 p-2.5 bg-emerald-50 border border-emerald-200 rounded-2xl text-xs text-emerald-800 font-bold flex items-center space-x-2 animate-in fade-in duration-150">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{shoppingSuccessBadge}</span>
+          </div>
+        )}
+
+        {/* TAB 1: TRANSACTION FORM */}
+        {activeTabMode === 'transaction' && (
+          <form onSubmit={handleSubmitTransaction} className="p-5 overflow-y-auto space-y-4 flex-1">
+            {/* 1-Click Type Switcher */}
+            <div className="grid grid-cols-2 gap-2 bg-slate-100/90 p-1 rounded-2xl">
               <button
                 type="button"
-                onClick={() => setError(null)}
-                className="text-rose-500 hover:text-rose-800 text-xs"
+                id="quick-add-type-expense"
+                onClick={() => handleTypeChange('expense')}
+                className={`flex items-center justify-center space-x-2 py-2.5 rounded-xl font-bold text-xs transition-all ${
+                  type === 'expense'
+                    ? 'bg-rose-600 text-white shadow-xs scale-[1.01]'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                }`}
               >
-                ✕
+                <ArrowDownRight className="w-4 h-4" />
+                <span>Wydatek</span>
+              </button>
+              <button
+                type="button"
+                id="quick-add-type-income"
+                onClick={() => handleTypeChange('income')}
+                className={`flex items-center justify-center space-x-2 py-2.5 rounded-xl font-bold text-xs transition-all ${
+                  type === 'income'
+                    ? 'bg-emerald-600 text-white shadow-xs scale-[1.01]'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                }`}
+              >
+                <ArrowUpRight className="w-4 h-4" />
+                <span>Wpływ / Przychód</span>
               </button>
             </div>
-          )}
 
-          {/* 1-Click Type Switcher */}
-          <div className="grid grid-cols-2 gap-2 bg-slate-100/90 p-1 rounded-2xl">
-            <button
-              type="button"
-              id="quick-add-type-expense"
-              onClick={() => handleTypeChange('expense')}
-              className={`flex items-center justify-center space-x-2 py-2.5 rounded-xl font-bold text-xs transition-all ${
-                type === 'expense'
-                  ? 'bg-rose-600 text-white shadow-xs scale-[1.01]'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
-              }`}
-            >
-              <ArrowDownRight className="w-4 h-4" />
-              <span>Wydatek</span>
-            </button>
-            <button
-              type="button"
-              id="quick-add-type-income"
-              onClick={() => handleTypeChange('income')}
-              className={`flex items-center justify-center space-x-2 py-2.5 rounded-xl font-bold text-xs transition-all ${
-                type === 'income'
-                  ? 'bg-emerald-600 text-white shadow-xs scale-[1.01]'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
-              }`}
-            >
-              <ArrowUpRight className="w-4 h-4" />
-              <span>Wpływ / Przychód</span>
-            </button>
-          </div>
-
-          {/* Amount Field (Hero Input) */}
-          <div>
-            <label htmlFor="quick-add-amount" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-              Kwota transakcji
-            </label>
-            <div className="relative flex items-center">
-              <input
-                ref={amountInputRef}
-                id="quick-add-amount"
-                type="text"
-                inputMode="decimal"
-                value={amount}
-                onChange={(e) => {
-                  setAmount(e.target.value);
-                  if (error) setError(null);
-                }}
-                placeholder="0.00"
-                className={`w-full text-2xl sm:text-3xl font-extrabold px-4 py-3 rounded-2xl border transition-all text-slate-900 placeholder:text-slate-300 focus:outline-hidden focus:ring-2 ${
-                  type === 'expense'
-                    ? 'border-rose-200 focus:border-rose-500 focus:ring-rose-500/20 bg-rose-50/20'
-                    : 'border-emerald-200 focus:border-emerald-500 focus:ring-emerald-500/20 bg-emerald-50/20'
-                }`}
-              />
-              <span className="absolute right-4 font-bold text-sm text-slate-400 select-none">
-                PLN
-              </span>
-            </div>
-
-            {/* Quick Amount Chips */}
-            <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-              <span className="text-[10px] font-semibold text-slate-400 mr-1 select-none">Szybko:</span>
-              {QUICK_AMOUNTS.map((amt) => (
-                <button
-                  key={amt}
-                  type="button"
-                  onClick={() => handleApplyAmount(amt)}
-                  className="px-2.5 py-1 text-xs font-semibold bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 rounded-lg transition-colors active:scale-95"
-                >
-                  +{amt} zł
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Quick Suggestions */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                Popularne szablony (1 klik)
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {currentSuggestions.map((sug) => {
-                const Icon = sug.icon;
-                const isSelected = title === sug.label;
-                return (
-                  <button
-                    key={sug.label}
-                    type="button"
-                    onClick={() => handleApplySuggestion(sug)}
-                    className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium transition-all ${
-                      isSelected
-                        ? 'bg-indigo-600 text-white shadow-2xs scale-98'
-                        : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/70'
-                    }`}
-                  >
-                    <Icon className={`w-3.5 h-3.5 ${isSelected ? 'text-white' : 'text-slate-400'}`} />
-                    <span>{sug.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Title / Description */}
-          <div>
-            <label htmlFor="quick-add-title-input" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-              Tytuł lub opis
-            </label>
-            <input
-              id="quick-add-title-input"
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder={type === 'expense' ? 'np. Obiad w restauracji, Paliwo, Zakupy' : 'np. Wypłata za sierpień, Premia'}
-              className="w-full text-xs font-medium px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
-            />
-          </div>
-
-          {/* Category & Date Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Amount Field (Hero Input) */}
             <div>
-              <label htmlFor="quick-add-category" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                Kategoria
+              <label htmlFor="quick-add-amount" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                Kwota transakcji
               </label>
-              <div className="relative">
-                <select
-                  id="quick-add-category"
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 cursor-pointer"
-                >
-                  {currentCategories.map((cat) => (
-                    <option key={cat} value={cat}>
-                      {cat}
-                    </option>
-                  ))}
-                </select>
+              <div className="relative flex items-center">
+                <input
+                  ref={amountInputRef}
+                  id="quick-add-amount"
+                  type="text"
+                  inputMode="decimal"
+                  value={amount}
+                  onChange={(e) => {
+                    setAmount(e.target.value);
+                    if (error) setError(null);
+                  }}
+                  placeholder="0.00"
+                  className={`w-full text-2xl sm:text-3xl font-extrabold px-4 py-3 rounded-2xl border transition-all text-slate-900 placeholder:text-slate-300 focus:outline-hidden focus:ring-2 ${
+                    type === 'expense'
+                      ? 'border-rose-200 focus:border-rose-500 focus:ring-rose-500/20 bg-rose-50/20'
+                      : 'border-emerald-200 focus:border-emerald-500 focus:ring-emerald-500/20 bg-emerald-50/20'
+                  }`}
+                />
+                <span className="absolute right-4 font-extrabold text-slate-400 text-lg">PLN</span>
+              </div>
+
+              {/* Quick Amount Pills */}
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {QUICK_AMOUNTS.map((val) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => handleApplyAmount(val)}
+                    className="px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all active:scale-95"
+                  >
+                    +{val} zł
+                  </button>
+                ))}
               </div>
             </div>
 
+            {/* Smart 1-Tap Category Suggestions */}
+            <div>
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5 flex items-center justify-between">
+                <span>Szybkie szablony wpisów</span>
+                <span className="text-[10px] text-slate-400 font-normal">1-klik wypełnia</span>
+              </span>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                {currentSuggestions.map((sug, idx) => {
+                  const Icon = sug.icon;
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => handleApplySuggestion(sug)}
+                      className="flex items-center space-x-1.5 p-2 rounded-xl border border-slate-100 bg-slate-50/80 hover:bg-indigo-50 hover:border-indigo-200 text-left transition-all active:scale-95 group"
+                    >
+                      <span className="p-1 rounded-lg bg-white shadow-2xs group-hover:bg-indigo-600 group-hover:text-white transition-colors text-slate-600">
+                        <Icon className="w-3.5 h-3.5" />
+                      </span>
+                      <span className="text-xs font-semibold text-slate-700 group-hover:text-indigo-900 truncate">
+                        {sug.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Description & Category */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="quick-add-title-input" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                  Tytuł / Nazwa
+                </label>
+                <input
+                  id="quick-add-title-input"
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder={type === 'expense' ? 'np. Zakupy w sklepie' : 'np. Wynagrodzenie'}
+                  className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-800 placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="quick-add-category" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                  Kategoria
+                </label>
+                <div className="relative">
+                  <select
+                    id="quick-add-category"
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 appearance-none cursor-pointer pr-8"
+                  >
+                    {currentCategories.map((catName) => (
+                      <option key={catName} value={catName}>
+                        {catName}
+                      </option>
+                    ))}
+                  </select>
+                  <Tag className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+              </div>
+            </div>
+
+            {/* Date Picker */}
             <div>
               <label htmlFor="quick-add-date" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                Data
+                Data transakcji
               </label>
-              <div className="relative flex items-center">
-                <Calendar className="w-3.5 h-3.5 text-slate-400 absolute left-3 pointer-events-none" />
+              <div className="relative">
+                <Calendar className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   id="quick-add-date"
                   type="date"
@@ -363,62 +533,173 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
                 />
               </div>
             </div>
-          </div>
 
-          {/* Optional Note */}
-          <div>
-            <label htmlFor="quick-add-comment" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-              Notatka (opcjonalnie)
-            </label>
-            <input
-              id="quick-add-comment"
-              type="text"
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder="np. Płatność kartą, wspólny obiad..."
-              className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
-            />
-          </div>
+            {/* Optional Note */}
+            <div>
+              <label htmlFor="quick-add-comment" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                Notatka (opcjonalnie)
+              </label>
+              <input
+                id="quick-add-comment"
+                type="text"
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder="np. Płatność kartą, wspólny obiad..."
+                className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
 
-          {/* Alternate action: Scan receipt with AI */}
-          <div className="pt-1">
-            <button
-              type="button"
-              id="quick-add-scanner-redirect"
-              onClick={() => {
-                onClose();
-                onOpenScanner();
-              }}
-              className="w-full flex items-center justify-center space-x-2 py-2.5 px-3 rounded-2xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold text-xs transition-colors border border-indigo-200/60 group"
-            >
-              <Camera className="w-4 h-4 group-hover:scale-110 transition-transform" />
-              <span>Masz paragon lub zrzut Apple Pay? Zeskanuj ze zdjęciem (AI)</span>
-            </button>
-          </div>
+            {/* Alternate action: Scan receipt with AI */}
+            <div className="pt-1">
+              <button
+                type="button"
+                id="quick-add-scanner-redirect"
+                onClick={() => {
+                  onClose();
+                  onOpenScanner();
+                }}
+                className="w-full flex items-center justify-center space-x-2 py-2.5 px-3 rounded-2xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold text-xs transition-colors border border-indigo-200/60 group"
+              >
+                <Camera className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                <span>Masz paragon lub zrzut Apple Pay? Zeskanuj ze zdjęciem (AI)</span>
+              </button>
+            </div>
 
-          {/* Submit Buttons */}
-          <div className="pt-2 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2.5 rounded-2xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors"
-            >
-              Anuluj
-            </button>
-            <button
-              type="submit"
-              id="quick-add-submit-btn"
-              className={`flex-1 flex items-center justify-center space-x-2 py-3 px-4 rounded-2xl text-xs font-bold text-white shadow-md transition-all active:scale-98 ${
-                type === 'expense'
-                  ? 'bg-rose-600 hover:bg-rose-700 shadow-rose-200'
-                  : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200'
-              }`}
-            >
-              <Check className="w-4 h-4" />
-              <span>Zapisz transakcję</span>
-            </button>
-          </div>
-        </form>
+            {/* Submit Buttons */}
+            <div className="pt-2 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2.5 rounded-2xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors"
+              >
+                Anuluj
+              </button>
+              <button
+                type="submit"
+                id="quick-add-submit-btn"
+                className={`flex-1 flex items-center justify-center space-x-2 py-3 px-4 rounded-2xl text-xs font-bold text-white shadow-md transition-all active:scale-98 ${
+                  type === 'expense'
+                    ? 'bg-rose-600 hover:bg-rose-700 shadow-rose-200'
+                    : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200'
+                }`}
+              >
+                <Check className="w-4 h-4" />
+                <span>Zapisz transakcję</span>
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* TAB 2: SHOPPING ITEMS FORM */}
+        {activeTabMode === 'shopping' && (
+          <form onSubmit={handleSubmitShopping} className="p-5 overflow-y-auto space-y-4 flex-1">
+            {shoppingSuccessBadge && (
+              <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center space-x-2 animate-in fade-in">
+                <Check className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                <span>{shoppingSuccessBadge}</span>
+              </div>
+            )}
+
+            {/* Product Name Input */}
+            <div>
+              <label htmlFor="quick-add-shopping-name" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                Co chcesz kupić? (Nazwa & opis)
+              </label>
+              <div className="relative">
+                <input
+                  ref={shoppingNameInputRef}
+                  id="quick-add-shopping-name"
+                  type="text"
+                  value={shoppingItemName}
+                  onChange={(e) => {
+                    setShoppingItemName(e.target.value);
+                    if (error) setError(null);
+                  }}
+                  placeholder="np. Mleko 3.2% 2 kartony, Chleb żytni, Cukier 1kg..."
+                  className="w-full text-sm sm:text-base font-bold px-4 py-3 rounded-2xl border border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 bg-emerald-50/20 text-slate-900 placeholder:text-slate-400 focus:outline-hidden"
+                />
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1.5">
+                Wszystkie detale (ilość, marka, gramatura) możesz wpisać bezpośrednio w tytule.
+              </p>
+            </div>
+
+            {/* Smart 1-Tap Grocery Suggestions */}
+            <div>
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5 flex items-center justify-between">
+                <span>Popularne artykuły domowe</span>
+                <span className="text-[10px] text-slate-400 font-normal">Kliknij, aby wstawić</span>
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {SHOPPING_QUICK_SUGGESTIONS.map((sug, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => handleApplyShoppingSuggestion(sug)}
+                    className="flex items-center space-x-1 px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-emerald-50 hover:border-emerald-300 text-xs font-semibold text-slate-700 hover:text-emerald-900 transition-all active:scale-95 shadow-2xs cursor-pointer"
+                  >
+                    <span>{sug.emoji}</span>
+                    <span>{sug.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Category / Target List Selector */}
+            <div>
+              <label htmlFor="quick-add-shopping-category" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                Kategoria / Lista zakupów
+              </label>
+              <div className="relative">
+                <select
+                  id="quick-add-shopping-category"
+                  value={shoppingCategory}
+                  onChange={(e) => setShoppingCategory(e.target.value)}
+                  className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 appearance-none cursor-pointer pr-8"
+                >
+                  {availableShoppingOptions.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
+                <Tag className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+            </div>
+
+            {/* Keep Open Toggle */}
+            <div className="pt-2">
+              <label className="flex items-center space-x-2 text-xs text-slate-600 font-semibold cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={keepShoppingOpen}
+                  onChange={(e) => setKeepShoppingOpen(e.target.checked)}
+                  className="w-4 h-4 rounded-md border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                />
+                <span>Pozostaw to okno otwarte po dodaniu (szybkie dodawanie wielu pozycji)</span>
+              </label>
+            </div>
+
+            {/* Submit Buttons */}
+            <div className="pt-2 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2.5 rounded-2xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                Zamknij
+              </button>
+              <button
+                type="submit"
+                id="quick-add-shopping-submit-btn"
+                className="flex-1 flex items-center justify-center space-x-2 py-3 px-4 rounded-2xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-md shadow-emerald-200 transition-all active:scale-98 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Dodaj do listy zakupów</span>
+              </button>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   );

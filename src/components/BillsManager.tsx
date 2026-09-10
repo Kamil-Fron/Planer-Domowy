@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Zap,
   Droplets,
@@ -54,6 +54,8 @@ interface BillsManagerProps {
   onMonthChange?: (month: string) => void;
   transactions?: Transaction[];
   onDeleteTransaction?: (id: string, skipBillRevert?: boolean) => void;
+  initialPayBillId?: string | null;
+  onClearInitialPayBillId?: () => void;
 }
 
 const formatMonthName = (monthStr: string) => {
@@ -82,6 +84,8 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   onMonthChange,
   transactions,
   onDeleteTransaction,
+  initialPayBillId,
+  onClearInitialPayBillId,
 }) => {
   const [internalMonth, setInternalMonth] = useState(() => {
     return selectedMonth || new Date().toISOString().slice(0, 7);
@@ -436,6 +440,19 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
     setPayModalDate(new Date().toISOString().split('T')[0]);
     setPayModalCycles(1);
   };
+
+  // Automatyczne otwarcie okna opłacenia rachunku po kliknięciu ze skrótu (np. z Pulpitu)
+  useEffect(() => {
+    if (initialPayBillId) {
+      const targetBill = bills.find((b) => b.id === initialPayBillId);
+      if (targetBill) {
+        handleOpenPayModal(targetBill);
+      }
+      if (onClearInitialPayBillId) {
+        onClearInitialPayBillId();
+      }
+    }
+  }, [initialPayBillId, bills]);
 
   /**
    * Otwarcie okna przełożenia / kumulacji nieopłaconego rachunku na kolejny miesiąc

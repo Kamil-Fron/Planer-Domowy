@@ -22,7 +22,7 @@ export const AppFooter: React.FC<AppFooterProps> = ({ onOpenVersionInfo, onOpenQ
             title="Kliknij, aby zobaczyć opis wersji i założenia projektowania UX"
           >
             <Sparkles className="w-3 h-3" />
-            <span>Wersja v2.5.0 (UX Edition)</span>
+            <span>Wersja v2.6.0 (Interactive UX)</span>
           </button>
           <span className="text-slate-300 hidden sm:inline">•</span>
           <span className="inline-flex items-center space-x-1 text-slate-600">

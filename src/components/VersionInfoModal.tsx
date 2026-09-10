@@ -49,10 +49,10 @@ export const VersionInfoModal: React.FC<VersionInfoModalProps> = ({ isOpen, onCl
               </h2>
               <div className="flex items-center space-x-2 text-xs text-slate-500 font-medium">
                 <span className="bg-indigo-100 text-indigo-800 font-bold px-2 py-0.5 rounded-md">
-                  Wersja v2.5.0
+                  Wersja v2.6.10
                 </span>
                 <span>•</span>
-                <span>Intuitive Experience & Usability Edition</span>
+                <span>Deep Linking & Filter Fixes Edition</span>
               </div>
             </div>
           </div>
@@ -124,50 +124,50 @@ export const VersionInfoModal: React.FC<VersionInfoModalProps> = ({ isOpen, onCl
             </div>
           </div>
 
-          {/* Version Changelog v2.5.0 */}
+          {/* Version Changelog v2.6.0 */}
           <div>
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center space-x-1.5">
               <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Opis Wersji: v2.5.0 (UX & Usability Edition)</span>
+              <span>Opis Wersji: v2.6.10 (Poprawki Nawigacji, Powiadomień i Szybkich Zakupów)</span>
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-2xs">
                 <div className="flex items-center space-x-2 mb-1.5 font-bold text-slate-900 text-xs">
                   <Zap className="w-4 h-4 text-amber-500" />
-                  <span>Globalny Przycisk Szybkiego Dodawania</span>
+                  <span>Szybki Wpis: Czysty Tytuł & Kategoria</span>
                 </div>
                 <p className="text-xs text-slate-600">
-                  Dostępny na każdej podstronie floating action button (FAB) z podpowiedziami kwot (+10, +20, +50 zł) i kategorii w 1 kliknięcie.
+                  Uproszczony do maksimum formularz szybkiego dodawania artykułów (tylko nazwa i kategoria, bez ilości czy cen). Wszelkie szczegóły wpisujemy w tytule!
                 </p>
               </div>
 
               <div className="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-2xs">
                 <div className="flex items-center space-x-2 mb-1.5 font-bold text-slate-900 text-xs">
-                  <Receipt className="w-4 h-4 text-indigo-500" />
-                  <span>Skaner AI & Apple Pay</span>
+                  <Compass className="w-4 h-4 text-indigo-500" />
+                  <span>Powiadomienia Przenoszą do Celu</span>
                 </div>
                 <p className="text-xs text-slate-600">
-                  Precyzyjna obsługa paragonów i zrzutów z Apple Pay / portfela ze zamianą dat relatywnych („Dziś”, „Wczoraj”) na bezwzględne.
+                  Kliknięcie w alert o rachunku otwiera okno jego opłacenia, powiadomienia budżetowe kierują do limitów, a powiadomienia o aktywności do właściwych sekcji.
                 </p>
               </div>
 
               <div className="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-2xs">
                 <div className="flex items-center space-x-2 mb-1.5 font-bold text-slate-900 text-xs">
-                  <Keyboard className="w-4 h-4 text-emerald-500" />
-                  <span>Skróty Klawiaturowe</span>
+                  <Receipt className="w-4 h-4 text-emerald-500" />
+                  <span>Pulpit: Filtry Wpłat & Wydatków</span>
                 </div>
                 <p className="text-xs text-slate-600">
-                  Naciśnięcie znaku <kbd className="font-mono bg-slate-100 px-1 rounded-sm">+</kbd> lub <kbd className="font-mono bg-slate-100 px-1 rounded-sm">N</kbd> natychmiast otwiera szybki wpis transakcji.
+                  Kliknięcie w „Wpływy & dochody” lub „Wydatki łączne” na pulpicie natychmiast przenosi do transakcji z aktywowanym filtrem odpowiedniego typu.
                 </p>
               </div>
 
               <div className="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-2xs">
                 <div className="flex items-center space-x-2 mb-1.5 font-bold text-slate-900 text-xs">
                   <ShieldCheck className="w-4 h-4 text-blue-500" />
-                  <span>Bezpieczeństwo & Cofanie (Undo)</span>
+                  <span>Kupione Listy Zakupów na Pulpicie</span>
                 </div>
                 <p className="text-xs text-slate-600">
-                  Wsparcie natychmiastowego cofnięcia omyłkowo dodanej lub usuniętej pozycji bez utraty danych.
+                  Kliknięcie w listę z pulpitu, w której wszystko zostało kupione, przełącza widok list zakupów prosto na zakładkę „Kupione” z aktywnym filtrem kategorii.
                 </p>
               </div>
             </div>

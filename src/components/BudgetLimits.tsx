@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Target,
   AlertTriangle,
@@ -21,6 +21,8 @@ interface BudgetLimitsProps {
   onAddLimit: (limit: Omit<BudgetLimit, 'id'>) => void;
   onDeleteLimit: (id: string) => void;
   selectedMonth: string;
+  initialLimitCategory?: string | null;
+  onClearInitialLimitCategory?: () => void;
 }
 
 export const BudgetLimits: React.FC<BudgetLimitsProps> = ({
@@ -30,10 +32,31 @@ export const BudgetLimits: React.FC<BudgetLimitsProps> = ({
   onAddLimit,
   onDeleteLimit,
   selectedMonth,
+  initialLimitCategory,
+  onClearInitialLimitCategory,
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editLimitValue, setEditLimitValue] = useState<number>(0);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [highlightCategory, setHighlightCategory] = useState<string | null>(null);
+
+  // Focus & highlight category when navigated from Dashboard
+  useEffect(() => {
+    if (initialLimitCategory) {
+      setHighlightCategory(initialLimitCategory);
+      setTimeout(() => {
+        const el = document.getElementById(`limit-card-${encodeURIComponent(initialLimitCategory)}`);
+        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 150);
+      const timer = setTimeout(() => {
+        setHighlightCategory(null);
+      }, 4000);
+      if (onClearInitialLimitCategory) {
+        onClearInitialLimitCategory();
+      }
+      return () => clearTimeout(timer);
+    }
+  }, [initialLimitCategory]);
 
   // New limit form
   const [newCategory, setNewCategory] = useState(INITIAL_CATEGORIES[0].name);
@@ -194,7 +217,12 @@ export const BudgetLimits: React.FC<BudgetLimitsProps> = ({
           return (
             <div
               key={limit.id}
-              className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs flex flex-col justify-between hover:shadow-md transition-shadow"
+              id={`limit-card-${encodeURIComponent(limit.category)}`}
+              className={`bg-white rounded-2xl p-5 border flex flex-col justify-between transition-all duration-300 ${
+                highlightCategory === limit.category
+                  ? 'border-indigo-500 ring-4 ring-indigo-500/20 shadow-lg scale-[1.01]'
+                  : 'border-slate-200 shadow-xs hover:shadow-md'
+              }`}
             >
               <div>
                 {/* Top Row: Category title + Badge + delete */}

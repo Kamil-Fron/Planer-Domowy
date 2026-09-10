@@ -89,7 +89,8 @@ export function createActivityNotification(
   title: string,
   message: string,
   authorName?: string,
-  type: AppNotification['type'] = 'activity'
+  type: AppNotification['type'] = 'activity',
+  relatedId?: string
 ): AppNotification {
   const notif: AppNotification = {
     id: `notif-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
@@ -99,6 +100,7 @@ export function createActivityNotification(
     date: new Date().toISOString(),
     read: false,
     authorName,
+    relatedId,
   };
 
   // Wyślij także push przeglądarkowy

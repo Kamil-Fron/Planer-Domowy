@@ -22,6 +22,7 @@ import {
   DollarSign,
   Layers,
   ArrowLeftRight,
+  CreditCard,
 } from 'lucide-react';
 import {
   Transaction,
@@ -37,6 +38,16 @@ import { getFinancialAdviceWithAI } from '../services/aiService';
 import { MonthRolloverControl } from './MonthRolloverControl';
 import { useMonthSwipe } from '../hooks/useMonthSwipe';
 
+export interface DashboardNavigationOptions {
+  transactionFilter?: 'all' | 'income' | 'expense';
+  transactionSearch?: string;
+  selectedTxId?: string;
+  payBillId?: string;
+  shoppingCategory?: string;
+  shoppingTab?: 'active' | 'completed';
+  limitCategory?: string;
+}
+
 interface DashboardProps {
   transactions: Transaction[];
   bills: Bill[];
@@ -44,7 +55,7 @@ interface DashboardProps {
   shoppingLists: ShoppingList[];
   shoppingItems: ShoppingItem[];
   selectedMonth: string;
-  onNavigate: (tab: TabType) => void;
+  onNavigate: (tab: TabType, options?: DashboardNavigationOptions) => void;
   onQuickAddTransaction: (type: 'income' | 'expense') => void;
   onAddTransaction?: (transaction: Omit<Transaction, 'id' | 'createdAt'> & { id?: string }) => void;
   onDeleteTransaction?: (id: string, skipBillRevert?: boolean) => void;
@@ -198,8 +209,20 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </span>
             </div>
 
-            <div className="mt-4">
-              <span className="text-xs text-slate-400 font-medium">Bieżący bilans netto</span>
+            <div
+              id="dashboard-net-balance-card"
+              onClick={() => onNavigate('transactions', { transactionFilter: 'all' })}
+              className="mt-4 p-2.5 -m-2.5 rounded-2xl hover:bg-slate-800/80 cursor-pointer transition-all group/balance"
+              title="Kliknij, aby przejść do wszystkich transakcji"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-slate-400 font-medium flex items-center space-x-1">
+                  <span>Bieżący bilans netto</span>
+                  <span className="text-[10px] text-indigo-300 opacity-0 group-hover/balance:opacity-100 transition-opacity">
+                    (pokaż transakcje →)
+                  </span>
+                </span>
+              </div>
               <p
                 className={`text-3xl sm:text-4xl font-black tracking-tight mt-0.5 ${
                   balance >= 0 ? 'text-emerald-400' : 'text-rose-400'
@@ -213,23 +236,35 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
           <div className="mt-6 pt-4 border-t border-slate-800">
             <div className="grid grid-cols-2 gap-4">
-              <div>
-                <span className="text-xs text-slate-400 flex items-center space-x-1">
+              <div
+                id="dashboard-income-card"
+                onClick={() => onNavigate('transactions', { transactionFilter: 'income' })}
+                className="p-2 -m-2 rounded-xl hover:bg-slate-800/80 cursor-pointer transition-all group/inc active:scale-98"
+                title="Kliknij, aby przejść do transakcji z filtrem: tylko wpłaty i dochody"
+              >
+                <span className="text-xs text-slate-400 flex items-center space-x-1 group-hover/inc:text-emerald-300 transition-colors">
                   <ArrowDownRight className="w-3.5 h-3.5 text-emerald-400" />
                   <span>Wpłaty & Dochody</span>
                 </span>
-                <p className="text-lg font-bold text-emerald-400 mt-0.5">
-                  +{totalIncome.toFixed(2)} zł
+                <p className="text-lg font-bold text-emerald-400 mt-0.5 flex items-center justify-between">
+                  <span>+{totalIncome.toFixed(2)} zł</span>
+                  <span className="text-[11px] text-slate-500 group-hover/inc:text-slate-300 transition-colors">→</span>
                 </p>
               </div>
 
-              <div>
-                <span className="text-xs text-slate-400 flex items-center space-x-1">
+              <div
+                id="dashboard-expense-card"
+                onClick={() => onNavigate('transactions', { transactionFilter: 'expense' })}
+                className="p-2 -m-2 rounded-xl hover:bg-slate-800/80 cursor-pointer transition-all group/exp active:scale-98"
+                title="Kliknij, aby przejść do transakcji z filtrem: tylko wydatki"
+              >
+                <span className="text-xs text-slate-400 flex items-center space-x-1 group-hover/exp:text-rose-300 transition-colors">
                   <ArrowUpRight className="w-3.5 h-3.5 text-rose-400" />
                   <span>Wydatki łączne</span>
                 </span>
-                <p className="text-lg font-bold text-rose-400 mt-0.5">
-                  -{totalExpense.toFixed(2)} zł
+                <p className="text-lg font-bold text-rose-400 mt-0.5 flex items-center justify-between">
+                  <span>-{totalExpense.toFixed(2)} zł</span>
+                  <span className="text-[11px] text-slate-500 group-hover/exp:text-slate-300 transition-colors">→</span>
                 </p>
               </div>
             </div>
@@ -308,23 +343,38 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
       {/* 2. Upcoming Bills Alert Strip */}
       {upcomingBills.length > 0 && (
-        <div className="bg-amber-50/70 border border-amber-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
+        <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
           <div className="flex items-start space-x-3">
             <div className="p-2 rounded-xl bg-amber-100 text-amber-800 flex-shrink-0 mt-0.5 border border-amber-200">
               <Clock className="w-4 h-4" />
             </div>
             <div>
-              <h4 className="text-sm font-bold text-amber-950">
-                Zbliżające się terminy płatności rachunków ({upcomingBills.length})
-              </h4>
-              <div className="flex flex-wrap gap-2 mt-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <h4 className="text-sm font-bold text-amber-950">
+                  Zbliżające się terminy płatności rachunków ({upcomingBills.length})
+                </h4>
+                <span className="text-[11px] font-semibold text-amber-800 bg-amber-100/90 px-2 py-0.5 rounded-md">
+                  Kliknij rachunek, aby od razu go opłacić
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2 mt-2">
                 {upcomingBills.map((b) => (
-                  <span
+                  <button
                     key={b.id}
-                    className="text-xs font-medium px-2.5 py-1 bg-white rounded-lg border border-amber-200 text-slate-800 shadow-2xs"
+                    onClick={() => onNavigate('bills', { payBillId: b.id })}
+                    className="flex items-center space-x-2 text-xs font-medium px-3 py-1.5 bg-white hover:bg-amber-100/80 rounded-xl border border-amber-300 text-slate-800 shadow-2xs transition-all cursor-pointer group active:scale-95 text-left"
+                    title={`Kliknij, aby natychmiast przejść do opłacenia rachunku: ${b.name}`}
                   >
-                    <strong>{b.name}</strong>: {b.amount.toFixed(2)} zł (Termin: {b.dueDate})
-                  </span>
+                    <div>
+                      <strong className="text-slate-900 font-bold group-hover:text-amber-950">{b.name}</strong>
+                      <span className="text-slate-700 ml-1 font-semibold">{b.amount.toFixed(2)} zł</span>
+                      <span className="text-[10px] text-slate-400 block sm:inline sm:ml-1">Termin: {b.dueDate}</span>
+                    </div>
+                    <span className="px-2 py-0.5 bg-emerald-600 group-hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold shrink-0 flex items-center space-x-1 shadow-2xs transition-colors ml-1">
+                      <CreditCard className="w-3 h-3" />
+                      <span>Opłać</span>
+                    </span>
+                  </button>
                 ))}
               </div>
             </div>
@@ -334,7 +384,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             onClick={() => onNavigate('bills')}
             className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl transition-colors whitespace-nowrap shadow-xs"
           >
-            Przejdź do rachunków →
+            Wszystkie rachunki →
           </button>
         </div>
       )}
@@ -482,9 +532,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
               const percent = limit.monthlyLimit > 0 ? (spent / limit.monthlyLimit) * 100 : 0;
 
               return (
-                <div key={limit.id} className="space-y-1.5">
+                <div
+                  key={limit.id}
+                  onClick={() => onNavigate('limits', { limitCategory: limit.category })}
+                  className="space-y-1.5 p-2 -m-2 rounded-xl hover:bg-slate-50 cursor-pointer transition-colors group"
+                  title={`Kliknij, aby przejść do limitu dla kategorii: ${limit.category}`}
+                >
                   <div className="flex items-center justify-between text-xs">
-                    <span className="font-semibold text-slate-800">{limit.category}</span>
+                    <span className="font-semibold text-slate-800 group-hover:text-indigo-600 transition-colors flex items-center space-x-1">
+                      <span>{limit.category}</span>
+                      <span className="text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity">→</span>
+                    </span>
                     <span className="font-bold text-slate-900">
                       {spent.toFixed(0)} / {limit.monthlyLimit.toFixed(0)} zł
                     </span>
@@ -528,13 +586,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 (i) => i.listId === list.id || i.category === list.name || i.category === list.category
               );
               const pending = listItems.filter((i) => !i.isCompleted).length;
-              const completed = listItems.filter((i) => i.isCompleted).length;
               if (listItems.length === 0) return null;
               return (
                 <div
                   key={list.id}
-                  onClick={() => onNavigate('shopping')}
-                  className="p-3 rounded-xl bg-slate-50 hover:bg-slate-100 transition-colors border border-slate-100 cursor-pointer flex items-center justify-between"
+                  onClick={() =>
+                    onNavigate('shopping', {
+                      shoppingCategory: list.name || list.category,
+                      shoppingTab: pending === 0 ? 'completed' : 'active',
+                    })
+                  }
+                  className="p-3 rounded-xl bg-slate-50 hover:bg-indigo-50/60 transition-all border border-slate-100 hover:border-indigo-200 cursor-pointer flex items-center justify-between group active:scale-[0.99]"
+                  title={`Kliknij, aby otworzyć listę "${list.name}" (${pending === 0 ? 'zakładka: Kupione' : 'zakładka: Do kupienia'})`}
                 >
                   <div className="flex items-center space-x-2.5">
                     <span
@@ -542,13 +605,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       style={{ backgroundColor: list.color || '#4f46e5' }}
                     />
                     <div>
-                      <h4 className="text-xs font-bold text-slate-900">{list.name}</h4>
+                      <h4 className="text-xs font-bold text-slate-900 group-hover:text-indigo-900 transition-colors">
+                        {list.name}
+                      </h4>
                       <p className="text-[10px] text-slate-400">{list.category}</p>
                     </div>
                   </div>
 
-                  <span className={`text-xs font-semibold ${pending === 0 ? 'text-emerald-700 font-bold' : 'text-slate-600'}`}>
-                    {pending === 0 ? 'Wszystko kupione' : `${pending} do kupienia`}
+                  <span className={`text-xs font-semibold ${pending === 0 ? 'text-emerald-700 font-bold' : 'text-slate-600 group-hover:text-indigo-700'}`}>
+                    {pending === 0 ? 'Wszystko kupione' : `${pending} do kupienia →`}
                   </span>
                 </div>
               );
@@ -577,20 +642,33 @@ export const Dashboard: React.FC<DashboardProps> = ({
               return (
                 <div
                   key={item.id}
-                  className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-xs"
+                  onClick={() =>
+                    onNavigate('transactions', {
+                      selectedTxId: item.id,
+                      transactionSearch: item.title,
+                      transactionFilter: item.type,
+                    })
+                  }
+                  className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-100 hover:border-slate-300 text-xs cursor-pointer transition-all active:scale-[0.99] group"
+                  title="Kliknij, aby przejść do tej transakcji"
                 >
                   <div className="min-w-0 pr-2">
-                    <p className="font-semibold text-slate-900 truncate">{item.title}</p>
+                    <p className="font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors truncate">
+                      {item.title}
+                    </p>
                     <span className="text-[10px] text-slate-400">{item.date} • {item.category}</span>
                   </div>
-                  <span
-                    className={`font-black whitespace-nowrap ${
-                      isIncome ? 'text-emerald-600' : 'text-rose-600'
-                    }`}
-                  >
-                    {isIncome ? '+' : '-'}
-                    {item.amount.toFixed(2)} zł
-                  </span>
+                  <div className="text-right shrink-0">
+                    <span
+                      className={`font-black whitespace-nowrap block ${
+                        isIncome ? 'text-emerald-600' : 'text-rose-600'
+                      }`}
+                    >
+                      {isIncome ? '+' : '-'}
+                      {item.amount.toFixed(2)} zł
+                    </span>
+                    <span className="text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity">szczegóły →</span>
+                  </div>
                 </div>
               );
             })}

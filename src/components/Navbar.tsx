@@ -55,6 +55,18 @@ interface NavbarProps {
   onClearNotifications?: () => void;
   onMarkNotificationRead?: (id: string) => void;
   onLogout?: () => void;
+  onNavigate?: (
+    tab: TabType,
+    options?: {
+      transactionFilter?: 'all' | 'income' | 'expense';
+      transactionSearch?: string;
+      selectedTxId?: string;
+      payBillId?: string;
+      shoppingCategory?: string;
+      shoppingTab?: 'active' | 'completed';
+      limitCategory?: string;
+    }
+  ) => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -80,6 +92,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onClearNotifications,
   onMarkNotificationRead,
   onLogout,
+  onNavigate,
 }) => {
   const [isActionMenuOpen, setIsActionMenuOpen] = useState(false);
   const [showMobileMoreMenu, setShowMobileMoreMenu] = useState(false);
@@ -88,6 +101,68 @@ export const Navbar: React.FC<NavbarProps> = ({
   // Połącz powiadomienia o aktywnościach z automatycznymi alertami (rachunki, limity)
   const allNotifications = generateAutomatedNotifications(bills, transactions, budgetLimits, notifications);
   const activeNotifications = allNotifications.filter((n) => !dismissedIds.includes(n.id));
+
+  const handleNotificationClick = (notif: AppNotification) => {
+    if (onMarkNotificationRead) {
+      onMarkNotificationRead(notif.id);
+    }
+    setIsActionMenuOpen(false);
+
+    if (onNavigate) {
+      if (notif.type === 'bill_due' || notif.type === 'bill_overdue') {
+        onNavigate('bills', { payBillId: notif.relatedId });
+      } else if (notif.type === 'budget_warning' || notif.type === 'budget_exceeded') {
+        onNavigate('limits', { limitCategory: notif.relatedId });
+      } else if (notif.type === 'activity') {
+        const text = `${notif.title} ${notif.message}`.toLowerCase();
+        if (text.includes('rachun') || text.includes('opłat') || notif.relatedId?.startsWith('bill-')) {
+          onNavigate('bills', { payBillId: notif.relatedId });
+        } else if (
+          text.includes('zakup') ||
+          text.includes('artykuł') ||
+          text.includes('list') ||
+          text.includes('koszyk') ||
+          text.includes('produkt') ||
+          notif.relatedId?.startsWith('shop-') ||
+          notif.relatedId?.startsWith('list-')
+        ) {
+          const isCompletedItem = text.includes('kupiono') || text.includes('zrobiono zakupy');
+          onNavigate('shopping', {
+            shoppingCategory: notif.relatedId,
+            shoppingTab: isCompletedItem ? 'completed' : 'active',
+          });
+        } else if (text.includes('limit') || text.includes('budżet') || notif.relatedId?.startsWith('limit-')) {
+          onNavigate('limits', { limitCategory: notif.relatedId });
+        } else if (
+          text.includes('paragon') ||
+          text.includes('transakcj') ||
+          text.includes('wpłat') ||
+          text.includes('wydatek') ||
+          text.includes('dochód') ||
+          text.includes('przychód') ||
+          notif.relatedId?.startsWith('tx-')
+        ) {
+          const isIncome = text.includes('wpłat') || text.includes('dochód') || text.includes('przychód');
+          onNavigate('transactions', {
+            transactionFilter: isIncome ? 'income' : 'expense',
+            selectedTxId: notif.relatedId,
+          });
+        } else {
+          onNavigate('dashboard');
+        }
+      } else {
+        onNavigate('dashboard');
+      }
+    } else {
+      if (notif.type === 'bill_due' || notif.type === 'bill_overdue') {
+        onTabChange('bills');
+      } else if (notif.type === 'budget_warning' || notif.type === 'budget_exceeded') {
+        onTabChange('limits');
+      } else {
+        onTabChange('dashboard');
+      }
+    }
+  };
   const unreadCount = activeNotifications.filter((n) => !n.read).length;
 
   const handleClearAll = () => {
@@ -387,12 +462,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                             return (
                               <div
                                 key={notif.id}
-                                onClick={() => onMarkNotificationRead && onMarkNotificationRead(notif.id)}
-                                className={`p-2.5 rounded-xl border transition-colors flex items-start space-x-2.5 cursor-pointer ${
+                                onClick={() => handleNotificationClick(notif)}
+                                className={`p-2.5 rounded-xl border transition-all flex items-start space-x-2.5 cursor-pointer group hover:scale-[1.01] active:scale-[0.99] ${
                                   notif.read
-                                    ? 'bg-white border-slate-100 opacity-75 hover:bg-slate-50'
-                                    : 'bg-indigo-50/30 border-indigo-100/60 hover:bg-indigo-50/60'
+                                    ? 'bg-white border-slate-100 opacity-75 hover:bg-slate-50 hover:border-slate-200'
+                                    : 'bg-indigo-50/30 border-indigo-100/60 hover:bg-indigo-50/70 hover:border-indigo-200'
                                 }`}
+                                title="Kliknij, aby przejść do powiązanego miejsca w aplikacji"
                               >
                                 <div className="mt-0.5 flex-shrink-0">
                                   {notif.type === 'bill_overdue' || notif.type === 'budget_exceeded' ? (
@@ -411,7 +487,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center justify-between gap-1">
-                                    <p className="text-[11px] font-bold text-slate-900 leading-tight truncate">
+                                    <p className="text-[11px] font-bold text-slate-900 leading-tight truncate group-hover:text-indigo-600 transition-colors">
                                       {notif.title}
                                     </p>
                                     <span className="text-[9px] text-slate-400 whitespace-nowrap flex-shrink-0">
@@ -421,11 +497,18 @@ export const Navbar: React.FC<NavbarProps> = ({
                                   <p className="text-[11px] text-slate-600 leading-snug mt-0.5 line-clamp-2">
                                     {notif.message}
                                   </p>
-                                  {notif.authorName && (
-                                    <span className="inline-block mt-1 text-[9px] font-semibold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded-md">
-                                      👤 {notif.authorName}
+                                  <div className="flex items-center justify-between mt-1">
+                                    {notif.authorName ? (
+                                      <span className="inline-block text-[9px] font-semibold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded-md">
+                                        👤 {notif.authorName}
+                                      </span>
+                                    ) : (
+                                      <span />
+                                    )}
+                                    <span className="text-[9px] font-semibold text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      przejdź →
                                     </span>
-                                  )}
+                                  </div>
                                 </div>
                               </div>
                             );
@@ -548,7 +631,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                             <span className="truncate">Opis wersji & UX • Autor: bobEKam</span>
                           </div>
                           <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-md border border-indigo-200/60">
-                            v2.5.0
+                            v2.6.10
                           </span>
                         </button>
                       </div>

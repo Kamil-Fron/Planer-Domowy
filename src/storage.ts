@@ -7,6 +7,7 @@ import {
   AppNotification,
   Household,
   UserProfile,
+  MortgageLoan,
 } from './types';
 import {
   INITIAL_TRANSACTIONS,
@@ -27,7 +28,10 @@ const KEYS = {
   HOUSEHOLD: 'budget_planner_household_v1',
   USER_PROFILE: 'budget_planner_user_v1',
   SNAPSHOTS: 'budget_planner_snapshots_history_v1',
+  MORTGAGES: 'budget_planner_mortgages_v1',
 };
+
+export const INITIAL_MORTGAGES: MortgageLoan[] = [];
 
 export interface DataSnapshot {
   id: string;
@@ -261,6 +265,15 @@ export const saveHousehold = (data: Household | null): void => setItemSafe(KEYS.
 export const loadUserProfile = (): UserProfile => getItemSafe<UserProfile>(KEYS.USER_PROFILE, DEFAULT_USER);
 export const saveUserProfile = (data: UserProfile): void => setItemSafe(KEYS.USER_PROFILE, data);
 
+export const loadMortgages = (): MortgageLoan[] => {
+  const list = getItemSafe<MortgageLoan[]>(KEYS.MORTGAGES, INITIAL_MORTGAGES);
+  if (!Array.isArray(list)) {
+    return [];
+  }
+  return list;
+};
+export const saveMortgages = (data: MortgageLoan[]): void => setItemSafe(KEYS.MORTGAGES, data);
+
 export const Storage = {
   getTransactions: loadTransactions,
   saveTransactions,
@@ -274,6 +287,8 @@ export const Storage = {
   saveBudgetLimits,
   getNotifications: loadNotifications,
   saveNotifications,
+  getMortgages: loadMortgages,
+  saveMortgages,
   getPushEnabled: loadPushSetting,
   setPushEnabled: savePushSetting,
   resetAll(): void {
@@ -284,5 +299,6 @@ export const Storage = {
     localStorage.removeItem(KEYS.BUDGET_LIMITS);
     localStorage.removeItem(KEYS.NOTIFICATIONS);
     localStorage.removeItem(KEYS.PUSH_ENABLED);
+    localStorage.removeItem(KEYS.MORTGAGES);
   },
 };

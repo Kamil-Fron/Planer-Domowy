@@ -1,12 +1,13 @@
 export type TransactionType = 'expense' | 'income';
 
-export type TabType = 'dashboard' | 'scanner' | 'shopping' | 'bills' | 'transactions' | 'limits' | 'reports';
+export type TabType = 'dashboard' | 'scanner' | 'shopping' | 'bills' | 'transactions' | 'limits' | 'reports' | 'mortgage';
 
 export type ExpenseCategory =
   | 'Jedzenie i artykuły spożywcze'
   | 'Remont i dom'
   | 'Dla kotów i zwierząt'
   | 'Rachunki i media'
+  | 'Kredyty i pożyczki'
   | 'Zdrowie i kosmetyki'
   | 'Transport i paliwo'
   | 'Rozrywka i hobby'
@@ -52,6 +53,10 @@ export interface Transaction {
   billId?: string; // ID powiązanego rachunku
   billPaymentHistoryId?: string; // ID powiązanego wpisu w historii rachunku
   billPeriodDueDate?: string; // Termin płatności cyklu, którego dotyczy ta transakcja
+  mortgageId?: string; // ID powiązanego kredytu
+  mortgagePaymentType?: 'regular' | 'overpayment'; // Typ wpłaty: rata standardowa lub nadpłata
+  principalAmount?: number; // Kwota spłaconego kapitału (pomniejszająca saldo zadłużenia)
+  interestAmount?: number; // Kwota odsetek bankowych
   isBalanceRollover?: boolean; // Flaga: transakcja przesunięcia bilansu z innego miesiąca
   rolloverFromMonth?: string; // Miesiąc źródłowy (YYYY-MM), z którego przesunięto bilans
   rolloverToMonth?: string; // Miesiąc docelowy (YYYY-MM), na który przesunięto bilans
@@ -210,3 +215,38 @@ export interface UserProfile {
   householdId?: string;
   isLoggedIn: boolean;
 }
+
+export interface MortgagePaymentRecord {
+  id: string;
+  date: string; // YYYY-MM-DD
+  type: 'regular' | 'overpayment'; // rata standardowa lub nadpłata
+  totalAmount: number; // łączna kwota płatności
+  principalAmount: number; // część kapitałowa (zmniejsza saldo zadłużenia)
+  interestAmount: number; // część odsetkowa (koszt banku)
+  remainingPrincipalAfter: number; // kapitał pozostały do spłaty po tej transakcji
+  notes?: string;
+  transactionId?: string; // powiązana transakcja w budżecie
+  isGracePeriod?: boolean; // czy płatność w okresie karencji (100% odsetki, 0 zł kapitału)
+}
+
+export interface MortgageLoan {
+  id: string;
+  name: string; // np. "Kredyt hipoteczny - Mieszkanie"
+  bankName: string; // np. "PKO Bank Polski", "mBank", "Santander", "ING"
+  totalLoanAmount: number; // Całkowita pierwotna kwota kredytu (np. 409 000 zł)
+  remainingPrincipal: number; // Aktualny pozostały kapitał do spłaty (np. 403 000 zł)
+  initialPaidPrincipal: number; // Spłacony kapitał przed wdrożeniem do aplikacji (np. 6 000 zł)
+  monthlyPayment: number; // Aktualna rata miesięczna (np. 2 800 zł)
+  interestRate: number; // Oprocentowanie roczne w % (np. 7.45%)
+  loanTermYears: number; // Okres w latach (np. 29 lat)
+  startDate: string; // Data uruchomienia kredytu (YYYY-MM-DD)
+  repaymentStartDate?: string; // Data rozpoczęcia spłaty rat (YYYY-MM-DD)
+  gracePeriodMonths?: number; // Okres karencji w spłacie kapitału (w miesiącach)
+  gracePeriodEndDate?: string; // Data zakończenia karencji (YYYY-MM-DD)
+  paymentDayOfMonth: number; // Dzień miesiąca płatności raty (np. 10)
+  rateType: 'equal' | 'decreasing'; // równe (annuitetowe) lub malejące
+  wiborOrMarginNotes?: string; // np. "WIBOR 3M + 1.85% marża banku"
+  paymentsHistory: MortgagePaymentRecord[];
+  createdAt: string;
+}
+

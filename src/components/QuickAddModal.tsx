@@ -30,12 +30,18 @@ import {
   recordShoppingItemUsage,
   SmartSuggestionItem,
 } from '../utils/frequentShoppingItems';
+import {
+  getSmartTransactionSuggestions,
+  recordTransactionUsage,
+  SmartTransactionSuggestion,
+} from '../utils/frequentTransactions';
 
 interface QuickAddModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAddTransaction: (transaction: Omit<Transaction, 'id' | 'createdAt'>) => void;
   onAddShoppingItem?: (item: Omit<ShoppingItem, 'id' | 'createdAt'>) => void;
+  transactions?: Transaction[];
   shoppingLists?: ShoppingList[];
   shoppingItems?: ShoppingItem[];
   onOpenScanner: () => void;
@@ -111,6 +117,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
   onClose,
   onAddTransaction,
   onAddShoppingItem,
+  transactions = [],
   shoppingLists = [],
   shoppingItems = [],
   onOpenScanner,
@@ -142,6 +149,11 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
     return getSmartShoppingSuggestions(shoppingItems, '');
   }, [shoppingItems, isOpen]);
 
+  // Dynamic smart suggestions for transactions based on frequency and history
+  const dynamicTransactionSuggestions = useMemo(() => {
+    return getSmartTransactionSuggestions(transactions, type, title, 8);
+  }, [transactions, type, title, isOpen]);
+
   // Focus appropriate input on open or tab change
   useEffect(() => {
     if (isOpen) {
@@ -168,9 +180,12 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
     }
   };
 
-  const handleApplySuggestion = (sug: SmartSuggestion) => {
-    setTitle(sug.label);
+  const handleApplyTxSuggestion = (sug: SmartTransactionSuggestion) => {
+    setTitle(sug.title);
     setCategory(sug.category);
+    if (sug.typicalAmount && (!amount || amount === '0' || amount === '')) {
+      setAmount(sug.typicalAmount.toFixed(2).replace('.00', ''));
+    }
     amountInputRef.current?.focus();
   };
 
@@ -213,6 +228,9 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
     };
 
     onAddTransaction(newTxData);
+
+    // Record usage for dynamic smart suggestions
+    recordTransactionUsage(finalTitle, category, type, cleanAmount);
 
     if (onSuccessFeedback) {
       onSuccessFeedback(finalTitle, cleanAmount, type);
@@ -471,31 +489,51 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
               </div>
             </div>
 
-            {/* Smart 1-Tap Category Suggestions */}
+            {/* Dynamic Smart Transaction Suggestions */}
             <div>
-              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5 flex items-center justify-between">
-                <span>Szybkie szablony wpisów</span>
-                <span className="text-[10px] text-slate-400 font-normal">1-klik wypełnia</span>
-              </span>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-                {currentSuggestions.map((sug, idx) => {
-                  const Icon = sug.icon;
-                  return (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => handleApplySuggestion(sug)}
-                      className="flex items-center space-x-1.5 p-2 rounded-xl border border-slate-100 bg-slate-50/80 hover:bg-indigo-50 hover:border-indigo-200 text-left transition-all active:scale-95 group"
-                    >
-                      <span className="p-1 rounded-lg bg-white shadow-2xs group-hover:bg-indigo-600 group-hover:text-white transition-colors text-slate-600">
-                        <Icon className="w-3.5 h-3.5" />
-                      </span>
-                      <span className="text-xs font-semibold text-slate-700 group-hover:text-indigo-900 truncate">
-                        {sug.label}
-                      </span>
-                    </button>
-                  );
-                })}
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center space-x-1">
+                  <Sparkles className="w-3 h-3 text-amber-500" />
+                  <span>Często wybierane & sugestie ({type === 'expense' ? 'wydatki' : 'wpływy'})</span>
+                </span>
+                <span className="text-[10px] text-slate-400 font-normal">
+                  uczy się z Twojej historii
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                {dynamicTransactionSuggestions.map((sug, idx) => (
+                  <button
+                    key={`${sug.title}-${idx}`}
+                    type="button"
+                    onClick={() => handleApplyTxSuggestion(sug)}
+                    className="flex items-center space-x-1.5 p-2 rounded-xl border border-slate-100 bg-slate-50/90 hover:bg-indigo-50 hover:border-indigo-200 text-left transition-all active:scale-95 group overflow-hidden"
+                    title={`${sug.title} (${sug.category})${sug.typicalAmount ? ` • ~${sug.typicalAmount} zł` : ''}`}
+                  >
+                    <span className="text-base p-1 rounded-lg bg-white shadow-2xs group-hover:scale-110 transition-transform shrink-0">
+                      {sug.emoji}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-xs font-bold text-slate-800 group-hover:text-indigo-900 truncate block">
+                          {sug.title}
+                        </span>
+                        {sug.count > 1 && (
+                          <span className="text-[9px] font-extrabold text-indigo-600 bg-indigo-50 border border-indigo-100 px-1 rounded-sm shrink-0">
+                            x{sug.count}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] text-slate-400 truncate">
+                        <span className="truncate">{sug.category.split(' ')[0]}</span>
+                        {sug.typicalAmount ? (
+                          <span className="font-bold text-slate-700 shrink-0 ml-1">
+                            {sug.typicalAmount} zł
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                  </button>
+                ))}
               </div>
             </div>
 

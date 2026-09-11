@@ -49,10 +49,10 @@ export const VersionInfoModal: React.FC<VersionInfoModalProps> = ({ isOpen, onCl
               </h2>
               <div className="flex items-center space-x-2 text-xs text-slate-500 font-medium">
                 <span className="bg-indigo-100 text-indigo-800 font-bold px-2 py-0.5 rounded-md">
-                  Wersja v2.6.10
+                  Wersja v2.6.11
                 </span>
                 <span>•</span>
-                <span>Deep Linking & Filter Fixes Edition</span>
+                <span>Mortgage Suite & Dashboard Integration</span>
               </div>
             </div>
           </div>
@@ -128,46 +128,46 @@ export const VersionInfoModal: React.FC<VersionInfoModalProps> = ({ isOpen, onCl
           <div>
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center space-x-1.5">
               <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Opis Wersji: v2.6.10 (Poprawki Nawigacji, Powiadomień i Szybkich Zakupów)</span>
+              <span>Opis Wersji: v2.6.11 (Kredyt Hipoteczny, Karencja & Podsumowanie na Pulpicie)</span>
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-2xs">
                 <div className="flex items-center space-x-2 mb-1.5 font-bold text-slate-900 text-xs">
-                  <Zap className="w-4 h-4 text-amber-500" />
-                  <span>Szybki Wpis: Czysty Tytuł & Kategoria</span>
+                  <Layers className="w-4 h-4 text-indigo-600" />
+                  <span>Podsumowanie Kredytu na Pulpicie</span>
                 </div>
                 <p className="text-xs text-slate-600">
-                  Uproszczony do maksimum formularz szybkiego dodawania artykułów (tylko nazwa i kategoria, bez ilości czy cen). Wszelkie szczegóły wpisujemy w tytule!
+                  Sekcja kredytu hipotecznego trafiła na pulpit poniżej ostatnich transakcji, a przed limitami wydatków. Szybkie akcje zostały uporządkowane.
                 </p>
               </div>
 
               <div className="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-2xs">
                 <div className="flex items-center space-x-2 mb-1.5 font-bold text-slate-900 text-xs">
-                  <Compass className="w-4 h-4 text-indigo-500" />
-                  <span>Powiadomienia Przenoszą do Celu</span>
+                  <Zap className="w-4 h-4 text-amber-500" />
+                  <span>Okres Karencji & Data Rozpoczęcia</span>
                 </div>
                 <p className="text-xs text-slate-600">
-                  Kliknięcie w alert o rachunku otwiera okno jego opłacenia, powiadomienia budżetowe kierują do limitów, a powiadomienia o aktywności do właściwych sekcji.
+                  Wprowadzono datę rozpoczęcia spłaty oraz obsługę okresu karencji – w czasie karencji 100% raty idzie na odsetki, a kapitał nie ulega zmniejszeniu.
                 </p>
               </div>
 
               <div className="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-2xs">
                 <div className="flex items-center space-x-2 mb-1.5 font-bold text-slate-900 text-xs">
                   <Receipt className="w-4 h-4 text-emerald-500" />
-                  <span>Pulpit: Filtry Wpłat & Wydatków</span>
+                  <span>Spójne Usuwanie Spłat i Transakcji</span>
                 </div>
                 <p className="text-xs text-slate-600">
-                  Kliknięcie w „Wpływy & dochody” lub „Wydatki łączne” na pulpicie natychmiast przenosi do transakcji z aktywowanym filtrem odpowiedniego typu.
+                  Usunięcie spłaty z historii kredytu automatycznie kasuje powiązaną z nią transakcję budżetową, dzięki czemu saldo zawsze pozostaje dokładne.
                 </p>
               </div>
 
               <div className="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-2xs">
                 <div className="flex items-center space-x-2 mb-1.5 font-bold text-slate-900 text-xs">
                   <ShieldCheck className="w-4 h-4 text-blue-500" />
-                  <span>Kupione Listy Zakupów na Pulpicie</span>
+                  <span>Czysty Start dla Nowych Użytkowników</span>
                 </div>
                 <p className="text-xs text-slate-600">
-                  Kliknięcie w listę z pulpitu, w której wszystko zostało kupione, przełącza widok list zakupów prosto na zakładkę „Kupione” z aktywnym filtrem kategorii.
+                  Dla nowych użytkowników baza kredytów jest pusta i gotowa do wpisania własnego kredytu od zera z przejrzystym kreatorem.
                 </p>
               </div>
             </div>

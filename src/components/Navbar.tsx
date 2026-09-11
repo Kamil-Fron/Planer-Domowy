@@ -27,6 +27,7 @@ import {
   LogOut,
   Sparkles,
   Info,
+  Landmark,
 } from 'lucide-react';
 import { Bill, BudgetLimit, TabType, Transaction, Household, UserProfile, AppNotification } from '../types';
 import { generateAutomatedNotifications } from '../utils/notifications';
@@ -179,6 +180,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'bills', label: 'Rachunki Domowe', icon: Zap },
     { id: 'transactions', label: 'Transakcje', icon: ArrowLeftRight },
     { id: 'limits', label: 'Limity Budżetu', icon: Target },
+    { id: 'mortgage', label: 'Kredyt Hipoteczny', icon: Landmark },
     { id: 'reports', label: 'Wykresy & Raporty', icon: BarChart3 },
   ];
 
@@ -753,6 +755,18 @@ export const Navbar: React.FC<NavbarProps> = ({
                 >
                   <Target className="w-4 h-4 text-indigo-600" />
                   <span>Limity Budżetu</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setShowMobileMoreMenu(false);
+                    onTabChange('mortgage');
+                  }}
+                  className={`w-full text-left px-3.5 py-2.5 text-xs flex items-center space-x-2 font-semibold ${
+                    activeTab === 'mortgage' ? 'text-indigo-600 bg-indigo-50' : 'text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  <Landmark className="w-4 h-4 text-indigo-600" />
+                  <span>Kredyt Hipoteczny</span>
                 </button>
                 <button
                   onClick={() => {

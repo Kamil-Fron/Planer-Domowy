@@ -22,6 +22,7 @@ import {
   DollarSign,
   Layers,
   ArrowLeftRight,
+  Landmark,
   CreditCard,
 } from 'lucide-react';
 import {
@@ -31,6 +32,7 @@ import {
   ShoppingList,
   ShoppingItem,
   TabType,
+  MortgageLoan,
 } from '../types';
 import { INITIAL_CATEGORIES } from '../mockData';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip } from 'recharts';
@@ -54,6 +56,7 @@ interface DashboardProps {
   budgetLimits: BudgetLimit[];
   shoppingLists: ShoppingList[];
   shoppingItems: ShoppingItem[];
+  mortgages?: MortgageLoan[];
   selectedMonth: string;
   onNavigate: (tab: TabType, options?: DashboardNavigationOptions) => void;
   onQuickAddTransaction: (type: 'income' | 'expense') => void;
@@ -77,6 +80,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   budgetLimits,
   shoppingLists,
   shoppingItems,
+  mortgages = [],
   selectedMonth,
   onNavigate,
   onQuickAddTransaction,
@@ -160,6 +164,29 @@ export const Dashboard: React.FC<DashboardProps> = ({
       setLoadingAdvice(false);
     }
   };
+
+  // Mortgage primary loan calculations for dashboard summary
+  const primaryLoan = mortgages[0];
+  const loanTotalAmount = primaryLoan?.totalLoanAmount || 0;
+  const loanRemainingPrincipal = primaryLoan?.remainingPrincipal || 0;
+  const loanInitialPaid = primaryLoan?.initialPaidPrincipal || 0;
+  const loanHistoryPaid = (primaryLoan?.paymentsHistory || []).reduce((sum, p) => sum + (p.principalAmount || 0), 0);
+  const loanTotalPaid = loanInitialPaid + loanHistoryPaid;
+  const loanPaidPercent = loanTotalAmount > 0 ? (loanTotalPaid / loanTotalAmount) * 100 : 0;
+  const loanRate = primaryLoan?.interestRate || 7.45;
+  const loanInterestAmt = loanRemainingPrincipal * (loanRate / 100 / 12);
+  const loanPrincipalAmt = Math.max(0, (primaryLoan?.monthlyPayment || 0) - loanInterestAmt);
+
+  const isLoanInGrace = primaryLoan ? (
+    (primaryLoan.gracePeriodEndDate && new Date().toISOString().split('T')[0] <= primaryLoan.gracePeriodEndDate) ||
+    (primaryLoan.gracePeriodMonths && primaryLoan.gracePeriodMonths > 0 && primaryLoan.startDate ? (
+      (() => {
+        const d = new Date(primaryLoan.startDate);
+        d.setMonth(d.getMonth() + (primaryLoan.gracePeriodMonths || 0));
+        return new Date() <= d;
+      })()
+    ) : false)
+  ) : false;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
@@ -300,7 +327,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
             <button
               onClick={() => onNavigate('scanner')}
-              className="p-3.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-900 border border-slate-200 text-left transition-all flex flex-col justify-between group"
+              className="p-3.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-900 border border-slate-200 text-left transition-all flex flex-col justify-between group cursor-pointer"
             >
               <div className="p-2 rounded-lg bg-indigo-600 text-white w-fit group-hover:scale-105 transition-transform">
                 <Receipt className="w-4 h-4" />
@@ -320,7 +347,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
             <button
               onClick={() => onNavigate('shopping')}
-              className="p-3.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-900 border border-slate-200 text-left transition-all flex flex-col justify-between group"
+              className="p-3.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-900 border border-slate-200 text-left transition-all flex flex-col justify-between group cursor-pointer"
             >
               <div className="p-2 rounded-lg bg-amber-600 text-white w-fit group-hover:scale-105 transition-transform">
                 <ShoppingCart className="w-4 h-4" />
@@ -330,7 +357,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
             <button
               onClick={() => onNavigate('bills')}
-              className="p-3.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-900 border border-slate-200 text-left transition-all flex flex-col justify-between group"
+              className="p-3.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-900 border border-slate-200 text-left transition-all flex flex-col justify-between group cursor-pointer"
             >
               <div className="p-2 rounded-lg bg-slate-800 text-white w-fit group-hover:scale-105 transition-transform">
                 <Zap className="w-4 h-4" />
@@ -389,7 +416,322 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       )}
 
-      {/* 3. AI Financial Advisor Card */}
+      {/* 3. Grid: Shopping Overview + Recent Transactions */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Col 1: Shopping Lists Quick View */}
+        <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-4">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+            <div className="flex items-center space-x-2">
+              <ShoppingCart className="w-4 h-4 text-slate-500" />
+              <h3 className="font-bold text-sm text-slate-900">Listy Zakupów</h3>
+            </div>
+            <button
+              onClick={() => onNavigate('shopping')}
+              className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 cursor-pointer"
+            >
+              Otwórz koszyk →
+            </button>
+          </div>
+
+          <div className="space-y-2.5">
+            {shoppingLists.map((list) => {
+              const listItems = shoppingItems.filter(
+                (i) => i.listId === list.id || i.category === list.name || i.category === list.category
+              );
+              const pending = listItems.filter((i) => !i.isCompleted).length;
+              if (listItems.length === 0) return null;
+              return (
+                <div
+                  key={list.id}
+                  onClick={() =>
+                    onNavigate('shopping', {
+                      shoppingCategory: list.name || list.category,
+                      shoppingTab: pending === 0 ? 'completed' : 'active',
+                    })
+                  }
+                  className="p-3 rounded-xl bg-slate-50 hover:bg-indigo-50/60 transition-all border border-slate-100 hover:border-indigo-200 cursor-pointer flex items-center justify-between group active:scale-[0.99]"
+                  title={`Kliknij, aby otworzyć listę "${list.name}" (${pending === 0 ? 'zakładka: Kupione' : 'zakładka: Do kupienia'})`}
+                >
+                  <div className="flex items-center space-x-2.5">
+                    <span
+                      className="w-2.5 h-2.5 rounded-full"
+                      style={{ backgroundColor: list.color || '#4f46e5' }}
+                    />
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-900 group-hover:text-indigo-900 transition-colors">
+                        {list.name}
+                      </h4>
+                      <p className="text-[10px] text-slate-400">{list.category}</p>
+                    </div>
+                  </div>
+
+                  <span className={`text-xs font-semibold ${pending === 0 ? 'text-emerald-700 font-bold' : 'text-slate-600 group-hover:text-indigo-700'}`}>
+                    {pending === 0 ? 'Wszystko kupione' : `${pending} do kupienia →`}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Col 2: Recent Transactions Stream */}
+        <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-4">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+            <div className="flex items-center space-x-2">
+              <FileText className="w-4 h-4 text-slate-500" />
+              <h3 className="font-bold text-sm text-slate-900">Ostatnie Transakcje</h3>
+            </div>
+            <button
+              onClick={() => onNavigate('transactions')}
+              className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 cursor-pointer"
+            >
+              Wszystkie ({transactions.length}) →
+            </button>
+          </div>
+
+          <div className="space-y-2.5">
+            {monthTransactions.slice(0, 4).map((item) => {
+              const isIncome = item.type === 'income';
+              return (
+                <div
+                  key={item.id}
+                  onClick={() =>
+                    onNavigate('transactions', {
+                      selectedTxId: item.id,
+                      transactionSearch: item.title,
+                      transactionFilter: item.type,
+                    })
+                  }
+                  className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-100 hover:border-slate-300 text-xs cursor-pointer transition-all active:scale-[0.99] group"
+                  title="Kliknij, aby przejść do tej transakcji"
+                >
+                  <div className="min-w-0 pr-2">
+                    <p className="font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors truncate">
+                      {item.title}
+                    </p>
+                    <span className="text-[10px] text-slate-400">{item.date} • {item.category}</span>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span
+                      className={`font-black whitespace-nowrap block ${
+                        isIncome ? 'text-emerald-600' : 'text-rose-600'
+                      }`}
+                    >
+                      {isIncome ? '+' : '-'}
+                      {item.amount.toFixed(2)} zł
+                    </span>
+                    <span className="text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity">szczegóły →</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* 4. Sekcja Podsumowania Kredytu Hipotecznego (Poniżej ostatnich transakcji, a przed limitami wydatków) */}
+      {primaryLoan ? (
+        <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200 shadow-xs space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+            <div className="flex items-center space-x-3">
+              <div className="p-2.5 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-700">
+                <Landmark className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-bold text-sm sm:text-base text-slate-900">Podsumowanie Kredytu Hipotecznego</h3>
+                  <span className="text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-100 px-2 py-0.5 rounded-md">
+                    {primaryLoan.bankName}
+                  </span>
+                  {isLoanInGrace && (
+                    <span className="text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-md">
+                      Karencja aktywna
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {primaryLoan.name} • Spłata raty: każdego <strong className="text-slate-700">{primaryLoan.paymentDayOfMonth}.</strong> dnia miesiąca
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => onNavigate('mortgage')}
+              className="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50/70 hover:bg-indigo-100/70 px-3.5 py-2 rounded-xl border border-indigo-100 transition-colors flex items-center space-x-1 self-start sm:self-auto cursor-pointer"
+            >
+              <span>Szczegóły & Nadpłaty</span>
+              <span>→</span>
+            </button>
+          </div>
+
+          {/* 3 Metric Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                Pozostały kapitał do spłaty
+              </span>
+              <div className="flex items-baseline space-x-1.5">
+                <span className="text-xl font-black text-rose-600">
+                  {loanRemainingPrincipal.toLocaleString('pl-PL')} zł
+                </span>
+                <span className="text-[11px] text-slate-400">/ {loanTotalAmount.toLocaleString('pl-PL')} zł</span>
+              </div>
+              <div>
+                <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+                  <span>Spłacono: {loanTotalPaid.toLocaleString('pl-PL')} zł</span>
+                  <span className="font-bold text-emerald-600">{loanPaidPercent.toFixed(1)}%</span>
+                </div>
+                <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                  <div
+                    className="h-2 bg-gradient-to-r from-emerald-500 to-indigo-500 rounded-full"
+                    style={{ width: `${Math.min(100, Math.max(1, loanPaidPercent))}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                Bieżąca rata miesięczna
+              </span>
+              <div className="flex items-baseline space-x-1.5">
+                <span className="text-xl font-black text-slate-900">
+                  {primaryLoan.monthlyPayment.toFixed(2)} zł
+                </span>
+                <span className="text-[11px] text-slate-500">/ mies.</span>
+              </div>
+              <div className="text-[11px] text-slate-600 space-y-0.5 pt-0.5">
+                {isLoanInGrace ? (
+                  <div className="text-amber-800 font-bold bg-amber-100/60 px-2 py-0.5 rounded-md border border-amber-200">
+                    Okres karencji: 100% odsetki ({primaryLoan.monthlyPayment.toFixed(2)} zł)
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <span className="text-emerald-700 font-bold">Kapitał: ~{loanPrincipalAmt.toFixed(0)} zł</span>
+                    <span className="text-slate-400">•</span>
+                    <span className="text-rose-700 font-bold">Odsetki: ~{loanInterestAmt.toFixed(0)} zł</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-2 flex flex-col justify-between">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                  Oprocentowanie & Spłaty
+                </span>
+                <div className="flex items-baseline space-x-1.5 mt-1">
+                  <span className="text-xl font-black text-amber-600">
+                    {primaryLoan.interestRate}%
+                  </span>
+                  <span className="text-[11px] text-slate-500">w skali roku ({primaryLoan.loanTermYears} lat)</span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Zarejestrowane wpłaty: <strong className="text-slate-800">{primaryLoan.paymentsHistory.length}</strong>
+                </p>
+              </div>
+              <button
+                onClick={() => onNavigate('mortgage')}
+                className="text-xs font-bold text-indigo-700 hover:text-indigo-900 flex items-center space-x-1 mt-2 group cursor-pointer"
+              >
+                <span>Przejdź do kalkulatora nadpłat i historii</span>
+                <span className="group-hover:translate-x-0.5 transition-transform">→</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-start space-x-3.5">
+            <div className="p-3 rounded-2xl bg-indigo-50 text-indigo-600 border border-indigo-100 shrink-0">
+              <Landmark className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="font-bold text-sm sm:text-base text-slate-900">Kredyt Hipoteczny</h3>
+              <p className="text-xs text-slate-500 mt-0.5 max-w-xl">
+                Monitoruj spłatę kapitału, strukturę rat (kapitał vs odsetki), okres karencji oraz kalkuluj oszczędności z nadpłat kredytu.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => onNavigate('mortgage')}
+            className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors flex items-center space-x-1.5 shrink-0 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Skonfiguruj kredyt hipoteczny</span>
+          </button>
+        </div>
+      )}
+
+      {/* 5. Sekcja Limitów Wydatków (Pomiędzy kredytem a asystentem AI) */}
+      <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200 shadow-xs space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div className="flex items-center space-x-2">
+            <div className="p-2 rounded-lg bg-slate-100 text-slate-700">
+              <Target className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="font-bold text-sm sm:text-base text-slate-900">Limity Wydatków</h3>
+              <p className="text-xs text-slate-500">Miesięczna kontrola budżetu w kluczowych kategoriach.</p>
+            </div>
+          </div>
+          <button
+            onClick={() => onNavigate('limits')}
+            className="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50/70 hover:bg-indigo-100/70 px-3 py-1.5 rounded-xl border border-indigo-100 transition-colors flex items-center space-x-1 cursor-pointer"
+          >
+            <span>Wszystkie limity ({budgetLimits.length})</span>
+            <span>→</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+          {budgetLimits.slice(0, 4).map((limit) => {
+            const spent = monthTransactions
+              .filter((t) => t.category === limit.category && t.type === 'expense')
+              .reduce((s, t) => s + t.amount, 0);
+            const percent = limit.monthlyLimit > 0 ? (spent / limit.monthlyLimit) * 100 : 0;
+
+            return (
+              <div
+                key={limit.id}
+                onClick={() => onNavigate('limits', { limitCategory: limit.category })}
+                className="p-3.5 rounded-xl bg-slate-50 hover:bg-indigo-50/60 border border-slate-100 hover:border-indigo-200 cursor-pointer transition-all space-y-2 group active:scale-[0.99]"
+                title={`Kliknij, aby przejść do limitu dla: ${limit.category}`}
+              >
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-slate-800 group-hover:text-indigo-900 truncate">
+                    {limit.category}
+                  </span>
+                  <span className="font-black text-slate-900 shrink-0">
+                    {spent.toFixed(0)} / {limit.monthlyLimit.toFixed(0)} zł
+                  </span>
+                </div>
+                <div className="w-full bg-slate-200/80 h-2 rounded-full overflow-hidden">
+                  <div
+                    className={`h-2 rounded-full transition-all ${
+                      percent >= 100
+                        ? 'bg-rose-500'
+                        : percent >= 80
+                        ? 'bg-amber-500'
+                        : 'bg-indigo-600'
+                    }`}
+                    style={{ width: `${Math.min(percent, 100)}%` }}
+                  />
+                </div>
+                <div className="flex justify-between items-center text-[10px] text-slate-400">
+                  <span className={percent >= 100 ? 'text-rose-600 font-bold' : percent >= 80 ? 'text-amber-600 font-bold' : ''}>
+                    {percent.toFixed(0)}% wykorzystane
+                  </span>
+                  <span className="opacity-0 group-hover:opacity-100 text-indigo-600 font-semibold transition-opacity">
+                    edytuj →
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 4. AI Financial Advisor Card (At the very end of the dashboard) */}
       <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-xs border border-slate-800">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center space-x-3">
@@ -397,7 +739,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <Sparkles className="w-4 h-4" />
             </span>
             <div>
-              <h3 className="font-bold text-sm sm:text-base text-white">Inteligentny Asystent Finansowy Gemini AI</h3>
+              <h3 className="font-bold text-sm sm:text-base text-white">Asystent finansowy AI</h3>
               <p className="text-xs text-slate-400 mt-0.5">
                 Automatycznie analizuje wydatki, rachunki i limity, sugerując oszczędności na podstawie danych.
               </p>
@@ -505,175 +847,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <p className="whitespace-pre-line">{aiAdvice}</p>
           </div>
         )}
-      </div>
-
-      {/* 4. Grid: Category Limits + Shopping Overview + Recent Transactions */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Col: Budget Limits Quick View */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-4">
-          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-            <div className="flex items-center space-x-2">
-              <Target className="w-4 h-4 text-slate-500" />
-              <h3 className="font-bold text-sm text-slate-900">Limity Wydatków</h3>
-            </div>
-            <button
-              onClick={() => onNavigate('limits')}
-              className="text-xs font-semibold text-indigo-600 hover:text-indigo-700"
-            >
-              Wszystkie →
-            </button>
-          </div>
-
-          <div className="space-y-3">
-            {budgetLimits.slice(0, 4).map((limit) => {
-              const spent = monthTransactions
-                .filter((t) => t.category === limit.category && t.type === 'expense')
-                .reduce((s, t) => s + t.amount, 0);
-              const percent = limit.monthlyLimit > 0 ? (spent / limit.monthlyLimit) * 100 : 0;
-
-              return (
-                <div
-                  key={limit.id}
-                  onClick={() => onNavigate('limits', { limitCategory: limit.category })}
-                  className="space-y-1.5 p-2 -m-2 rounded-xl hover:bg-slate-50 cursor-pointer transition-colors group"
-                  title={`Kliknij, aby przejść do limitu dla kategorii: ${limit.category}`}
-                >
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-semibold text-slate-800 group-hover:text-indigo-600 transition-colors flex items-center space-x-1">
-                      <span>{limit.category}</span>
-                      <span className="text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity">→</span>
-                    </span>
-                    <span className="font-bold text-slate-900">
-                      {spent.toFixed(0)} / {limit.monthlyLimit.toFixed(0)} zł
-                    </span>
-                  </div>
-                  <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                    <div
-                      className={`h-2 rounded-full ${
-                        percent >= 100
-                          ? 'bg-rose-500'
-                          : percent >= 80
-                          ? 'bg-amber-500'
-                          : 'bg-indigo-600'
-                      }`}
-                      style={{ width: `${Math.min(percent, 100)}%` }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Center Col: Shopping Lists Quick View */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-4">
-          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-            <div className="flex items-center space-x-2">
-              <ShoppingCart className="w-4 h-4 text-slate-500" />
-              <h3 className="font-bold text-sm text-slate-900">Listy Zakupów</h3>
-            </div>
-            <button
-              onClick={() => onNavigate('shopping')}
-              className="text-xs font-semibold text-indigo-600 hover:text-indigo-700"
-            >
-              Otwórz koszyk →
-            </button>
-          </div>
-
-          <div className="space-y-2.5">
-            {shoppingLists.map((list) => {
-              const listItems = shoppingItems.filter(
-                (i) => i.listId === list.id || i.category === list.name || i.category === list.category
-              );
-              const pending = listItems.filter((i) => !i.isCompleted).length;
-              if (listItems.length === 0) return null;
-              return (
-                <div
-                  key={list.id}
-                  onClick={() =>
-                    onNavigate('shopping', {
-                      shoppingCategory: list.name || list.category,
-                      shoppingTab: pending === 0 ? 'completed' : 'active',
-                    })
-                  }
-                  className="p-3 rounded-xl bg-slate-50 hover:bg-indigo-50/60 transition-all border border-slate-100 hover:border-indigo-200 cursor-pointer flex items-center justify-between group active:scale-[0.99]"
-                  title={`Kliknij, aby otworzyć listę "${list.name}" (${pending === 0 ? 'zakładka: Kupione' : 'zakładka: Do kupienia'})`}
-                >
-                  <div className="flex items-center space-x-2.5">
-                    <span
-                      className="w-2.5 h-2.5 rounded-full"
-                      style={{ backgroundColor: list.color || '#4f46e5' }}
-                    />
-                    <div>
-                      <h4 className="text-xs font-bold text-slate-900 group-hover:text-indigo-900 transition-colors">
-                        {list.name}
-                      </h4>
-                      <p className="text-[10px] text-slate-400">{list.category}</p>
-                    </div>
-                  </div>
-
-                  <span className={`text-xs font-semibold ${pending === 0 ? 'text-emerald-700 font-bold' : 'text-slate-600 group-hover:text-indigo-700'}`}>
-                    {pending === 0 ? 'Wszystko kupione' : `${pending} do kupienia →`}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Right Col: Recent Transactions Stream */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-4">
-          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-            <div className="flex items-center space-x-2">
-              <FileText className="w-4 h-4 text-slate-500" />
-              <h3 className="font-bold text-sm text-slate-900">Ostatnie Transakcje</h3>
-            </div>
-            <button
-              onClick={() => onNavigate('transactions')}
-              className="text-xs font-semibold text-indigo-600 hover:text-indigo-700"
-            >
-              Wszystkie ({transactions.length}) →
-            </button>
-          </div>
-
-          <div className="space-y-2.5">
-            {monthTransactions.slice(0, 4).map((item) => {
-              const isIncome = item.type === 'income';
-              return (
-                <div
-                  key={item.id}
-                  onClick={() =>
-                    onNavigate('transactions', {
-                      selectedTxId: item.id,
-                      transactionSearch: item.title,
-                      transactionFilter: item.type,
-                    })
-                  }
-                  className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-100 hover:border-slate-300 text-xs cursor-pointer transition-all active:scale-[0.99] group"
-                  title="Kliknij, aby przejść do tej transakcji"
-                >
-                  <div className="min-w-0 pr-2">
-                    <p className="font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors truncate">
-                      {item.title}
-                    </p>
-                    <span className="text-[10px] text-slate-400">{item.date} • {item.category}</span>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <span
-                      className={`font-black whitespace-nowrap block ${
-                        isIncome ? 'text-emerald-600' : 'text-rose-600'
-                      }`}
-                    >
-                      {isIncome ? '+' : '-'}
-                      {item.amount.toFixed(2)} zł
-                    </span>
-                    <span className="text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity">szczegóły →</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
       </div>
     </div>
   );

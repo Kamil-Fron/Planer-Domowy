@@ -19,6 +19,11 @@ import { Transaction, TransactionType } from '../types';
 import { INITIAL_CATEGORIES, INITIAL_INCOME_CATEGORIES } from '../mockData';
 import { MonthRolloverControl } from './MonthRolloverControl';
 import { useMonthSwipe } from '../hooks/useMonthSwipe';
+import {
+  getSmartTransactionSuggestions,
+  recordTransactionUsage,
+  SmartTransactionSuggestion,
+} from '../utils/frequentTransactions';
 
 interface TransactionsManagerProps {
   transactions: Transaction[];
@@ -186,15 +191,20 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
     e.preventDefault();
     if (!formTitle.trim() || !formAmount) return;
 
+    const parsedAmount = parseFloat(formAmount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) return;
+
     onAddTransaction({
       type: formType,
       title: formTitle.trim(),
-      amount: parseFloat(formAmount),
+      amount: parsedAmount,
       category: formCategory,
       date: formDate,
       comment: undefined,
       isRecurring: formRecurring,
     });
+
+    recordTransactionUsage(formTitle.trim(), formCategory, formType, parsedAmount);
 
     setFormTitle('');
     setFormAmount('');
@@ -202,6 +212,10 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
     setFormRecurring(false);
     setShowAddModal(false);
   };
+
+  const dynamicAddSuggestions = React.useMemo(() => {
+    return getSmartTransactionSuggestions(transactions, formType, formTitle, 6);
+  }, [transactions, formType, formTitle, showAddModal]);
 
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4 sm:space-y-6 w-full overflow-hidden">
@@ -758,6 +772,44 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                   />
                 </div>
               </div>
+
+              {/* Dynamic Smart Suggestions */}
+              {dynamicAddSuggestions.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 font-semibold">
+                    <span className="flex items-center space-x-1">
+                      <Sparkles className="w-3 h-3 text-amber-500" />
+                      <span>Często wybierane:</span>
+                    </span>
+                    <span className="text-[10px] text-slate-400">1-klik wypełnia</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                    {dynamicAddSuggestions.map((sug, idx) => (
+                      <button
+                        key={`${sug.title}-${idx}`}
+                        type="button"
+                        onClick={() => {
+                          setFormTitle(sug.title);
+                          setFormCategory(sug.category);
+                          if (sug.typicalAmount && (!formAmount || formAmount === '0')) {
+                            setFormAmount(sug.typicalAmount.toString());
+                          }
+                        }}
+                        className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-900 border border-slate-200 text-xs font-medium text-slate-700 transition-colors"
+                        title={`${sug.title} (${sug.category})${sug.typicalAmount ? ` • ~${sug.typicalAmount} zł` : ''}`}
+                      >
+                        <span>{sug.emoji}</span>
+                        <span className="font-semibold">{sug.title}</span>
+                        {sug.typicalAmount && (
+                          <span className="text-[10px] text-slate-400 font-normal">
+                            {sug.typicalAmount} zł
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Komentarz */}
               <div>

@@ -9,6 +9,7 @@ import {
   Household,
   UserProfile,
   AppNotification,
+  MortgageLoan,
 } from './types';
 import {
   loadTransactions,
@@ -23,6 +24,8 @@ import {
   saveShoppingItems,
   loadNotifications,
   saveNotifications,
+  loadMortgages,
+  saveMortgages,
   loadPushSetting,
   savePushSetting,
   loadHousehold,
@@ -52,6 +55,7 @@ import { ReceiptScanner } from './components/ReceiptScanner';
 import { ShoppingLists } from './components/ShoppingLists';
 import { BillsManager } from './components/BillsManager';
 import { BudgetLimits } from './components/BudgetLimits';
+import { MortgageManager } from './components/MortgageManager';
 import { ReportsView } from './components/ReportsView';
 import { HouseholdModal } from './components/HouseholdModal';
 import { DeleteDataModal, DeleteSelection } from './components/DeleteDataModal';
@@ -80,6 +84,7 @@ export default function App() {
   const [shoppingLists, setShoppingLists] = useState<ShoppingList[]>(loadShoppingLists);
   const [shoppingItems, setShoppingItems] = useState<ShoppingItem[]>(loadShoppingItems);
   const [notifications, setNotifications] = useState<AppNotification[]>(loadNotifications);
+  const [mortgages, setMortgages] = useState<MortgageLoan[]>(loadMortgages);
   const [pushEnabled, setPushEnabled] = useState<boolean>(loadPushSetting);
 
   // Household & Auth States
@@ -165,6 +170,7 @@ export default function App() {
     shoppingLists,
     shoppingItems,
     notifications,
+    mortgages,
     household,
     currentUser,
   });
@@ -177,6 +183,7 @@ export default function App() {
       shoppingLists,
       shoppingItems,
       notifications,
+      mortgages,
       household,
       currentUser,
     };
@@ -351,6 +358,7 @@ export default function App() {
         const cloudLists = cloudData.shoppingLists || [];
         const cloudItems = cloudData.shoppingItems || [];
         const cloudNotifs = cloudData.notifications || [];
+        const cloudMortgages = cloudData.mortgages;
 
         setTransactions(cloudTxs);
         saveTransactions(cloudTxs);
@@ -369,6 +377,11 @@ export default function App() {
 
         setNotifications(cloudNotifs);
         saveNotifications(cloudNotifs);
+
+        if (cloudMortgages && Array.isArray(cloudMortgages)) {
+          setMortgages(cloudMortgages);
+          saveMortgages(cloudMortgages);
+        }
 
         if (cloudData.members && Array.isArray(cloudData.members)) {
           setHousehold((prev) =>
@@ -427,6 +440,7 @@ export default function App() {
           shoppingLists: current.shoppingLists,
           shoppingItems: current.shoppingItems,
           notifications: current.notifications,
+          mortgages: current.mortgages,
           lastUpdatedBy: currentUser.email || currentUser.name,
         });
         hasUnsavedLocalChanges.current = false;
@@ -443,7 +457,7 @@ export default function App() {
     }, 600);
 
     return () => clearTimeout(timer);
-  }, [transactions, bills, budgetLimits, shoppingLists, shoppingItems, notifications, household?.id, currentUser]);
+  }, [transactions, bills, budgetLimits, shoppingLists, shoppingItems, notifications, mortgages, household?.id, currentUser]);
 
   // 4. Persistence to LocalStorage fallback
   useEffect(() => {
@@ -469,6 +483,10 @@ export default function App() {
   useEffect(() => {
     saveNotifications(notifications);
   }, [notifications]);
+
+  useEffect(() => {
+    saveMortgages(mortgages);
+  }, [mortgages]);
 
   useEffect(() => {
     savePushSetting(pushEnabled);
@@ -927,6 +945,19 @@ export default function App() {
     }
   };
 
+  // Handlers for Mortgage
+  const handleUpdateMortgage = (updated: MortgageLoan) => {
+    lastLocalMutationTime.current = Date.now();
+    hasUnsavedLocalChanges.current = true;
+    setMortgages((prev) => {
+      const exists = prev.some((m) => m.id === updated.id);
+      const next = exists ? prev.map((m) => (m.id === updated.id ? updated : m)) : [...prev, updated];
+      saveMortgages(next);
+      return next;
+    });
+    logActivity('Zaktualizowano kredyt hipoteczny', `Zapisano parametry kredytu "${updated.name}"`);
+  };
+
   // Selective Data Deletion
   const handleDeleteSelectedData = async (selection: DeleteSelection) => {
     let newTransactions = transactions;
@@ -1086,6 +1117,8 @@ export default function App() {
     saveShoppingItems([]);
     setNotifications([]);
     saveNotifications([]);
+    setMortgages([]);
+    saveMortgages([]);
     hasUnsavedLocalChanges.current = false;
   };
 
@@ -1649,6 +1682,7 @@ export default function App() {
             budgetLimits={budgetLimits}
             shoppingLists={shoppingLists}
             shoppingItems={shoppingItems}
+            mortgages={mortgages}
             selectedMonth={selectedMonth}
             onNavigate={handleDashboardNavigate}
             onQuickAddTransaction={() => {
@@ -1746,6 +1780,26 @@ export default function App() {
             selectedMonth={selectedMonth}
           />
         )}
+
+        {activeTab === 'mortgage' && (
+          <MortgageManager
+            mortgages={mortgages}
+            transactions={transactions}
+            onUpdateMortgage={handleUpdateMortgage}
+            onAddTransaction={handleAddTransaction}
+            onDeleteTransaction={handleDeleteTransaction}
+            onSuccessFeedback={(title, amount, type, onUndo, subtitle) => {
+              setToastFeedback({
+                id: `toast-${Date.now()}`,
+                title,
+                amount,
+                type,
+                onUndo,
+                subtitle,
+              });
+            }}
+          />
+        )}
       </main>
 
       {/* Modern UX Footer with Author bobEKam and Version Info */}
@@ -1772,6 +1826,7 @@ export default function App() {
         onClose={() => setIsQuickAddOpen(false)}
         onAddTransaction={handleQuickAddTransaction}
         onAddShoppingItem={handleAddShoppingItem}
+        transactions={transactions}
         shoppingLists={shoppingLists}
         shoppingItems={shoppingItems}
         onOpenScanner={() => {

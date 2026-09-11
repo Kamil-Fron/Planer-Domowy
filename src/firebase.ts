@@ -33,6 +33,7 @@ import {
   Transaction,
   UserProfile,
   AppNotification,
+  MortgageLoan,
 } from './types';
 
 export enum OperationType {
@@ -423,6 +424,7 @@ export interface HouseholdFirestoreData {
   shoppingLists: ShoppingList[];
   shoppingItems: ShoppingItem[];
   notifications?: AppNotification[];
+  mortgages?: MortgageLoan[];
   lastUpdatedAt: string;
   lastUpdatedBy?: string;
 }

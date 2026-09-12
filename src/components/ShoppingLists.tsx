@@ -449,7 +449,7 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
                   <Sparkles className="w-3 h-3 text-amber-500" />
                   <span>Szybkie dodanie:</span>
                 </span>
-                {smartSuggestions.slice(0, 6).map((sug, idx) => (
+                {smartSuggestions.slice(0, 8).map((sug, idx) => (
                   <button
                     key={idx}
                     type="button"
@@ -457,6 +457,7 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
                       setNewItemName(sug.name);
                       setSelectedCategory(sug.category);
                     }}
+                    title={`${sug.name} • Kategoria: ${sug.category}`}
                     className={`inline-flex items-center space-x-1 px-2.5 py-1 rounded-xl text-xs font-semibold transition-all active:scale-95 border cursor-pointer ${
                       sug.isFrequent
                         ? 'bg-emerald-50 text-emerald-950 border-emerald-300 hover:bg-emerald-100'
@@ -465,7 +466,6 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
                   >
                     <span>{sug.emoji}</span>
                     <span>{sug.name}</span>
-                    <span className="text-[10px] text-slate-500 font-normal">({sug.category})</span>
                   </button>
                 ))}
               </div>

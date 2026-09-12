@@ -773,44 +773,6 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                 </div>
               </div>
 
-              {/* Dynamic Smart Suggestions */}
-              {dynamicAddSuggestions.length > 0 && (
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between text-[11px] text-slate-500 font-semibold">
-                    <span className="flex items-center space-x-1">
-                      <Sparkles className="w-3 h-3 text-amber-500" />
-                      <span>Często wybierane:</span>
-                    </span>
-                    <span className="text-[10px] text-slate-400">1-klik wypełnia</span>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
-                    {dynamicAddSuggestions.map((sug, idx) => (
-                      <button
-                        key={`${sug.title}-${idx}`}
-                        type="button"
-                        onClick={() => {
-                          setFormTitle(sug.title);
-                          setFormCategory(sug.category);
-                          if (sug.typicalAmount && (!formAmount || formAmount === '0')) {
-                            setFormAmount(sug.typicalAmount.toString());
-                          }
-                        }}
-                        className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-900 border border-slate-200 text-xs font-medium text-slate-700 transition-colors"
-                        title={`${sug.title} (${sug.category})${sug.typicalAmount ? ` • ~${sug.typicalAmount} zł` : ''}`}
-                      >
-                        <span>{sug.emoji}</span>
-                        <span className="font-semibold">{sug.title}</span>
-                        {sug.typicalAmount && (
-                          <span className="text-[10px] text-slate-400 font-normal">
-                            {sug.typicalAmount} zł
-                          </span>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               {/* Komentarz */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -853,6 +815,44 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                       ))}
                 </select>
               </div>
+
+              {/* Dynamic Smart Suggestions - placed right after description & category */}
+              {dynamicAddSuggestions.length > 0 && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 font-semibold">
+                    <span className="flex items-center space-x-1">
+                      <Sparkles className="w-3 h-3 text-amber-500" />
+                      <span>Często wybierane w ostatnich 30 dniach:</span>
+                    </span>
+                    <span className="text-[10px] text-slate-400">1-klik wypełnia</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                    {dynamicAddSuggestions.map((sug, idx) => (
+                      <button
+                        key={`${sug.title}-${idx}`}
+                        type="button"
+                        onClick={() => {
+                          setFormTitle(sug.title);
+                          setFormCategory(sug.category);
+                          if (sug.typicalAmount && (!formAmount || formAmount === '0')) {
+                            setFormAmount(sug.typicalAmount.toString());
+                          }
+                        }}
+                        className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-900 border border-slate-200 text-xs font-medium text-slate-700 transition-colors"
+                        title={`${sug.title} • Kategoria: ${sug.category}${sug.typicalAmount ? ` • ~${sug.typicalAmount} zł` : ''}`}
+                      >
+                        <span>{sug.emoji}</span>
+                        <span className="font-semibold">{sug.title}</span>
+                        {sug.typicalAmount && (
+                          <span className="text-[10px] text-slate-400 font-normal">
+                            ~{sug.typicalAmount} zł
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Recurring Toggle */}
               <label className="flex items-center space-x-2 cursor-pointer select-none">

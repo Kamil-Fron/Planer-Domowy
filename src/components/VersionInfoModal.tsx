@@ -49,10 +49,10 @@ export const VersionInfoModal: React.FC<VersionInfoModalProps> = ({ isOpen, onCl
               </h2>
               <div className="flex items-center space-x-2 text-xs text-slate-500 font-medium">
                 <span className="bg-indigo-100 text-indigo-800 font-bold px-2 py-0.5 rounded-md">
-                  Wersja v2.6.11
+                  Wersja v2.7.0
                 </span>
                 <span>•</span>
-                <span>Mortgage Suite & Dashboard Integration</span>
+                <span>Inteligentne Propozycje 30D & Ergonomia</span>
               </div>
             </div>
           </div>
@@ -124,11 +124,60 @@ export const VersionInfoModal: React.FC<VersionInfoModalProps> = ({ isOpen, onCl
             </div>
           </div>
 
-          {/* Version Changelog v2.6.0 */}
+          {/* Version Changelog v2.7.0 */}
           <div>
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center space-x-1.5">
               <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Opis Wersji: v2.6.11 (Kredyt Hipoteczny, Karencja & Podsumowanie na Pulpicie)</span>
+              <span>Opis Wersji: v2.7.0 (Dynamiczne Propozycje 30D & Uporządkowany Szybki Wpis)</span>
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+              <div className="p-3.5 bg-white border border-indigo-200 rounded-2xl shadow-2xs">
+                <div className="flex items-center space-x-2 mb-1.5 font-bold text-slate-900 text-xs">
+                  <Sparkles className="w-4 h-4 text-indigo-600" />
+                  <span>30-Dniowe Okno Częstości (Rolling Window)</span>
+                </div>
+                <p className="text-xs text-slate-600">
+                  Licznik użyć w zakupach i transakcjach uwzględnia wyłącznie ostatnie 30 dni. Starsze wpisy automatycznie wygasają, dzięki czemu lista odzwierciedla bieżące nawyki.
+                </p>
+              </div>
+
+              <div className="p-3.5 bg-white border border-indigo-200 rounded-2xl shadow-2xs">
+                <div className="flex items-center space-x-2 mb-1.5 font-bold text-slate-900 text-xs">
+                  <Layers className="w-4 h-4 text-emerald-600" />
+                  <span>Sortowanie wg Częstości Opisu</span>
+                </div>
+                <p className="text-xs text-slate-600">
+                  Propozycje są bezwzględnie sortowane według liczby użyć danego opisu/nazwy w ciągu ostatnich 30 dni, a nie według kategorii. Najczęściej wpisywane pozycje lądują na samej górze.
+                </p>
+              </div>
+
+              <div className="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-2xs">
+                <div className="flex items-center space-x-2 mb-1.5 font-bold text-slate-900 text-xs">
+                  <Zap className="w-4 h-4 text-amber-500" />
+                  <span>Czyste, Pojemne Czipsy</span>
+                </div>
+                <p className="text-xs text-slate-600">
+                  Usunięto wyświetlanie kategorii i liczników użyć (x2, x5) z widoku kafelków. Zyskano dużo miejsca, a kategoria nadal automatycznie przypisuje się po kliknięciu.
+                </p>
+              </div>
+
+              <div className="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-2xs">
+                <div className="flex items-center space-x-2 mb-1.5 font-bold text-slate-900 text-xs">
+                  <CheckCircle2 className="w-4 h-4 text-blue-500" />
+                  <span>Ergonomiczny Układ Szybkiego Wpisu</span>
+                </div>
+                <p className="text-xs text-slate-600">
+                  Dynamiczna lista propozycji została przeniesiona tuż za polem nazwy/opisu oraz kategorii, zarówno w sekcji transakcji, jak i zakupów.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Previous Changelog v2.6.11 */}
+          <div>
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center space-x-1.5">
+              <Layers className="w-3.5 h-3.5 text-slate-400" />
+              <span>Poprzednia Wersja: v2.6.11 (Kredyt Hipoteczny, Karencja & Podsumowanie na Pulpicie)</span>
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-2xs">

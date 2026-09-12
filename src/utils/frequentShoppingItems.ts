@@ -239,10 +239,20 @@ export function guessEmojiForProduct(name: string, category?: string): string {
   return '🛒';
 }
 
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+export interface FrequentShoppingHistoryEntry {
+  name: string;
+  category: string;
+  timestamps?: number[];
+  count?: number;
+  lastUsed: number;
+}
+
 /**
  * Load persistent frequency record from localStorage
  */
-export function loadFrequentHistory(): Record<string, { name: string; category: string; count: number; lastUsed: number }> {
+export function loadFrequentHistory(): Record<string, FrequentShoppingHistoryEntry> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return {};
@@ -253,23 +263,55 @@ export function loadFrequentHistory(): Record<string, { name: string; category: 
 }
 
 /**
- * Record usage when a shopping item is added or edited
+ * Record usage when a shopping item is added or edited.
+ * Maintains rolling 30-day history per description (name).
  */
 export function recordShoppingItemUsage(name: string, category: string, _unit?: string) {
   const trimmed = name.trim();
   if (!trimmed) return;
 
   const key = trimmed.toLowerCase();
+  const now = Date.now();
+  const cutoff = now - THIRTY_DAYS_MS;
+
   try {
     const history = loadFrequentHistory();
     const existing = history[key];
 
+    // Clean existing timestamps older than 30 days
+    const validTimestamps = (existing?.timestamps || []).filter(
+      (t) => typeof t === 'number' && t >= cutoff
+    );
+
+    // If migrating legacy entry without timestamps array:
+    if (validTimestamps.length === 0 && existing?.lastUsed && existing.lastUsed >= cutoff) {
+      validTimestamps.push(existing.lastUsed);
+    }
+
+    // Add current usage
+    validTimestamps.push(now);
+
     history[key] = {
-      name: trimmed, // keep actual casing
+      name: trimmed, // keep latest casing
       category: category.trim() || existing?.category || 'Spożywcze',
-      count: (existing?.count || 0) + 1,
-      lastUsed: Date.now(),
+      timestamps: validTimestamps,
+      count: validTimestamps.length,
+      lastUsed: now,
     };
+
+    // Clean up completely expired items from storage
+    Object.keys(history).forEach((k) => {
+      const entry = history[k];
+      if (entry.timestamps) {
+        entry.timestamps = entry.timestamps.filter((t) => t >= cutoff);
+        entry.count = entry.timestamps.length;
+        if (entry.timestamps.length === 0 && (!entry.lastUsed || entry.lastUsed < cutoff)) {
+          delete history[k];
+        }
+      } else if (entry.lastUsed && entry.lastUsed < cutoff) {
+        delete history[k];
+      }
+    });
 
     localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
   } catch {
@@ -279,75 +321,121 @@ export function recordShoppingItemUsage(name: string, category: string, _unit?: 
 
 /**
  * Generates smart suggestions by combining:
- * 1. Historical frequency of user-added items (saved in localStorage)
- * 2. Current shopping items (both active and completed in the database/state)
+ * 1. Rolling 30-day frequency of user-added items (from localStorage)
+ * 2. Recent shopping items in state from the last 30 days
  * 3. Fallback defaults if the user has few records
  *
- * Returned list is sorted so that user's most frequently chosen items appear first!
+ * Returned list is sorted strictly by usage count in the last 30 days (purely by description, NOT category).
  */
 export function getSmartShoppingSuggestions(
   currentItems: ShoppingItem[] = [],
   filterQuery: string = ''
 ): SmartSuggestionItem[] {
   const history = loadFrequentHistory();
+  const now = Date.now();
+  const cutoff = now - THIRTY_DAYS_MS;
 
-  // Combine history with all current items in memory
-  const aggregated = new Map<string, { name: string; category: string; count: number; lastUsed: number; isFrequent: boolean }>();
+  // Map of normalized description -> aggregated data
+  const aggregated = new Map<
+    string,
+    { name: string; category: string; count: number; lastUsed: number; isFrequent: boolean }
+  >();
 
-  // 1. Ingest history
+  // 1. Ingest history from localStorage (only usages in the last 30 days)
   Object.entries(history).forEach(([key, item]) => {
-    aggregated.set(key, {
-      name: item.name,
-      category: item.category,
-      count: item.count,
-      lastUsed: item.lastUsed,
-      isFrequent: true,
-    });
-  });
+    const validTimestamps = (item.timestamps || []).filter((t) => t >= cutoff);
+    let countIn30d = validTimestamps.length;
 
-  // 2. Ingest current items (ensure any existing items are counted)
-  currentItems.forEach((item) => {
-    if (!item.name?.trim()) return;
-    const key = item.name.trim().toLowerCase();
-    const existing = aggregated.get(key);
-    if (existing) {
-      existing.count += 1;
-      existing.category = item.category || existing.category;
-      existing.isFrequent = true;
-    } else {
+    // Legacy fallback: if timestamps wasn't present but lastUsed is within 30 days
+    if (countIn30d === 0 && item.lastUsed && item.lastUsed >= cutoff) {
+      countIn30d = Math.max(1, item.count || 1);
+    }
+
+    if (countIn30d > 0) {
       aggregated.set(key, {
-        name: item.name.trim(),
-        category: item.category || 'Spożywcze',
-        count: 1,
-        lastUsed: new Date(item.createdAt || Date.now()).getTime(),
-        isFrequent: true,
+        name: item.name,
+        category: item.category,
+        count: countIn30d,
+        lastUsed: item.lastUsed || now,
+        isFrequent: countIn30d >= 2,
       });
     }
   });
 
-  // Convert to array and sort by frequency (count DESC), then lastUsed (DESC)
+  // 2. Ingest current shopping items that were created in the last 30 days
+  const currentItemsCountMap = new Map<string, { count: number; lastUsed: number; name: string; category: string }>();
+  currentItems.forEach((item) => {
+    if (!item.name?.trim()) return;
+    const itemTime = item.createdAt ? new Date(item.createdAt).getTime() : now;
+    if (itemTime < cutoff) return; // Ignore items older than 30 days
+
+    const key = item.name.trim().toLowerCase();
+    const existing = currentItemsCountMap.get(key);
+    if (existing) {
+      existing.count += 1;
+      if (itemTime > existing.lastUsed) {
+        existing.lastUsed = itemTime;
+        existing.category = item.category || existing.category;
+      }
+    } else {
+      currentItemsCountMap.set(key, {
+        name: item.name.trim(),
+        category: item.category || 'Spożywcze',
+        count: 1,
+        lastUsed: itemTime,
+      });
+    }
+  });
+
+  // Merge currentItemsCountMap: take the maximum count to prevent double counting
+  currentItemsCountMap.forEach((ci, key) => {
+    const existing = aggregated.get(key);
+    if (existing) {
+      existing.count = Math.max(existing.count, ci.count);
+      if (ci.lastUsed > existing.lastUsed) {
+        existing.lastUsed = ci.lastUsed;
+        existing.category = ci.category || existing.category;
+      }
+      existing.isFrequent = existing.count >= 2;
+    } else {
+      aggregated.set(key, {
+        name: ci.name,
+        category: ci.category,
+        count: ci.count,
+        lastUsed: ci.lastUsed,
+        isFrequent: ci.count >= 2,
+      });
+    }
+  });
+
+  // Convert to array and sort STRICTLY by description frequency in last 30 days (count DESC), then lastUsed (DESC)
+  // Completely independent of category!
   const userSuggestions: SmartSuggestionItem[] = Array.from(aggregated.values())
     .sort((a, b) => {
+      // 1. Primary sort: highest frequency in the last 30 days
       if (b.count !== a.count) {
         return b.count - a.count;
       }
-      return b.lastUsed - a.lastUsed;
+      // 2. Secondary sort: most recently used
+      if (b.lastUsed !== a.lastUsed) {
+        return b.lastUsed - a.lastUsed;
+      }
+      // 3. Tertiary sort: alphabetical by name
+      return a.name.localeCompare(b.name, 'pl');
     })
     .map((item) => ({
       ...item,
       emoji: guessEmojiForProduct(item.name, item.category),
     }));
 
-  // If user has search query, filter suggestions
+  // If user has search query, filter suggestions purely by product description
   if (filterQuery.trim()) {
     const q = filterQuery.trim().toLowerCase();
-    return userSuggestions.filter(
-      (s) => s.name.toLowerCase().includes(q) || s.category.toLowerCase().includes(q)
-    );
+    return userSuggestions.filter((s) => s.name.toLowerCase().includes(q));
   }
 
-  // Build top list: user's frequent items first, up to 10
-  const result: SmartSuggestionItem[] = [...userSuggestions.slice(0, 10)];
+  // Build top list: user's frequent items first, up to 12
+  const result: SmartSuggestionItem[] = [...userSuggestions.slice(0, 12)];
 
   // If fewer than 8 suggestions, fill with default domestic suggestions that aren't already included
   if (result.length < 8) {

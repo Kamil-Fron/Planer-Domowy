@@ -633,7 +633,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                             <span className="truncate">Opis wersji & UX • Autor: bobEKam</span>
                           </div>
                           <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-md border border-indigo-200/60">
-                            v2.6.10
+                            v2.7.0
                           </span>
                         </button>
                       </div>

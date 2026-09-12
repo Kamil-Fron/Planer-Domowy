@@ -206,15 +206,21 @@ export function guessEmojiForTransaction(title: string, category?: string, type?
   return '💳';
 }
 
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+export interface FrequentTxHistoryEntry {
+  title: string;
+  category: string;
+  type: TransactionType;
+  timestamps?: number[];
+  amounts?: number[];
+  count?: number;
+  totalAmount?: number;
+  lastUsed: number;
+}
+
 interface StoredFrequentTx {
-  [key: string]: {
-    title: string;
-    category: string;
-    type: TransactionType;
-    count: number;
-    totalAmount: number;
-    lastUsed: number;
-  };
+  [key: string]: FrequentTxHistoryEntry;
 }
 
 function loadFrequentMap(): StoredFrequentTx {
@@ -236,7 +242,7 @@ function saveFrequentMap(map: StoredFrequentTx): void {
 }
 
 /**
- * Record a transaction usage into frequency history
+ * Record a transaction usage into frequency history (rolling 30-day window)
  */
 export function recordTransactionUsage(
   title: string,
@@ -252,31 +258,71 @@ export function recordTransactionUsage(
   const existing = map[key];
 
   const now = Date.now();
+  const cutoff = now - THIRTY_DAYS_MS;
   const amt = typeof amount === 'number' && !isNaN(amount) && amount > 0 ? amount : 0;
 
-  if (existing) {
-    existing.count += 1;
-    existing.lastUsed = now;
-    existing.category = category || existing.category;
-    if (amt > 0) {
-      existing.totalAmount = (existing.totalAmount || 0) + amt;
-    }
-  } else {
-    map[key] = {
-      title: cleanTitle,
-      category: category || (type === 'income' ? 'Inne wpływy' : 'Inne wydatki'),
-      type,
-      count: 1,
-      totalAmount: amt,
-      lastUsed: now,
-    };
+  let validTimestamps: number[] = [];
+  let validAmounts: number[] = [];
+
+  if (existing?.timestamps && Array.isArray(existing.timestamps)) {
+    existing.timestamps.forEach((t, i) => {
+      if (typeof t === 'number' && t >= cutoff) {
+        validTimestamps.push(t);
+        validAmounts.push(existing.amounts?.[i] || 0);
+      }
+    });
+  } else if (existing?.lastUsed && existing.lastUsed >= cutoff) {
+    validTimestamps.push(existing.lastUsed);
+    validAmounts.push(existing.totalAmount ? existing.totalAmount / (existing.count || 1) : 0);
   }
+
+  // Append new usage
+  validTimestamps.push(now);
+  validAmounts.push(amt);
+
+  map[key] = {
+    title: cleanTitle,
+    category: category?.trim() || existing?.category || (type === 'income' ? 'Inne wpływy' : 'Inne wydatki'),
+    type,
+    timestamps: validTimestamps,
+    amounts: validAmounts,
+    count: validTimestamps.length,
+    totalAmount: validAmounts.reduce((a, b) => a + b, 0),
+    lastUsed: now,
+  };
+
+  // Clean up completely expired items from storage
+  Object.keys(map).forEach((k) => {
+    const entry = map[k];
+    if (entry.timestamps) {
+      const filteredTimes: number[] = [];
+      const filteredAmts: number[] = [];
+      entry.timestamps.forEach((t, i) => {
+        if (t >= cutoff) {
+          filteredTimes.push(t);
+          filteredAmts.push(entry.amounts?.[i] || 0);
+        }
+      });
+      entry.timestamps = filteredTimes;
+      entry.amounts = filteredAmts;
+      entry.count = filteredTimes.length;
+      entry.totalAmount = filteredAmts.reduce((a, b) => a + b, 0);
+
+      if (filteredTimes.length === 0 && (!entry.lastUsed || entry.lastUsed < cutoff)) {
+        delete map[k];
+      }
+    } else if (entry.lastUsed && entry.lastUsed < cutoff) {
+      delete map[k];
+    }
+  });
 
   saveFrequentMap(map);
 }
 
 /**
  * Returns dynamic smart suggestions for transactions (both income and expense)
+ * strictly taking into account usages in the last 30 days and sorted purely
+ * by title/description frequency (NOT grouped or sorted by category).
  */
 export function getSmartTransactionSuggestions(
   transactions: Transaction[] = [],
@@ -285,49 +331,71 @@ export function getSmartTransactionSuggestions(
   limit = 10
 ): SmartTransactionSuggestion[] {
   const map = loadFrequentMap();
+  const now = Date.now();
+  const cutoff = now - THIRTY_DAYS_MS;
 
-  // Also mine actual transactions in state to enrich counts if local storage was cleared
+  // Mine actual transactions in state within the last 30 days
   const txCounts: Record<string, { count: number; totalAmount: number; lastUsed: number; category: string; title: string }> = {};
 
   transactions
-    .filter((t) => t.type === type && t.title)
+    .filter((t) => t.type === type && t.title?.trim())
     .forEach((t) => {
+      const txTime = t.date ? new Date(t.date).getTime() : (t.createdAt ? new Date(t.createdAt).getTime() : now);
+      if (txTime < cutoff) return; // Disregard transactions older than 30 days
+
       const key = `${t.type}_${t.title.trim().toLowerCase()}`;
-      const time = new Date(t.date || t.createdAt || Date.now()).getTime();
       if (!txCounts[key]) {
         txCounts[key] = {
           count: 1,
           totalAmount: t.amount || 0,
-          lastUsed: time,
+          lastUsed: txTime,
           category: t.category,
           title: t.title.trim(),
         };
       } else {
         txCounts[key].count += 1;
         txCounts[key].totalAmount += t.amount || 0;
-        if (time > txCounts[key].lastUsed) {
-          txCounts[key].lastUsed = time;
+        if (txTime > txCounts[key].lastUsed) {
+          txCounts[key].lastUsed = txTime;
+          txCounts[key].category = t.category || txCounts[key].category;
         }
       }
     });
 
-  // Merge map + mined transactions
+  // Merge map (from localStorage) + mined transactions
   const merged: Record<string, { title: string; category: string; count: number; totalAmount: number; lastUsed: number }> = {};
 
-  // 1. From stored frequency map
+  // 1. From stored frequency map (only 30-day usages)
   Object.entries(map).forEach(([key, val]) => {
     if (val.type === type) {
-      merged[key] = {
-        title: val.title,
-        category: val.category,
-        count: val.count,
-        totalAmount: val.totalAmount || 0,
-        lastUsed: val.lastUsed || 0,
-      };
+      const validTimestamps = (val.timestamps || []).filter((t) => t >= cutoff);
+      let count30d = validTimestamps.length;
+      let totalAmt30d = 0;
+
+      if (count30d > 0) {
+        val.timestamps?.forEach((t, i) => {
+          if (t >= cutoff) {
+            totalAmt30d += val.amounts?.[i] || 0;
+          }
+        });
+      } else if (val.lastUsed && val.lastUsed >= cutoff) {
+        count30d = Math.max(1, val.count || 1);
+        totalAmt30d = val.totalAmount || 0;
+      }
+
+      if (count30d > 0) {
+        merged[key] = {
+          title: val.title,
+          category: val.category,
+          count: count30d,
+          totalAmount: totalAmt30d,
+          lastUsed: val.lastUsed || now,
+        };
+      }
     }
   });
 
-  // 2. From actual transactions array
+  // 2. From actual transactions array (prevent double counting, take max)
   Object.entries(txCounts).forEach(([key, val]) => {
     if (!merged[key]) {
       merged[key] = {
@@ -341,6 +409,7 @@ export function getSmartTransactionSuggestions(
       merged[key].count = Math.max(merged[key].count, val.count);
       if (val.lastUsed > merged[key].lastUsed) {
         merged[key].lastUsed = val.lastUsed;
+        merged[key].category = val.category || merged[key].category;
       }
       if (val.totalAmount > merged[key].totalAmount) {
         merged[key].totalAmount = val.totalAmount;
@@ -363,13 +432,24 @@ export function getSmartTransactionSuggestions(
     };
   });
 
-  // Sort primarily by count (frequency), then by recency
+  // Sort STRICTLY by 30-day frequency (count DESC), then recency (lastUsed DESC), then alphabetical by title
+  // Completely independent of category!
   results.sort((a, b) => {
+    // 1. Primary sort: highest frequency in the last 30 days
     if (b.count !== a.count) return b.count - a.count;
-    return b.lastUsed - a.lastUsed;
+    // 2. Secondary sort: most recently used
+    if (b.lastUsed !== a.lastUsed) return b.lastUsed - a.lastUsed;
+    // 3. Tertiary sort: alphabetical by title
+    return a.title.localeCompare(b.title, 'pl');
   });
 
-  // If user has few results, fill up with defaults
+  // Filter if query is supplied (purely by title)
+  if (filterQuery && filterQuery.trim()) {
+    const q = filterQuery.toLowerCase().trim();
+    results = results.filter((r) => r.title.toLowerCase().includes(q));
+  }
+
+  // Fill up with defaults if user has few items
   const defaults = type === 'income' ? DEFAULT_INCOME_SUGGESTIONS : DEFAULT_EXPENSE_SUGGESTIONS;
   defaults.forEach((def) => {
     const existing = results.find((r) => r.title.toLowerCase() === def.title.toLowerCase());
@@ -386,14 +466,6 @@ export function getSmartTransactionSuggestions(
       });
     }
   });
-
-  // Filter if query is supplied
-  if (filterQuery && filterQuery.trim()) {
-    const q = filterQuery.toLowerCase().trim();
-    results = results.filter(
-      (r) => r.title.toLowerCase().includes(q) || r.category.toLowerCase().includes(q)
-    );
-  }
 
   return results.slice(0, limit);
 }

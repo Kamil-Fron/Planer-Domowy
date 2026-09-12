@@ -67,6 +67,7 @@ import { VersionInfoModal } from './components/VersionInfoModal';
 import { AppFooter } from './components/AppFooter';
 import { FeedbackToast, ToastData } from './components/FeedbackToast';
 import { recordShoppingItemUsage } from './utils/frequentShoppingItems';
+import { recordTransactionUsage } from './utils/frequentTransactions';
 import {
   checkAndTriggerBillNotifications,
   createActivityNotification,
@@ -523,6 +524,14 @@ export default function App() {
       saveTransactions(updated);
       return updated;
     });
+
+    // Zapisz użycie do inteligentnych propozycji (30-dniowe okno)
+    recordTransactionUsage(
+      transactionData.title,
+      transactionData.category,
+      transactionData.type,
+      transactionData.amount
+    );
 
     // Powiadomienie o nowej transakcji
     const typeLabel = transactionData.type === 'income' ? 'Wpłata' : 'Wydatek';

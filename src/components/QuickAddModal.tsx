@@ -489,55 +489,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
               </div>
             </div>
 
-            {/* Dynamic Smart Transaction Suggestions */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center space-x-1">
-                  <Sparkles className="w-3 h-3 text-amber-500" />
-                  <span>Często wybierane & sugestie ({type === 'expense' ? 'wydatki' : 'wpływy'})</span>
-                </span>
-                <span className="text-[10px] text-slate-400 font-normal">
-                  uczy się z Twojej historii
-                </span>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                {dynamicTransactionSuggestions.map((sug, idx) => (
-                  <button
-                    key={`${sug.title}-${idx}`}
-                    type="button"
-                    onClick={() => handleApplyTxSuggestion(sug)}
-                    className="flex items-center space-x-1.5 p-2 rounded-xl border border-slate-100 bg-slate-50/90 hover:bg-indigo-50 hover:border-indigo-200 text-left transition-all active:scale-95 group overflow-hidden"
-                    title={`${sug.title} (${sug.category})${sug.typicalAmount ? ` • ~${sug.typicalAmount} zł` : ''}`}
-                  >
-                    <span className="text-base p-1 rounded-lg bg-white shadow-2xs group-hover:scale-110 transition-transform shrink-0">
-                      {sug.emoji}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="text-xs font-bold text-slate-800 group-hover:text-indigo-900 truncate block">
-                          {sug.title}
-                        </span>
-                        {sug.count > 1 && (
-                          <span className="text-[9px] font-extrabold text-indigo-600 bg-indigo-50 border border-indigo-100 px-1 rounded-sm shrink-0">
-                            x{sug.count}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center justify-between text-[10px] text-slate-400 truncate">
-                        <span className="truncate">{sug.category.split(' ')[0]}</span>
-                        {sug.typicalAmount ? (
-                          <span className="font-bold text-slate-700 shrink-0 ml-1">
-                            {sug.typicalAmount} zł
-                          </span>
-                        ) : null}
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Description & Category */}
+            {/* Description & Category (Title & Category) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label htmlFor="quick-add-title-input" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
@@ -572,6 +524,42 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
                   </select>
                   <Tag className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                 </div>
+              </div>
+            </div>
+
+            {/* Dynamic Smart Transaction Suggestions - now placed right after Title & Category */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center space-x-1">
+                  <Sparkles className="w-3 h-3 text-amber-500" />
+                  <span>Często wybierane w ostatnich 30 dniach ({type === 'expense' ? 'wydatki' : 'wpływy'})</span>
+                </span>
+                <span className="text-[10px] text-slate-400 font-normal">
+                  1-klik uzupełnia
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pr-1">
+                {dynamicTransactionSuggestions.map((sug, idx) => (
+                  <button
+                    key={`${sug.title}-${idx}`}
+                    type="button"
+                    onClick={() => handleApplyTxSuggestion(sug)}
+                    className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition-all active:scale-95 shadow-2xs cursor-pointer ${
+                      sug.isFrequent
+                        ? 'bg-indigo-50/90 border-indigo-300 text-indigo-950 hover:bg-indigo-100 hover:border-indigo-400 font-bold'
+                        : 'border-slate-200 bg-white hover:bg-indigo-50 hover:border-indigo-300 text-slate-700 hover:text-indigo-900'
+                    }`}
+                    title={`${sug.title} • Kategoria: ${sug.category}${sug.typicalAmount ? ` • ~${sug.typicalAmount} zł` : ''}`}
+                  >
+                    <span>{sug.emoji}</span>
+                    <span className="truncate">{sug.title}</span>
+                    {sug.typicalAmount ? (
+                      <span className="text-[10px] text-slate-400 font-medium ml-1 shrink-0">
+                        ~{sug.typicalAmount} zł
+                      </span>
+                    ) : null}
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -682,42 +670,6 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
               </p>
             </div>
 
-            {/* Smart 1-Tap Grocery Suggestions based on frequency */}
-            <div>
-              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5 flex items-center justify-between">
-                <span className="flex items-center space-x-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                  <span>
-                    {dynamicShoppingSuggestions.some((s) => s.isFrequent)
-                      ? 'Twoje częste zakupy & podpowiedzi'
-                      : 'Popularne artykuły domowe'}
-                  </span>
-                </span>
-                <span className="text-[10px] text-slate-400 font-normal">Kliknij, aby wstawić</span>
-              </span>
-              <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto pr-1">
-                {dynamicShoppingSuggestions.map((sug, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => handleApplyShoppingSuggestion(sug)}
-                    className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition-all active:scale-95 shadow-2xs cursor-pointer ${
-                      sug.isFrequent
-                        ? 'bg-emerald-50/80 border-emerald-300 text-emerald-950 hover:bg-emerald-100 hover:border-emerald-400 font-bold'
-                        : 'border-slate-200 bg-white hover:bg-emerald-50 hover:border-emerald-300 text-slate-700 hover:text-emerald-900'
-                    }`}
-                    title={`Dodaj ${sug.name} (kategoria: ${sug.category})`}
-                  >
-                    <span>{sug.emoji}</span>
-                    <span>{sug.name}</span>
-                    <span className="text-[10px] text-slate-500 font-medium ml-0.5 bg-slate-100/90 px-1.5 py-0.5 rounded-md border border-slate-200/60">
-                      {sug.category}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {/* Category / Target List Selector */}
             <div>
               <label htmlFor="quick-add-shopping-category" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
@@ -737,6 +689,39 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
                   ))}
                 </select>
                 <Tag className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+            </div>
+
+            {/* Smart 1-Tap Grocery Suggestions based on 30-day frequency - placed right after Name & Category */}
+            <div>
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5 flex items-center justify-between">
+                <span className="flex items-center space-x-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                  <span>
+                    {dynamicShoppingSuggestions.some((s) => s.isFrequent)
+                      ? 'Często wybierane w ostatnich 30 dniach'
+                      : 'Popularne artykuły domowe'}
+                  </span>
+                </span>
+                <span className="text-[10px] text-slate-400 font-normal">1-klik wstawia</span>
+              </span>
+              <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto pr-1">
+                {dynamicShoppingSuggestions.map((sug, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => handleApplyShoppingSuggestion(sug)}
+                    className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all active:scale-95 shadow-2xs cursor-pointer ${
+                      sug.isFrequent
+                        ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950 hover:bg-emerald-100 hover:border-emerald-400 font-bold'
+                        : 'border-slate-200 bg-white hover:bg-emerald-50 hover:border-emerald-300 text-slate-700 hover:text-emerald-900'
+                    }`}
+                    title={`${sug.name} • Kategoria: ${sug.category}`}
+                  >
+                    <span>{sug.emoji}</span>
+                    <span className="truncate">{sug.name}</span>
+                  </button>
+                ))}
               </div>
             </div>
 

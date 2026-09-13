@@ -1,13 +1,84 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
+import webpush from "web-push";
 
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
+
+// Web Push Configuration (VAPID)
+const VAPID_FILE = path.join(process.cwd(), ".vapid-keys.json");
+let vapidKeys: { publicKey: string; privateKey: string };
+
+if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+  vapidKeys = {
+    publicKey: process.env.VAPID_PUBLIC_KEY,
+    privateKey: process.env.VAPID_PRIVATE_KEY,
+  };
+} else if (fs.existsSync(VAPID_FILE)) {
+  try {
+    vapidKeys = JSON.parse(fs.readFileSync(VAPID_FILE, "utf-8"));
+  } catch {
+    vapidKeys = webpush.generateVAPIDKeys();
+    try {
+      fs.writeFileSync(VAPID_FILE, JSON.stringify(vapidKeys, null, 2));
+    } catch {}
+  }
+} else {
+  vapidKeys = webpush.generateVAPIDKeys();
+  try {
+    fs.writeFileSync(VAPID_FILE, JSON.stringify(vapidKeys, null, 2));
+  } catch (e) {
+    console.warn("Nie udało się zapisać .vapid-keys.json:", e);
+  }
+}
+
+try {
+  webpush.setVapidDetails(
+    "mailto:kontakt@planer-budzetu.app",
+    vapidKeys.publicKey,
+    vapidKeys.privateKey
+  );
+} catch (e) {
+  console.warn("Błąd konfiguracji VAPID:", e);
+}
+
+// In-memory and persistent store for Web Push Subscriptions
+interface StoredPushSubscription {
+  subscription: webpush.PushSubscription;
+  householdId: string;
+  userId: string;
+  userName: string;
+  updatedAt: string;
+}
+
+const SUBSCRIPTIONS_FILE = path.join(process.cwd(), ".push-subscriptions.json");
+let pushSubscriptions: StoredPushSubscription[] = [];
+
+function loadSubscriptions() {
+  try {
+    if (fs.existsSync(SUBSCRIPTIONS_FILE)) {
+      pushSubscriptions = JSON.parse(fs.readFileSync(SUBSCRIPTIONS_FILE, "utf-8"));
+    }
+  } catch (e) {
+    pushSubscriptions = [];
+  }
+}
+
+function saveSubscriptions() {
+  try {
+    fs.writeFileSync(SUBSCRIPTIONS_FILE, JSON.stringify(pushSubscriptions, null, 2));
+  } catch (e) {
+    console.warn("Błąd zapisu subskrypcji push:", e);
+  }
+}
+
+loadSubscriptions();
 
 // Increase payload limit for base64 receipt images
 app.use(express.json({ limit: "25mb" }));
@@ -357,6 +428,205 @@ Zwróć odpowiedź ściśle w formacie JSON zgodnym ze schematem.`;
       success: false,
       error: error?.message || "Nie udało się wygenerować analizy finansowej.",
     });
+  }
+});
+
+// Web Push Endpoints
+app.get("/api/push-vapid-public-key", (req, res) => {
+  res.json({
+    success: true,
+    publicKey: vapidKeys.publicKey,
+  });
+});
+
+app.post("/api/push-subscribe", (req, res) => {
+  try {
+    const { subscription, householdId, userId, userName } = req.body;
+    if (!subscription || !subscription.endpoint) {
+      return res.status(400).json({ success: false, error: "Brak danych subskrypcji push." });
+    }
+
+    // Upsert subscription
+    const existingIndex = pushSubscriptions.findIndex(
+      (s) => s.subscription && s.subscription.endpoint === subscription.endpoint
+    );
+
+    const record: StoredPushSubscription = {
+      subscription,
+      householdId: householdId || "default",
+      userId: userId || "",
+      userName: userName || "Domownik",
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (existingIndex >= 0) {
+      pushSubscriptions[existingIndex] = record;
+    } else {
+      pushSubscriptions.push(record);
+    }
+
+    saveSubscriptions();
+    return res.json({ success: true, message: "Subskrypcja zarejestrowana pomyślnie." });
+  } catch (e: any) {
+    console.error("Błąd zapisu subskrypcji push:", e);
+    return res.status(500).json({ success: false, error: e?.message || "Błąd serwera." });
+  }
+});
+
+app.post("/api/push-unsubscribe", (req, res) => {
+  try {
+    const { endpoint } = req.body;
+    if (endpoint) {
+      pushSubscriptions = pushSubscriptions.filter(
+        (s) => s.subscription && s.subscription.endpoint !== endpoint
+      );
+      saveSubscriptions();
+    }
+    return res.json({ success: true });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e?.message });
+  }
+});
+
+app.post("/api/send-push-notification", async (req, res) => {
+  try {
+    const {
+      householdId,
+      senderUserId,
+      senderUserName,
+      title,
+      body,
+      targetTab,
+      extraSubscriptions,
+      data,
+    } = req.body;
+
+    if (!title || !body) {
+      return res.status(400).json({ success: false, error: "Brak tytułu lub treści powiadomienia." });
+    }
+
+    // Merge server stored subscriptions with any client-supplied subscriptions (e.g. from Firestore document)
+    const combinedMap = new Map<string, { subscription: webpush.PushSubscription; userId?: string }>();
+
+    pushSubscriptions
+      .filter((s) => !householdId || s.householdId === householdId)
+      .forEach((s) => {
+        if (s.subscription && s.subscription.endpoint) {
+          combinedMap.set(s.subscription.endpoint, {
+            subscription: s.subscription,
+            userId: s.userId,
+          });
+        }
+      });
+
+    if (Array.isArray(extraSubscriptions)) {
+      extraSubscriptions.forEach((s: any) => {
+        const sub = s.subscription || s;
+        if (sub && sub.endpoint && !combinedMap.has(sub.endpoint)) {
+          combinedMap.set(sub.endpoint, {
+            subscription: sub,
+            userId: s.userId,
+          });
+        }
+      });
+    }
+
+    // Filter out the sender so they do NOT receive push notifications about their own actions
+    const targets = Array.from(combinedMap.values()).filter(
+      (entry) => !senderUserId || entry.userId !== senderUserId
+    );
+
+    const payload = JSON.stringify({
+      title,
+      body,
+      icon: "/pwa-192x192.png",
+      badge: "/pwa-192x192.png",
+      data: {
+        url: "/",
+        targetTab: targetTab || "dashboard",
+        senderUserName: senderUserName || "Domownik",
+        timestamp: Date.now(),
+        ...data,
+      },
+    });
+
+    let successCount = 0;
+    const expiredEndpoints: string[] = [];
+
+    await Promise.all(
+      targets.map(async (target) => {
+        try {
+          await webpush.sendNotification(target.subscription, payload);
+          successCount++;
+        } catch (err: any) {
+          if (err.statusCode === 404 || err.statusCode === 410) {
+            expiredEndpoints.push(target.subscription.endpoint);
+          } else {
+            console.warn("Błąd wysyłania push do odbiorcy:", err?.message || err);
+          }
+        }
+      })
+    );
+
+    // Prune expired subscriptions if any
+    if (expiredEndpoints.length > 0) {
+      pushSubscriptions = pushSubscriptions.filter(
+        (s) => !s.subscription || !expiredEndpoints.includes(s.subscription.endpoint)
+      );
+      saveSubscriptions();
+    }
+
+    return res.json({
+      success: true,
+      recipientsCount: targets.length,
+      sentCount: successCount,
+    });
+  } catch (error: any) {
+    console.error("Błąd send-push-notification:", error);
+    return res.status(500).json({
+      success: false,
+      error: error?.message || "Nie udało się rozesłać powiadomień push.",
+    });
+  }
+});
+
+// Test push directly to requesting device
+app.post("/api/test-push-notification", async (req, res) => {
+  try {
+    const { subscription, title, body } = req.body;
+    if (!subscription || !subscription.endpoint) {
+      return res.status(400).json({ success: false, error: "Brak subskrypcji urządzenia." });
+    }
+
+    const payload = JSON.stringify({
+      title: title || "🔔 Test powiadomienia",
+      body: body || "Powiadomienia w telefonie działają prawidłowo!",
+      icon: "/pwa-192x192.png",
+      badge: "/pwa-192x192.png",
+      data: {
+        url: "/",
+        timestamp: Date.now(),
+      },
+    });
+
+    await webpush.sendNotification(subscription, payload);
+    return res.json({ success: true, message: "Powiadomienie testowe wysłane!" });
+  } catch (e: any) {
+    console.error("Błąd test-push-notification:", e);
+    return res.status(500).json({ success: false, error: e?.message || "Błąd wysyłki testowej." });
+  }
+});
+
+// Serve Service Worker with required headers
+app.get("/sw.js", (req, res) => {
+  res.setHeader("Content-Type", "application/javascript");
+  res.setHeader("Service-Worker-Allowed", "/");
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  const swPath = path.join(process.cwd(), "public", "sw.js");
+  if (fs.existsSync(swPath)) {
+    res.sendFile(swPath);
+  } else {
+    res.status(404).send("// Service worker file not found");
   }
 });
 

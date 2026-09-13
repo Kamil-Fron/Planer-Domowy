@@ -34,6 +34,7 @@ import {
   UserProfile,
   AppNotification,
   MortgageLoan,
+  HouseholdPushSubscription,
 } from './types';
 
 export enum OperationType {
@@ -425,6 +426,7 @@ export interface HouseholdFirestoreData {
   shoppingItems: ShoppingItem[];
   notifications?: AppNotification[];
   mortgages?: MortgageLoan[];
+  pushSubscriptions?: HouseholdPushSubscription[];
   lastUpdatedAt: string;
   lastUpdatedBy?: string;
 }

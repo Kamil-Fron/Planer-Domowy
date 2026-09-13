@@ -49,6 +49,14 @@ export const InAppNotificationBanner: React.FC<InAppNotificationBannerProps> = (
   if (!notification) return null;
 
   const handleClick = () => {
+    if (notification.id) {
+      try {
+        const stored: string[] = JSON.parse(localStorage.getItem('app_read_notification_ids') || '[]');
+        if (!stored.includes(notification.id)) {
+          localStorage.setItem('app_read_notification_ids', JSON.stringify([...stored, notification.id]));
+        }
+      } catch {}
+    }
     if (onMarkRead && notification.id) {
       onMarkRead(notification.id);
     }

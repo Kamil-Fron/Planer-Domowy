@@ -77,7 +77,13 @@ import { recordTransactionUsage } from './utils/frequentTransactions';
 import {
   checkAndTriggerBillNotifications,
   createActivityNotification,
+  sendBrowserPushNotification,
 } from './utils/notifications';
+import {
+  sendPushNotificationToHousehold,
+  subscribeToPushNotifications,
+  isPushSupported,
+} from './utils/pushManager';
 import { calculatePreviousDueDate } from './utils/billCycle';
 
 export default function App() {
@@ -225,6 +231,69 @@ export default function App() {
     };
   });
 
+  // Track known notification IDs to detect notifications created by other household members
+  const knownNotificationIds = useRef<Set<string>>(new Set(notifications.map((n) => n.id)));
+  const isInitialFirestoreLoad = useRef<boolean>(true);
+
+  // Handle messages from Service Worker (e.g., notification clicks while app is open or navigating)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+    const handleSwMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'NAVIGATE_FROM_NOTIFICATION') {
+        const targetTab = event.data.targetTab as TabType;
+        if (targetTab) {
+          setActiveTab(targetTab);
+        }
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', handleSwMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+  }, []);
+
+  // Auto-subscribe device to push notifications if permission is already granted
+  useEffect(() => {
+    if (!currentUser?.isLoggedIn || !household?.id) return;
+    if (typeof window === 'undefined' || !isPushSupported()) return;
+
+    if (Notification.permission === 'granted') {
+      subscribeToPushNotifications({
+        householdId: household.id,
+        userId: currentUser.id,
+        userName: currentUser.name || 'Domownik',
+      })
+        .then(({ subscription }) => {
+          if (subscription && household?.id) {
+            const subJson = subscription.toJSON();
+            if (subJson.endpoint && subJson.keys?.p256dh && subJson.keys?.auth) {
+              setHousehold((prev) => {
+                if (!prev) return null;
+                const existingSubs = prev.pushSubscriptions || [];
+                if (existingSubs.some((s) => s.endpoint === subJson.endpoint)) {
+                  return prev;
+                }
+                const newSub = {
+                  endpoint: subJson.endpoint,
+                  keys: {
+                    p256dh: subJson.keys.p256dh!,
+                    auth: subJson.keys.auth!,
+                  },
+                  userId: currentUser.id,
+                  userName: currentUser.name || 'Domownik',
+                  device: navigator.userAgent.substring(0, 50),
+                  updatedAt: new Date().toISOString(),
+                };
+                return {
+                  ...prev,
+                  pushSubscriptions: [...existingSubs, newSub],
+                };
+              });
+            }
+          }
+        })
+        .catch(() => {});
+    }
+  }, [currentUser?.id, currentUser?.isLoggedIn, household?.id]);
+
   // Household Admin Permission Check
   const isHouseholdAdmin =
     !household ||
@@ -243,6 +312,7 @@ export default function App() {
     targetTab?: TabType;
   }) => {
     const author = currentUser?.name || 'Domownik';
+    const authorId = currentUser?.id || '';
     const now = new Date().toISOString();
 
     const activityEntry: ActivityLogEntry = {
@@ -323,6 +393,7 @@ export default function App() {
         title: options.title,
         message: options.description,
         authorName: author,
+        authorId: authorId,
         date: now,
         read: false,
         relatedId: options.entityId,
@@ -336,8 +407,26 @@ export default function App() {
         return updated;
       });
 
-      // Pokaż wyskakujące powiadomienie mobilne i desktopowe
-      setBannerNotification(notif);
+      // WAŻNE: Nie wyświetlamy banera wyskakującego użytkownikowi, który SAM właśnie wykonał tę akcję.
+      // Zamiast tego wysyłamy powiadomienie PUSH do telefonów pozostałych domowników w tle!
+      if (household?.id) {
+        sendPushNotificationToHousehold({
+          householdId: household.id,
+          senderUserId: authorId,
+          senderUserName: author,
+          title: options.title,
+          body: options.description,
+          targetTab: defaultTab,
+          extraSubscriptions: household.pushSubscriptions,
+          data: {
+            entityId: options.entityId,
+            targetTab: defaultTab,
+            authorName: author,
+          },
+        }).catch((err) => {
+          console.warn('Błąd wysyłki Web Push do domowników:', err);
+        });
+      }
     }
   };
 
@@ -713,6 +802,32 @@ export default function App() {
         const cloudNotifs = cloudData.notifications || [];
         const cloudMortgages = cloudData.mortgages;
 
+        // Wykryj powiadomienia dodane przez INNYCH domowników podczas gdy aplikacja jest otwarta:
+        if (!isInitialFirestoreLoad.current && cloudNotifs.length > 0) {
+          const currentUserId = currentUser?.id;
+          const currentUserName = currentUser?.name;
+          const newFromOthers = cloudNotifs.filter(
+            (n: AppNotification) =>
+              !knownNotificationIds.current.has(n.id) &&
+              !n.read &&
+              ((n.authorId && currentUserId && n.authorId !== currentUserId) ||
+                (n.authorName && currentUserName && n.authorName !== currentUserName))
+          );
+
+          if (newFromOthers.length > 0) {
+            const latest = newFromOthers[0];
+            setBannerNotification(latest);
+            sendBrowserPushNotification(latest.title, {
+              body: latest.message,
+              icon: '/pwa-192x192.png',
+              badge: '/pwa-192x192.png',
+            });
+          }
+        }
+
+        cloudNotifs.forEach((n: AppNotification) => knownNotificationIds.current.add(n.id));
+        isInitialFirestoreLoad.current = false;
+
         setTransactions(cloudTxs);
         saveTransactions(cloudTxs);
 
@@ -744,6 +859,7 @@ export default function App() {
                   name: cloudData.name || prev.name,
                   members: cloudData.members,
                   inviteCode: cloudData.inviteCode || prev.inviteCode,
+                  pushSubscriptions: cloudData.pushSubscriptions || prev.pushSubscriptions,
                 }
               : null
           );

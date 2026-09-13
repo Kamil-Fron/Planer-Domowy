@@ -179,6 +179,7 @@ export interface AppNotification {
   targetTab?: TabType;
   actionLink?: string;
   authorName?: string;
+  authorId?: string;
 }
 
 export interface ActivityLogEntry {
@@ -238,6 +239,18 @@ export interface HouseholdMember {
   isCurrentUser?: boolean;
 }
 
+export interface HouseholdPushSubscription {
+  endpoint: string;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+  userId: string;
+  userName: string;
+  device?: string;
+  updatedAt: string;
+}
+
 export interface Household {
   id: string;
   name: string;
@@ -248,6 +261,7 @@ export interface Household {
   pendingRequests?: PendingJoinRequest[];
   syncStatus: 'synced' | 'syncing' | 'offline';
   cloudProvider?: 'firebase' | 'local';
+  pushSubscriptions?: HouseholdPushSubscription[];
 }
 
 export interface UserProfile {

@@ -30,10 +30,17 @@ import {
   Landmark,
   Settings,
   Shield,
+  Smartphone,
+  BellRing,
 } from 'lucide-react';
 import { Bill, BudgetLimit, TabType, Transaction, Household, UserProfile, AppNotification } from '../types';
-import { generateAutomatedNotifications } from '../utils/notifications';
+import { generateAutomatedNotifications, sendBrowserPushNotification } from '../utils/notifications';
 import { getAvailableMonthOptions } from '../utils/rollover';
+import {
+  isPushSupported,
+  getNotificationPermission,
+  subscribeToPushNotifications,
+} from '../utils/pushManager';
 
 interface NavbarProps {
   activeTab: TabType;
@@ -103,6 +110,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const [isActionMenuOpen, setIsActionMenuOpen] = useState(false);
   const [showMobileMoreMenu, setShowMobileMoreMenu] = useState(false);
+  const [notificationTab, setNotificationTab] = useState<'unread' | 'history'>('unread');
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
   const [readIds, setReadIds] = useState<string[]>(() => {
     try {
@@ -113,16 +121,74 @@ export const Navbar: React.FC<NavbarProps> = ({
   });
 
   // Połącz powiadomienia o aktywnościach z automatycznymi alertami (rachunki, limity)
-  const allNotifications = generateAutomatedNotifications(bills, transactions, budgetLimits, notifications);
-  const activeNotifications = allNotifications
-    .filter((n) => !dismissedIds.includes(n.id))
-    .map((n) => (readIds.includes(n.id) ? { ...n, read: true } : n));
+  const allNotifications = useMemo(() => {
+    return generateAutomatedNotifications(bills, transactions, budgetLimits, notifications);
+  }, [bills, transactions, budgetLimits, notifications]);
 
-  const handleNotificationClick = (notif: AppNotification) => {
-    // Immediately mark as read so top unread icon vanishes
+  // Powiadomienia nieprzeczytane - po odczytaniu/kliknięciu natychmiast znikają z tej listy
+  const unreadNotifications = useMemo(() => {
+    return allNotifications.filter(
+      (n) => !dismissedIds.includes(n.id) && !readIds.includes(n.id) && !n.read
+    );
+  }, [allNotifications, dismissedIds, readIds]);
+
+  // Historia powiadomień odczytanych
+  const historyNotifications = useMemo(() => {
+    return allNotifications.filter(
+      (n) => !dismissedIds.includes(n.id) && (readIds.includes(n.id) || n.read)
+    );
+  }, [allNotifications, dismissedIds, readIds]);
+
+  const unreadCount = unreadNotifications.length;
+
+  const [pushPermission, setPushPermission] = useState<NotificationPermission | 'unsupported'>(() =>
+    getNotificationPermission()
+  );
+  const [isSubscribingPush, setIsSubscribingPush] = useState(false);
+  const [testPushMsg, setTestPushMsg] = useState<string | null>(null);
+
+  const handleEnablePush = async () => {
+    setIsSubscribingPush(true);
+    try {
+      const { subscription, error } = await subscribeToPushNotifications({
+        householdId: household?.id || 'default',
+        userId: currentUser?.id || 'user',
+        userName: currentUser?.name || 'Domownik',
+      });
+      if (subscription) {
+        setPushPermission('granted');
+        setTestPushMsg('Włączono! ✅');
+        setTimeout(() => setTestPushMsg(null), 3000);
+      } else if (error) {
+        console.warn('Push error:', error);
+      }
+    } catch (e: any) {
+      console.warn('Błąd włączania push:', e);
+    } finally {
+      setIsSubscribingPush(false);
+    }
+  };
+
+  const handleSendTestPush = async () => {
+    setTestPushMsg('Wysyłanie...');
+    try {
+      await sendBrowserPushNotification('🔔 Test powiadomień w telefonie', {
+        body: 'Powiadomienia w tle działają poprawnie!',
+        icon: '/pwa-192x192.png',
+        badge: '/pwa-192x192.png',
+      });
+      setTestPushMsg('Wysłano! 🔔');
+      setTimeout(() => setTestPushMsg(null), 3000);
+    } catch {
+      setTestPushMsg('Błąd');
+      setTimeout(() => setTestPushMsg(null), 3000);
+    }
+  };
+
+  const markNotificationAsRead = (id: string) => {
     setReadIds((prev) => {
-      if (prev.includes(notif.id)) return prev;
-      const updated = [...prev, notif.id];
+      if (prev.includes(id)) return prev;
+      const updated = [...prev, id];
       try {
         localStorage.setItem('app_read_notification_ids', JSON.stringify(updated));
       } catch {}
@@ -130,8 +196,13 @@ export const Navbar: React.FC<NavbarProps> = ({
     });
 
     if (onMarkNotificationRead) {
-      onMarkNotificationRead(notif.id);
+      onMarkNotificationRead(id);
     }
+  };
+
+  const handleNotificationClick = (notif: AppNotification) => {
+    // Natychmiast oznacz jako przeczytane, dzięki czemu znika z listy nieprzeczytanych
+    markNotificationAsRead(notif.id);
     setIsActionMenuOpen(false);
 
     if (onNavigate) {
@@ -178,17 +249,29 @@ export const Navbar: React.FC<NavbarProps> = ({
       }
     }
   };
-  const unreadCount = activeNotifications.filter((n) => !n.read).length;
 
-  const handleClearAll = () => {
-    // Preserve budget warnings and exceedances even after clearing!
-    const nonBudgetIds = allNotifications
-      .filter((n) => n.type !== 'budget_warning' && n.type !== 'budget_exceeded')
-      .map((n) => n.id);
-    setDismissedIds((prev) => [...prev, ...nonBudgetIds]);
+  const handleMarkAllRead = () => {
+    const unreadIds = unreadNotifications.map((n) => n.id);
+    setReadIds((prev) => {
+      const updated = Array.from(new Set([...prev, ...unreadIds]));
+      try {
+        localStorage.setItem('app_read_notification_ids', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    unreadIds.forEach((id) => {
+      if (onMarkNotificationRead) {
+        onMarkNotificationRead(id);
+      }
+    });
     if (onClearNotifications) {
       onClearNotifications();
     }
+  };
+
+  const handleClearHistory = () => {
+    const historyIds = historyNotifications.map((n) => n.id);
+    setDismissedIds((prev) => Array.from(new Set([...prev, ...historyIds])));
   };
 
   const navItems: { id: TabType; label: string; icon: React.ComponentType<{ className?: string }>; badge?: string }[] = [
@@ -448,36 +531,127 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                     {/* 2. Powiadomienia (Tylko powiadomienia z przejściem do czynności) */}
                     <div className="p-3">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center space-x-1.5">
-                          <Bell className="w-3.5 h-3.5 text-indigo-600" />
-                          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                            Powiadomienia
-                          </span>
-                          {unreadCount > 0 && (
-                            <span className="text-[10px] bg-rose-50 text-rose-700 px-1.5 py-0.2 rounded-full font-bold border border-rose-100">
-                              {unreadCount} nowe
+                      <div className="flex flex-col space-y-2 mb-2 pb-2 border-b border-slate-100">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-1.5">
+                            <Bell className="w-3.5 h-3.5 text-indigo-600" />
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                              Powiadomienia
                             </span>
+                            {unreadCount > 0 && (
+                              <span className="text-[10px] bg-rose-50 text-rose-700 px-1.5 py-0.2 rounded-full font-bold border border-rose-100">
+                                {unreadCount} nowe
+                              </span>
+                            )}
+                          </div>
+
+                          {notificationTab === 'unread' && unreadNotifications.length > 0 && (
+                            <button
+                              onClick={handleMarkAllRead}
+                              className="text-[10px] text-indigo-600 hover:text-indigo-800 font-semibold transition-colors flex items-center space-x-1"
+                              title="Oznacz wszystkie jako odczytane"
+                            >
+                              <Check className="w-3 h-3" />
+                              <span>Odczytaj wszystkie</span>
+                            </button>
+                          )}
+                          {notificationTab === 'history' && historyNotifications.length > 0 && (
+                            <button
+                              onClick={handleClearHistory}
+                              className="text-[10px] text-slate-400 hover:text-rose-600 font-medium transition-colors"
+                              title="Wyczyść całą historię"
+                            >
+                              Wyczyść historię
+                            </button>
                           )}
                         </div>
-                        {activeNotifications.length > 0 && (
+
+                        {/* Zakładki: Nowe / Historia */}
+                        <div className="flex items-center bg-slate-100 p-0.5 rounded-lg text-[10px] font-semibold w-full">
                           <button
-                            onClick={handleClearAll}
-                            className="text-[11px] text-slate-400 hover:text-slate-700 transition-colors"
+                            onClick={() => setNotificationTab('unread')}
+                            className={`flex-1 py-1 rounded-md transition-all text-center ${
+                              notificationTab === 'unread'
+                                ? 'bg-white text-indigo-700 shadow-2xs'
+                                : 'text-slate-500 hover:text-slate-800'
+                            }`}
                           >
-                            Wyczyść
+                            Nieodczytane ({unreadNotifications.length})
                           </button>
-                        )}
+                          <button
+                            onClick={() => setNotificationTab('history')}
+                            className={`flex-1 py-1 rounded-md transition-all text-center ${
+                              notificationTab === 'history'
+                                ? 'bg-white text-indigo-700 shadow-2xs'
+                                : 'text-slate-500 hover:text-slate-800'
+                            }`}
+                          >
+                            Historia ({historyNotifications.length})
+                          </button>
+                        </div>
                       </div>
 
-                      <div className="max-h-52 overflow-y-auto space-y-2 pr-0.5 scrollbar-thin">
-                        {activeNotifications.length === 0 ? (
-                          <div className="py-3 text-center text-slate-400 text-xs flex items-center justify-center space-x-1.5 bg-slate-50/50 rounded-xl">
-                            <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-                            <span>Brak nowych powiadomień.</span>
+                      {/* Status powiadomień w telefonie */}
+                      <div className="px-3 pt-2">
+                        {pushPermission === 'granted' ? (
+                          <div className="p-2 bg-emerald-50/80 border border-emerald-200 rounded-xl flex items-center justify-between text-[11px]">
+                            <div className="flex items-center space-x-1.5 text-emerald-900 font-medium min-w-0">
+                              <Smartphone className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <span className="truncate">Powiadomienia w telefonie: <strong className="text-emerald-700">Włączone</strong></span>
+                            </div>
+                            <button
+                              onClick={handleSendTestPush}
+                              className="px-2 py-0.5 text-[10px] font-bold bg-white text-emerald-700 hover:bg-emerald-100 rounded-md border border-emerald-300 transition-colors shrink-0 shadow-2xs"
+                              title="Wyślij próbne powiadomienie na to urządzenie"
+                            >
+                              {testPushMsg || 'Test 📲'}
+                            </button>
+                          </div>
+                        ) : isPushSupported() ? (
+                          <div className="p-2.5 bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200/90 rounded-xl text-[11px]">
+                            <div className="flex items-start space-x-2">
+                              <BellRing className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                              <div className="min-w-0 flex-1">
+                                <p className="font-bold text-indigo-950 leading-tight">Powiadomienia w telefonie</p>
+                                <p className="text-[10px] text-slate-600 mt-0.5 leading-snug">
+                                  Otrzymuj alerty o zakupach i rachunkach od domowników — nawet przy wyłączonej aplikacji.
+                                </p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={handleEnablePush}
+                              disabled={isSubscribingPush}
+                              className="mt-2 w-full py-1.5 px-3 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white font-bold rounded-lg text-xs transition-all flex items-center justify-center space-x-1.5 shadow-2xs disabled:opacity-60"
+                            >
+                              <Smartphone className="w-3.5 h-3.5" />
+                              <span>{isSubscribingPush ? 'Włączanie...' : 'Włącz powiadomienia w telefonie'}</span>
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div className="max-h-64 sm:max-h-80 overflow-y-auto space-y-2 pr-0.5 scrollbar-thin">
+                        {notificationTab === 'unread' && unreadNotifications.length === 0 ? (
+                          <div className="py-4 text-center text-slate-400 text-xs flex flex-col items-center justify-center space-y-1 bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                            <span className="font-semibold text-slate-700">Brak nowych powiadomień</span>
+                            <span className="text-[10px] text-slate-400">Wszystkie powiadomienia zostały odczytane.</span>
+                            {historyNotifications.length > 0 && (
+                              <button
+                                onClick={() => setNotificationTab('history')}
+                                className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold underline mt-1"
+                              >
+                                Zobacz historię ({historyNotifications.length})
+                              </button>
+                            )}
+                          </div>
+                        ) : notificationTab === 'history' && historyNotifications.length === 0 ? (
+                          <div className="py-4 text-center text-slate-400 text-xs flex flex-col items-center justify-center space-y-1 bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
+                            <Bell className="w-4 h-4 text-slate-400" />
+                            <span className="font-medium text-slate-500">Brak powiadomień w historii</span>
                           </div>
                         ) : (
-                          activeNotifications.slice(0, 8).map((notif) => {
+                          (notificationTab === 'unread' ? unreadNotifications : historyNotifications).map((notif) => {
                             const isBudgetExceeded = notif.type === 'budget_exceeded';
                             const isBudgetWarning = notif.type === 'budget_warning';
                             const isBudgetAlert = isBudgetExceeded || isBudgetWarning;
@@ -511,7 +685,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                                     </p>
                                   </div>
 
-                                  <div className="flex items-center space-x-2 shrink-0">
+                                  <div className="flex items-center space-x-1.5 shrink-0">
                                     <span
                                       className={`px-2 py-0.5 rounded-md text-[10px] font-black ${
                                         isBudgetExceeded
@@ -521,13 +695,19 @@ export const Navbar: React.FC<NavbarProps> = ({
                                     >
                                       {notif.message}
                                     </span>
-                                    {!notif.read && (
-                                      <span
-                                        className={`w-2 h-2 rounded-full shrink-0 ${
-                                          isBudgetExceeded ? 'bg-rose-600' : 'bg-amber-500'
-                                        } animate-pulse`}
-                                        title="Nieprzeczytane"
-                                      />
+                                    {notificationTab === 'unread' ? (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          markNotificationAsRead(notif.id);
+                                        }}
+                                        className="p-1 rounded-md text-slate-400 hover:text-emerald-700 hover:bg-white/90 transition-colors"
+                                        title="Oznacz jako odczytane (usuń z listy)"
+                                      >
+                                        <Check className="w-3.5 h-3.5" />
+                                      </button>
+                                    ) : (
+                                      <span className="text-[9px] text-slate-400">Odczytane</span>
                                     )}
                                   </div>
                                 </div>
@@ -539,9 +719,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                                 key={notif.id}
                                 onClick={() => handleNotificationClick(notif)}
                                 className={`p-3 rounded-xl border transition-all flex items-start space-x-2.5 cursor-pointer group hover:scale-[1.01] active:scale-[0.99] ${
-                                  !notif.read
+                                  notificationTab === 'unread'
                                     ? 'bg-emerald-50/70 border-emerald-200/90 hover:bg-emerald-100/70 hover:border-emerald-300 shadow-2xs'
-                                    : 'bg-white border-slate-100 opacity-75 hover:bg-slate-50 hover:border-slate-200'
+                                    : 'bg-white border-slate-100 opacity-80 hover:opacity-100 hover:bg-slate-50 hover:border-slate-200'
                                 }`}
                               >
                                 <div className="mt-0.5 flex-shrink-0">
@@ -567,7 +747,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                                   <div className="flex items-start justify-between gap-1.5">
                                     <div className="min-w-0">
                                       <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
-                                        {!notif.read ? (
+                                        {notificationTab === 'unread' ? (
                                           <span className="inline-flex items-center space-x-1 text-[9px] font-bold text-emerald-700 bg-emerald-100/90 px-1.5 py-0.2 rounded-full shrink-0">
                                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
                                             <span>Nowe</span>
@@ -578,9 +758,23 @@ export const Navbar: React.FC<NavbarProps> = ({
                                         </p>
                                       </div>
                                     </div>
-                                    <span className="text-[9px] text-slate-400 whitespace-nowrap flex-shrink-0 mt-0.5">
-                                      {formatNotifTime(notif.date)}
-                                    </span>
+                                    <div className="flex items-center space-x-1 shrink-0">
+                                      <span className="text-[9px] text-slate-400 whitespace-nowrap mt-0.5">
+                                        {formatNotifTime(notif.date)}
+                                      </span>
+                                      {notificationTab === 'unread' ? (
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            markNotificationAsRead(notif.id);
+                                          }}
+                                          className="p-1 rounded-md text-slate-400 hover:text-emerald-700 hover:bg-emerald-100 transition-colors ml-0.5"
+                                          title="Oznacz jako odczytane (usuń z listy)"
+                                        >
+                                          <Check className="w-3.5 h-3.5" />
+                                        </button>
+                                      ) : null}
+                                    </div>
                                   </div>
                                   <p className="text-[11px] text-slate-600 line-clamp-2 mt-1">
                                     {notif.message}

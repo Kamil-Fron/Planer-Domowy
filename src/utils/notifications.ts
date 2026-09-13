@@ -35,8 +35,8 @@ export async function sendBrowserPushNotification(title: string, options?: Notif
         const registration = await navigator.serviceWorker.ready;
         if (registration && typeof registration.showNotification === 'function') {
           await registration.showNotification(title, {
-            icon: '/icon-192.png',
-            badge: '/favicon.ico',
+            icon: '/pwa-192x192.png',
+            badge: '/pwa-192x192.png',
             vibrate: [180, 80, 180],
             tag: `notif-${Date.now()}`,
             renotify: true,
@@ -52,8 +52,8 @@ export async function sendBrowserPushNotification(title: string, options?: Notif
     // 2. Standardowy fallback przeglądarkowy dla desktopu
     try {
       new Notification(title, {
-        icon: '/favicon.ico',
-        badge: '/favicon.ico',
+        icon: '/pwa-192x192.png',
+        badge: '/pwa-192x192.png',
         ...options,
       });
     } catch (e) {
@@ -115,10 +115,30 @@ export function generateAutomatedNotifications(
   budgetLimits: BudgetLimit[],
   existingNotifications: AppNotification[] = []
 ): AppNotification[] {
-  // Start with manual/activity notifications already recorded
-  const newNotifications: AppNotification[] = [...existingNotifications];
+  // Only keep manual/activity notifications that have real content (exclude automated stubs)
+  const manualNotifications = existingNotifications.filter(
+    (n) =>
+      !n.id.startsWith('bill-') &&
+      !n.id.startsWith('budget-exceeded-') &&
+      !n.id.startsWith('budget-warning-') &&
+      Boolean(n.title && n.title.trim())
+  );
+
+  const newNotifications: AppNotification[] = [...manualNotifications];
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+
+  const isMarkedRead = (key: string) => {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const localReadIds: string[] = JSON.parse(localStorage.getItem('app_read_notification_ids') || '[]');
+        if (localReadIds.includes(key)) return true;
+      }
+    } catch {}
+
+    const found = existingNotifications.find((n) => n.id === key);
+    return found ? Boolean(found.read) : false;
+  };
 
   // 1. Check Bills Due Dates
   bills.forEach((bill) => {
@@ -130,47 +150,54 @@ export function generateAutomatedNotifications(
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
     const billNotificationKey = `bill-${bill.id}-${bill.dueDate}-${diffDays <= 0 ? 'overdue' : 'due'}`;
-    const alreadyExists = newNotifications.some((n) => n.id === billNotificationKey);
+    const isRead = isMarkedRead(billNotificationKey);
 
-    if (!alreadyExists) {
-      if (diffDays < 0) {
-        // Overdue
-        const notif: AppNotification = {
-          id: billNotificationKey,
-          title: `⚠️ Zaległy rachunek: ${bill.name}`,
-          message: `Termin płatności minął ${Math.abs(diffDays)} dni temu (${bill.dueDate}). Kwota: ${bill.amount.toFixed(2)} PLN.`,
-          type: 'bill_overdue',
-          date: new Date().toISOString(),
-          read: false,
-          relatedId: bill.id,
-        };
-        newNotifications.unshift(notif);
+    if (diffDays < 0) {
+      // Overdue
+      const notif: AppNotification = {
+        id: billNotificationKey,
+        title: `⚠️ Zaległy rachunek: ${bill.name}`,
+        message: `Termin płatności minął ${Math.abs(diffDays)} dni temu (${bill.dueDate}). Kwota: ${bill.amount.toFixed(2)} PLN.`,
+        type: 'bill_overdue',
+        date: new Date().toISOString(),
+        read: isRead,
+        relatedId: bill.id,
+        targetTab: 'bills',
+      };
+      newNotifications.unshift(notif);
+      if (!isRead) {
         sendBrowserPushNotification(notif.title, { body: notif.message });
-      } else if (diffDays === 0) {
-        // Due today
-        const notif: AppNotification = {
-          id: billNotificationKey,
-          title: `🔔 Dzisiaj termin płatności: ${bill.name}`,
-          message: `Rachunek na kwotę ${bill.amount.toFixed(2)} PLN (${bill.provider}) przypada na dzisiaj!`,
-          type: 'bill_due',
-          date: new Date().toISOString(),
-          read: false,
-          relatedId: bill.id,
-        };
-        newNotifications.unshift(notif);
+      }
+    } else if (diffDays === 0) {
+      // Due today
+      const notif: AppNotification = {
+        id: billNotificationKey,
+        title: `🔔 Dzisiaj termin płatności: ${bill.name}`,
+        message: `Rachunek na kwotę ${bill.amount.toFixed(2)} PLN (${bill.provider}) przypada na dzisiaj!`,
+        type: 'bill_due',
+        date: new Date().toISOString(),
+        read: isRead,
+        relatedId: bill.id,
+        targetTab: 'bills',
+      };
+      newNotifications.unshift(notif);
+      if (!isRead) {
         sendBrowserPushNotification(notif.title, { body: notif.message });
-      } else if (diffDays <= 3) {
-        // Due in 1-3 days
-        const notif: AppNotification = {
-          id: billNotificationKey,
-          title: `⏰ Zbliża się płatność: ${bill.name}`,
-          message: `Za ${diffDays} dni mija termin płatności (${bill.dueDate}) na kwotę ${bill.amount.toFixed(2)} PLN.`,
-          type: 'bill_due',
-          date: new Date().toISOString(),
-          read: false,
-          relatedId: bill.id,
-        };
-        newNotifications.unshift(notif);
+      }
+    } else if (diffDays <= 3) {
+      // Due in 1-3 days
+      const notif: AppNotification = {
+        id: billNotificationKey,
+        title: `⏰ Zbliża się płatność: ${bill.name}`,
+        message: `Za ${diffDays} dni mija termin płatności (${bill.dueDate}) na kwotę ${bill.amount.toFixed(2)} PLN.`,
+        type: 'bill_due',
+        date: new Date().toISOString(),
+        read: isRead,
+        relatedId: bill.id,
+        targetTab: 'bills',
+      };
+      newNotifications.unshift(notif);
+      if (!isRead) {
         sendBrowserPushNotification(notif.title, { body: notif.message });
       }
     }
@@ -192,43 +219,37 @@ export function generateAutomatedNotifications(
 
     if (percent >= 100) {
       const notifKey = `budget-exceeded-${limit.category}-${currentYearMonth}`;
-      const existing = existingNotifications.find((n) => n.id === notifKey);
-      const isRead = existing ? existing.read : false;
-      if (!newNotifications.some((n) => n.id === notifKey)) {
-        const notif: AppNotification = {
-          id: notifKey,
-          title: `Przekroczono limit: ${limit.category}`,
-          message: `${percent.toFixed(0)}% limitu`,
-          type: 'budget_exceeded',
-          date: new Date().toISOString(),
-          read: isRead,
-          relatedId: limit.category,
-          targetTab: 'limits',
-        };
-        newNotifications.unshift(notif);
-        if (!isRead) {
-          sendBrowserPushNotification(notif.title, { body: notif.message });
-        }
+      const isRead = isMarkedRead(notifKey);
+      const notif: AppNotification = {
+        id: notifKey,
+        title: `Przekroczono limit: ${limit.category}`,
+        message: `${percent.toFixed(0)}% limitu`,
+        type: 'budget_exceeded',
+        date: new Date().toISOString(),
+        read: isRead,
+        relatedId: limit.category,
+        targetTab: 'limits',
+      };
+      newNotifications.unshift(notif);
+      if (!isRead) {
+        sendBrowserPushNotification(notif.title, { body: notif.message });
       }
     } else if (percent >= threshold) {
       const notifKey = `budget-warning-${limit.category}-${currentYearMonth}`;
-      const existing = existingNotifications.find((n) => n.id === notifKey);
-      const isRead = existing ? existing.read : false;
-      if (!newNotifications.some((n) => n.id === notifKey)) {
-        const notif: AppNotification = {
-          id: notifKey,
-          title: `Ostrzeżenie: ${limit.category}`,
-          message: `${percent.toFixed(0)}% limitu`,
-          type: 'budget_warning',
-          date: new Date().toISOString(),
-          read: isRead,
-          relatedId: limit.category,
-          targetTab: 'limits',
-        };
-        newNotifications.unshift(notif);
-        if (!isRead) {
-          sendBrowserPushNotification(notif.title, { body: notif.message });
-        }
+      const isRead = isMarkedRead(notifKey);
+      const notif: AppNotification = {
+        id: notifKey,
+        title: `Ostrzeżenie: ${limit.category}`,
+        message: `${percent.toFixed(0)}% limitu`,
+        type: 'budget_warning',
+        date: new Date().toISOString(),
+        read: isRead,
+        relatedId: limit.category,
+        targetTab: 'limits',
+      };
+      newNotifications.unshift(notif);
+      if (!isRead) {
+        sendBrowserPushNotification(notif.title, { body: notif.message });
       }
     }
   });
@@ -236,5 +257,5 @@ export function generateAutomatedNotifications(
   // Sort by date newest first
   newNotifications.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-  return newNotifications.slice(0, 50); // Keep latest 50
+  return newNotifications;
 }

@@ -2066,7 +2066,27 @@ export default function App() {
 
   const handleMarkNotificationRead = (id: string) => {
     setNotifications((prev) => {
-      const updated = prev.map((n) => (n.id === id ? { ...n, read: true } : n));
+      const exists = prev.some((n) => n.id === id);
+      let updated: AppNotification[];
+      if (exists) {
+        updated = prev.map((n) => (n.id === id ? { ...n, read: true } : n));
+      } else {
+        updated = [
+          ...prev,
+          {
+            id,
+            title: '',
+            message: '',
+            type: id.includes('exceeded')
+              ? 'budget_exceeded'
+              : id.includes('warning')
+              ? 'budget_warning'
+              : 'bill_due',
+            date: new Date().toISOString(),
+            read: true,
+          } as AppNotification,
+        ];
+      }
       saveNotifications(updated);
       return updated;
     });

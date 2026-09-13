@@ -104,12 +104,31 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [isActionMenuOpen, setIsActionMenuOpen] = useState(false);
   const [showMobileMoreMenu, setShowMobileMoreMenu] = useState(false);
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
+  const [readIds, setReadIds] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('app_read_notification_ids') || '[]');
+    } catch {
+      return [];
+    }
+  });
 
   // Połącz powiadomienia o aktywnościach z automatycznymi alertami (rachunki, limity)
   const allNotifications = generateAutomatedNotifications(bills, transactions, budgetLimits, notifications);
-  const activeNotifications = allNotifications.filter((n) => !dismissedIds.includes(n.id));
+  const activeNotifications = allNotifications
+    .filter((n) => !dismissedIds.includes(n.id))
+    .map((n) => (readIds.includes(n.id) ? { ...n, read: true } : n));
 
   const handleNotificationClick = (notif: AppNotification) => {
+    // Immediately mark as read so top unread icon vanishes
+    setReadIds((prev) => {
+      if (prev.includes(notif.id)) return prev;
+      const updated = [...prev, notif.id];
+      try {
+        localStorage.setItem('app_read_notification_ids', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
     if (onMarkNotificationRead) {
       onMarkNotificationRead(notif.id);
     }
@@ -463,31 +482,70 @@ export const Navbar: React.FC<NavbarProps> = ({
                             const isBudgetWarning = notif.type === 'budget_warning';
                             const isBudgetAlert = isBudgetExceeded || isBudgetWarning;
 
+                            if (isBudgetAlert) {
+                              return (
+                                <div
+                                  key={notif.id}
+                                  onClick={() => handleNotificationClick(notif)}
+                                  className={`p-2.5 rounded-xl border transition-all flex items-center justify-between gap-2 cursor-pointer group hover:scale-[1.01] active:scale-[0.99] ${
+                                    isBudgetExceeded
+                                      ? 'bg-rose-50 border-rose-300 hover:bg-rose-100/90'
+                                      : 'bg-amber-50 border-amber-300 hover:bg-amber-100/90'
+                                  }`}
+                                  title="Kliknij, aby przejść do limitu"
+                                >
+                                  <div className="flex items-center space-x-2 min-w-0">
+                                    <div
+                                      className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${
+                                        isBudgetExceeded ? 'bg-rose-600 text-white' : 'bg-amber-500 text-white'
+                                      }`}
+                                    >
+                                      <AlertTriangle className="w-3.5 h-3.5 stroke-[2.5]" />
+                                    </div>
+                                    <p
+                                      className={`text-xs font-bold truncate ${
+                                        isBudgetExceeded ? 'text-rose-950' : 'text-amber-950'
+                                      }`}
+                                    >
+                                      {notif.title}
+                                    </p>
+                                  </div>
+
+                                  <div className="flex items-center space-x-2 shrink-0">
+                                    <span
+                                      className={`px-2 py-0.5 rounded-md text-[10px] font-black ${
+                                        isBudgetExceeded
+                                          ? 'bg-rose-200/90 text-rose-900'
+                                          : 'bg-amber-200/90 text-amber-900'
+                                      }`}
+                                    >
+                                      {notif.message}
+                                    </span>
+                                    {!notif.read && (
+                                      <span
+                                        className={`w-2 h-2 rounded-full shrink-0 ${
+                                          isBudgetExceeded ? 'bg-rose-600' : 'bg-amber-500'
+                                        } animate-pulse`}
+                                        title="Nieprzeczytane"
+                                      />
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            }
+
                             return (
                               <div
                                 key={notif.id}
                                 onClick={() => handleNotificationClick(notif)}
                                 className={`p-3 rounded-xl border transition-all flex items-start space-x-2.5 cursor-pointer group hover:scale-[1.01] active:scale-[0.99] ${
-                                  isBudgetExceeded
-                                    ? 'bg-rose-50 border-rose-300 shadow-xs ring-1 ring-rose-200/70 hover:bg-rose-100/90'
-                                    : isBudgetWarning
-                                    ? 'bg-amber-50 border-amber-300 shadow-xs ring-1 ring-amber-200/70 hover:bg-amber-100/90'
-                                    : !notif.read
+                                  !notif.read
                                     ? 'bg-emerald-50/70 border-emerald-200/90 hover:bg-emerald-100/70 hover:border-emerald-300 shadow-2xs'
                                     : 'bg-white border-slate-100 opacity-75 hover:bg-slate-50 hover:border-slate-200'
                                 }`}
-                                title="Kliknij, aby przejść do tego limitu"
                               >
                                 <div className="mt-0.5 flex-shrink-0">
-                                  {isBudgetExceeded ? (
-                                    <div className="w-7 h-7 rounded-lg bg-rose-600 text-white flex items-center justify-center shadow-xs">
-                                      <AlertTriangle className="w-4 h-4 stroke-[2.5]" />
-                                    </div>
-                                  ) : isBudgetWarning ? (
-                                    <div className="w-7 h-7 rounded-lg bg-amber-500 text-white flex items-center justify-center shadow-xs">
-                                      <AlertTriangle className="w-4 h-4 stroke-[2.5]" />
-                                    </div>
-                                  ) : notif.type === 'item_bought' ? (
+                                  {notif.type === 'item_bought' ? (
                                     <div className="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center ring-1 ring-emerald-300">
                                       <CheckCircle2 className="w-3.5 h-3.5" />
                                     </div>
@@ -509,29 +567,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                                   <div className="flex items-start justify-between gap-1.5">
                                     <div className="min-w-0">
                                       <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
-                                        {isBudgetExceeded ? (
-                                          <span className="text-[9px] font-black uppercase tracking-wider text-rose-800 bg-rose-200/90 px-1.5 py-0.5 rounded-md shrink-0">
-                                            Przekroczenie
-                                          </span>
-                                        ) : isBudgetWarning ? (
-                                          <span className="text-[9px] font-black uppercase tracking-wider text-amber-900 bg-amber-200/90 px-1.5 py-0.5 rounded-md shrink-0">
-                                            Ostrzeżenie
-                                          </span>
-                                        ) : !notif.read ? (
+                                        {!notif.read ? (
                                           <span className="inline-flex items-center space-x-1 text-[9px] font-bold text-emerald-700 bg-emerald-100/90 px-1.5 py-0.2 rounded-full shrink-0">
                                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
                                             <span>Nowe</span>
                                           </span>
                                         ) : null}
-                                        <p
-                                          className={`text-xs font-bold leading-tight ${
-                                            isBudgetExceeded
-                                              ? 'text-rose-950 font-black'
-                                              : isBudgetWarning
-                                              ? 'text-amber-950 font-black'
-                                              : 'text-slate-900 truncate group-hover:text-emerald-800'
-                                          }`}
-                                        >
+                                        <p className="text-xs font-bold leading-tight text-slate-900 truncate group-hover:text-emerald-800">
                                           {notif.title}
                                         </p>
                                       </div>
@@ -540,37 +582,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                                       {formatNotifTime(notif.date)}
                                     </span>
                                   </div>
-                                  <p
-                                    className={`text-xs leading-relaxed mt-1 break-words ${
-                                      isBudgetExceeded
-                                        ? 'text-rose-950 font-semibold'
-                                        : isBudgetWarning
-                                        ? 'text-amber-950 font-semibold'
-                                        : 'text-[11px] text-slate-600 line-clamp-2'
-                                    }`}
-                                  >
+                                  <p className="text-[11px] text-slate-600 line-clamp-2 mt-1">
                                     {notif.message}
                                   </p>
-                                  <div className="flex items-center justify-between mt-1.5 pt-1 border-t border-slate-200/40">
-                                    {notif.authorName ? (
+                                  {notif.authorName && (
+                                    <div className="mt-1 pt-1 border-t border-slate-200/40">
                                       <span className="inline-block text-[9px] font-semibold text-slate-700 bg-white/80 px-1.5 py-0.2 rounded-md border border-slate-200">
                                         👤 {notif.authorName}
                                       </span>
-                                    ) : (
-                                      <span />
-                                    )}
-                                    <span
-                                      className={`text-[10px] font-bold flex items-center space-x-1 ${
-                                        isBudgetExceeded
-                                          ? 'text-rose-700'
-                                          : isBudgetWarning
-                                          ? 'text-amber-800'
-                                          : 'text-emerald-700 opacity-0 group-hover:opacity-100 transition-opacity'
-                                      }`}
-                                    >
-                                      <span>{isBudgetAlert ? 'Przejdź do tego limitu →' : 'pokaż czynność →'}</span>
-                                    </span>
-                                  </div>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             );

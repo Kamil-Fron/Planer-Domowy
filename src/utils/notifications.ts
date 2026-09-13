@@ -192,35 +192,43 @@ export function generateAutomatedNotifications(
 
     if (percent >= 100) {
       const notifKey = `budget-exceeded-${limit.category}-${currentYearMonth}`;
+      const existing = existingNotifications.find((n) => n.id === notifKey);
+      const isRead = existing ? existing.read : false;
       if (!newNotifications.some((n) => n.id === notifKey)) {
         const notif: AppNotification = {
           id: notifKey,
-          title: `🚨 Przekroczono budżet: ${limit.category}`,
-          message: `Wydano ${categorySpent.toFixed(2)} PLN z limitu ${limit.monthlyLimit.toFixed(2)} PLN (${percent.toFixed(0)}%).`,
+          title: `Przekroczono limit: ${limit.category}`,
+          message: `${percent.toFixed(0)}% limitu`,
           type: 'budget_exceeded',
           date: new Date().toISOString(),
-          read: false,
+          read: isRead,
           relatedId: limit.category,
           targetTab: 'limits',
         };
         newNotifications.unshift(notif);
-        sendBrowserPushNotification(notif.title, { body: notif.message });
+        if (!isRead) {
+          sendBrowserPushNotification(notif.title, { body: notif.message });
+        }
       }
     } else if (percent >= threshold) {
       const notifKey = `budget-warning-${limit.category}-${currentYearMonth}`;
+      const existing = existingNotifications.find((n) => n.id === notifKey);
+      const isRead = existing ? existing.read : false;
       if (!newNotifications.some((n) => n.id === notifKey)) {
         const notif: AppNotification = {
           id: notifKey,
-          title: `⚠️ Ostrzeżenie budżetowe: ${limit.category}`,
-          message: `Wykorzystano już ${percent.toFixed(0)}% miesięcznego limitu (${categorySpent.toFixed(2)} / ${limit.monthlyLimit.toFixed(2)} PLN).`,
+          title: `Ostrzeżenie: ${limit.category}`,
+          message: `${percent.toFixed(0)}% limitu`,
           type: 'budget_warning',
           date: new Date().toISOString(),
-          read: false,
+          read: isRead,
           relatedId: limit.category,
           targetTab: 'limits',
         };
         newNotifications.unshift(notif);
-        sendBrowserPushNotification(notif.title, { body: notif.message });
+        if (!isRead) {
+          sendBrowserPushNotification(notif.title, { body: notif.message });
+        }
       }
     }
   });

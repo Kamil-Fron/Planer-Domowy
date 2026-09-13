@@ -200,6 +200,8 @@ export function generateAutomatedNotifications(
           type: 'budget_exceeded',
           date: new Date().toISOString(),
           read: false,
+          relatedId: limit.category,
+          targetTab: 'limits',
         };
         newNotifications.unshift(notif);
         sendBrowserPushNotification(notif.title, { body: notif.message });
@@ -214,6 +216,8 @@ export function generateAutomatedNotifications(
           type: 'budget_warning',
           date: new Date().toISOString(),
           read: false,
+          relatedId: limit.category,
+          targetTab: 'limits',
         };
         newNotifications.unshift(notif);
         sendBrowserPushNotification(notif.title, { body: notif.message });

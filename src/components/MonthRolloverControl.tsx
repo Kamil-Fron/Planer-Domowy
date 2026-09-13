@@ -58,8 +58,10 @@ export const MonthRolloverControl: React.FC<MonthRolloverControlProps> = ({
   };
 
   // 1. Akcja: Przesunięcie bilansu na kolejny miesiąc (1 transakcja)
-  const handleRollover = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleRollover = (e?: React.MouseEvent) => {
+    if (e && typeof e.stopPropagation === 'function') {
+      e.stopPropagation();
+    }
     if (balance === 0) {
       showNotification('Bilans wynosi 0,00 PLN – brak kwoty do przesunięcia.');
       return;
@@ -89,8 +91,10 @@ export const MonthRolloverControl: React.FC<MonthRolloverControlProps> = ({
   };
 
   // 2. Akcja: Cofnięcie przesunięcia (usunięcie wpisu)
-  const handleRevert = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleRevert = (e?: React.MouseEvent) => {
+    if (e && typeof e.stopPropagation === 'function') {
+      e.stopPropagation();
+    }
     if (!existingRolloverTx) return;
 
     onDeleteTransaction(existingRolloverTx.id, true);

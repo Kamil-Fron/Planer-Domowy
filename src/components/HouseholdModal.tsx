@@ -9,6 +9,9 @@ import {
   LogOut,
   LogIn,
   AlertTriangle,
+  ShieldCheck,
+  CheckCircle2,
+  Clock,
 } from 'lucide-react';
 import { Household, UserProfile } from '../types';
 import { loginWithGoogleFirebase, logoutFromFirebase } from '../firebase';
@@ -25,6 +28,10 @@ interface HouseholdModalProps {
   onLeaveHousehold?: () => Promise<void> | void;
   onInviteMember: (email: string, name: string) => void;
   onRemoveMember: (id: string) => void;
+  onApproveJoinRequest?: (requestId: string) => Promise<void> | void;
+  onRejectJoinRequest?: (requestId: string) => Promise<void> | void;
+  pendingJoinInfo?: { householdName: string; requestId: string } | null;
+  onCancelPendingJoin?: () => void;
   onTriggerSync?: () => void;
   isSyncing?: boolean;
 }
@@ -41,6 +48,10 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
   onLeaveHousehold,
   onInviteMember,
   onRemoveMember,
+  onApproveJoinRequest,
+  onRejectJoinRequest,
+  pendingJoinInfo,
+  onCancelPendingJoin,
 }) => {
   const [householdNameInput, setHouseholdNameInput] = useState('');
   const [joinCodeInput, setJoinCodeInput] = useState('');
@@ -52,14 +63,22 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
   const [authError, setAuthError] = useState<string | null>(null);
   const [joinLoading, setJoinLoading] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
+  const [joinSuccessMessage, setJoinSuccessMessage] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
   const [creationMode, setCreationMode] = useState<'join' | 'create'>('create');
+
+  const isHouseholdAdmin =
+    !household ||
+    !currentUser.isLoggedIn ||
+    household.createdBy === currentUser.id ||
+    household.members?.find((m) => m.id === currentUser.id)?.role === 'owner';
 
   useEffect(() => {
     if (isOpen) {
       setAuthError(null);
       setJoinError(null);
       setInviteSuccess(null);
+      setJoinSuccessMessage(null);
     }
   }, [isOpen]);
 
@@ -108,11 +127,15 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
     try {
       setJoinLoading(true);
       setJoinError(null);
+      setJoinSuccessMessage(null);
       const res = await onJoinHousehold(joinCodeInput.trim().toUpperCase());
       if (res && !res.success) {
         setJoinError(res.message || 'Nie znaleziono gospodarstwa o podanym kodzie.');
       } else {
         setJoinCodeInput('');
+        if (res && res.message) {
+          setJoinSuccessMessage(res.message);
+        }
       }
     } catch (err: any) {
       setJoinError(err?.message || 'Błąd dołączania do gospodarstwa.');
@@ -332,6 +355,81 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
                 </div>
               </div>
 
+              {/* Oczekujące prośby o dołączenie do gospodarstwa (tylko dla Administratora) */}
+              {isHouseholdAdmin && household.pendingRequests && household.pendingRequests.length > 0 && (
+                <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold text-amber-950 flex items-center space-x-1.5">
+                      <UserPlus className="w-4 h-4 text-amber-600" />
+                      <span>Oczekujące prośby o dołączenie ({household.pendingRequests.length})</span>
+                    </h4>
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-200 text-amber-900">
+                      Wymaga zgody
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-amber-800 leading-relaxed">
+                    Nowe osoby dołączające kodem oczekują na Twoje zatwierdzenie zanim uzyskają dostęp do budżetu domowego.
+                  </p>
+
+                  <div className="space-y-2">
+                    {household.pendingRequests.map((req) => (
+                      <div
+                        key={req.id}
+                        className="bg-white p-3 rounded-xl border border-amber-200 flex items-center justify-between gap-3 shadow-xs"
+                      >
+                        <div className="flex items-center space-x-2.5 min-w-0">
+                          {req.avatarUrl ? (
+                            <img
+                              src={req.avatarUrl}
+                              alt={req.name}
+                              className="w-8 h-8 rounded-full border border-slate-200 object-cover"
+                            />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center font-bold text-xs">
+                              {req.name.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-slate-900 truncate">{req.name}</p>
+                            <p className="text-[10px] text-slate-500 truncate">{req.email}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-1.5 shrink-0">
+                          {onApproveJoinRequest && (
+                            <button
+                              onClick={() => onApproveJoinRequest(req.id)}
+                              className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-colors flex items-center space-x-1 shadow-xs"
+                              title="Zatwierdź domownika"
+                            >
+                              <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                              <span>Zatwierdź</span>
+                            </button>
+                          )}
+                          {onRejectJoinRequest && (
+                            <button
+                              onClick={() => onRejectJoinRequest(req.id)}
+                              className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-bold transition-colors border border-rose-200"
+                              title="Odrzuć prośbę"
+                            >
+                              Odrzuć
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Informacja o uprawnieniach domowników */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-slate-600 text-xs flex items-start space-x-2">
+                <ShieldCheck className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                <p className="text-[11px] leading-relaxed">
+                  <strong>Uprawnienia ról:</strong> Członkowie domu mogą wspólnie przeglądać i rejestrować wydatki, paragony oraz zakupy. Operacje zbiorczego usuwania danych z bazy oraz przywracania kopii zapasowych są zablokowane i zarezerwowane wyłącznie dla Administratora gospodarstwa.
+                </p>
+              </div>
+
               {/* Zaproś nowego domownika */}
               <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2">
                 <h4 className="text-xs font-bold text-slate-900 flex items-center space-x-1.5">
@@ -429,34 +527,64 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
                   </button>
                 </form>
               ) : (
-                <form onSubmit={handleJoin} className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Wpisz 6-znakowy kod zaproszenia
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      maxLength={6}
-                      value={joinCodeInput}
-                      onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
-                      placeholder="np. DOM123"
-                      className="w-full px-3.5 py-2 font-mono uppercase tracking-widest text-center text-sm font-bold bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
-                  </div>
-                  {joinError && (
-                    <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-xl">
-                      {joinError}
+                <div className="space-y-3">
+                  {pendingJoinInfo && (
+                    <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl space-y-2">
+                      <div className="flex items-center space-x-2 text-amber-900 font-bold text-xs">
+                        <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span>Oczekujesz na zatwierdzenie przez administratora</span>
+                      </div>
+                      <p className="text-[11px] text-amber-800 leading-relaxed">
+                        Wysłano zgłoszenie do gospodarstwa: <strong>{pendingJoinInfo.householdName}</strong>. Administrator musi zaakceptować Twoją prośbę, aby udostępnić finanse.
+                      </p>
+                      {onCancelPendingJoin && (
+                        <button
+                          type="button"
+                          onClick={onCancelPendingJoin}
+                          className="text-[11px] font-semibold text-rose-600 hover:text-rose-700 underline"
+                        >
+                          Anuluj wysłaną prośbę
+                        </button>
+                      )}
                     </div>
                   )}
-                  <button
-                    type="submit"
-                    disabled={joinLoading || joinCodeInput.trim().length < 3}
-                    className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-xs transition-colors"
-                  >
-                    {joinLoading ? 'Dołączanie...' : 'Dołącz do gospodarstwa'}
-                  </button>
-                </form>
+
+                  {joinSuccessMessage && (
+                    <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-900 text-xs flex items-start space-x-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      <p className="text-xs leading-relaxed">{joinSuccessMessage}</p>
+                    </div>
+                  )}
+
+                  <form onSubmit={handleJoin} className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Wpisz 6-znakowy kod zaproszenia
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        maxLength={6}
+                        value={joinCodeInput}
+                        onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
+                        placeholder="np. DOM123"
+                        className="w-full px-3.5 py-2 font-mono uppercase tracking-widest text-center text-sm font-bold bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    {joinError && (
+                      <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-xl">
+                        {joinError}
+                      </div>
+                    )}
+                    <button
+                      type="submit"
+                      disabled={joinLoading || joinCodeInput.trim().length < 3}
+                      className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-xs transition-colors"
+                    >
+                      {joinLoading ? 'Wysyłanie prośby...' : 'Wyślij prośbę o dołączenie'}
+                    </button>
+                  </form>
+                </div>
               )}
             </div>
           )}

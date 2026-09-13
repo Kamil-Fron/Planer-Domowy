@@ -144,14 +144,14 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
   const amountInputRef = useRef<HTMLInputElement>(null);
   const shoppingNameInputRef = useRef<HTMLInputElement>(null);
 
-  // Dynamic smart suggestions based on user's frequent items + current shopping list + popular defaults
+  // Dynamic smart suggestions based on user's frequent items + current shopping list + popular defaults (max 10)
   const dynamicShoppingSuggestions = useMemo(() => {
-    return getSmartShoppingSuggestions(shoppingItems, '');
+    return getSmartShoppingSuggestions(shoppingItems, '').slice(0, 10);
   }, [shoppingItems, isOpen]);
 
-  // Dynamic smart suggestions for transactions based on frequency and history
+  // Dynamic smart suggestions for transactions based on frequency and history (max 10)
   const dynamicTransactionSuggestions = useMemo(() => {
-    return getSmartTransactionSuggestions(transactions, type, title, 8);
+    return getSmartTransactionSuggestions(transactions, type, title, 10);
   }, [transactions, type, title, isOpen]);
 
   // Focus appropriate input on open or tab change
@@ -183,9 +183,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
   const handleApplyTxSuggestion = (sug: SmartTransactionSuggestion) => {
     setTitle(sug.title);
     setCategory(sug.category);
-    if (sug.typicalAmount && (!amount || amount === '0' || amount === '')) {
-      setAmount(sug.typicalAmount.toFixed(2).replace('.00', ''));
-    }
+    // As requested: do not add price when clicking suggestions, only title and category
     amountInputRef.current?.focus();
   };
 
@@ -549,15 +547,10 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
                         ? 'bg-indigo-50/90 border-indigo-300 text-indigo-950 hover:bg-indigo-100 hover:border-indigo-400 font-bold'
                         : 'border-slate-200 bg-white hover:bg-indigo-50 hover:border-indigo-300 text-slate-700 hover:text-indigo-900'
                     }`}
-                    title={`${sug.title} • Kategoria: ${sug.category}${sug.typicalAmount ? ` • ~${sug.typicalAmount} zł` : ''}`}
+                    title={`${sug.title} • Kategoria: ${sug.category}`}
                   >
                     <span>{sug.emoji}</span>
                     <span className="truncate">{sug.title}</span>
-                    {sug.typicalAmount ? (
-                      <span className="text-[10px] text-slate-400 font-medium ml-1 shrink-0">
-                        ~{sug.typicalAmount} zł
-                      </span>
-                    ) : null}
                   </button>
                 ))}
               </div>

@@ -87,6 +87,8 @@ export interface ShoppingList {
   icon: string;
   color: string;
   description?: string;
+  priority?: number; // Wyższy priorytet = wyżej na liście (domyślnie 0)
+  isHidden?: boolean; // Czy lista jest tymczasowo ukryta z widoku głównego
   createdAt: string;
 }
 
@@ -159,12 +161,43 @@ export interface AppNotification {
   id: string;
   title: string;
   message: string;
-  type: 'bill_due' | 'bill_overdue' | 'budget_warning' | 'budget_exceeded' | 'activity' | 'info';
+  type:
+    | 'bill_due'
+    | 'bill_overdue'
+    | 'budget_warning'
+    | 'budget_exceeded'
+    | 'transaction_added'
+    | 'shopping_added'
+    | 'item_bought'
+    | 'bill_added'
+    | 'item_restored'
+    | 'activity'
+    | 'info';
   date: string;
   read: boolean;
   relatedId?: string;
+  targetTab?: TabType;
   actionLink?: string;
   authorName?: string;
+}
+
+export interface ActivityLogEntry {
+  id: string;
+  action: 'create' | 'update' | 'delete' | 'restore' | 'sync' | 'household';
+  entityType: 'transaction' | 'shopping_item' | 'bill' | 'budget_limit' | 'shopping_list' | 'household' | 'system';
+  title: string;
+  description: string;
+  authorName: string;
+  userName?: string;
+  timestamp: string; // ISO date string
+  relatedId?: string;
+  entityId?: string;
+  snapshot?: any;
+  deletedPayload?: {
+    type: 'transaction' | 'shopping_item' | 'bill' | 'budget_limit' | 'shopping_list';
+    data: any;
+  };
+  restored?: boolean;
 }
 
 export interface ReceiptScanResult {
@@ -186,6 +219,15 @@ export interface FinancialAdvice {
   summary: string;
 }
 
+export interface PendingJoinRequest {
+  id: string;
+  userId: string;
+  name: string;
+  email: string;
+  avatarUrl?: string;
+  requestedAt: string;
+}
+
 export interface HouseholdMember {
   id: string;
   email: string;
@@ -203,6 +245,7 @@ export interface Household {
   createdAt: string;
   createdBy: string;
   members: HouseholdMember[];
+  pendingRequests?: PendingJoinRequest[];
   syncStatus: 'synced' | 'syncing' | 'offline';
   cloudProvider?: 'firebase' | 'local';
 }

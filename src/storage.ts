@@ -5,6 +5,7 @@ import {
   Bill,
   BudgetLimit,
   AppNotification,
+  ActivityLogEntry,
   Household,
   UserProfile,
   MortgageLoan,
@@ -24,6 +25,7 @@ const KEYS = {
   BILLS: 'budget_planner_bills_v1',
   BUDGET_LIMITS: 'budget_planner_limits_v1',
   NOTIFICATIONS: 'budget_planner_notifications_v1',
+  ACTIVITIES: 'budget_planner_activities_v1',
   PUSH_ENABLED: 'budget_planner_push_enabled_v1',
   HOUSEHOLD: 'budget_planner_household_v1',
   USER_PROFILE: 'budget_planner_user_v1',
@@ -234,8 +236,35 @@ export const scanLocalStorageForLostData = (): {
 export const loadTransactions = (): Transaction[] => getItemSafe(KEYS.TRANSACTIONS, INITIAL_TRANSACTIONS);
 export const saveTransactions = (data: Transaction[]): void => setItemSafe(KEYS.TRANSACTIONS, data);
 
-export const loadShoppingLists = (): ShoppingList[] => getItemSafe(KEYS.SHOPPING_LISTS, INITIAL_SHOPPING_LISTS);
-export const saveShoppingLists = (data: ShoppingList[]): void => setItemSafe(KEYS.SHOPPING_LISTS, data);
+export const deduplicateShoppingLists = (lists: ShoppingList[]): ShoppingList[] => {
+  if (!Array.isArray(lists)) return [];
+  const map = new Map<string, ShoppingList>();
+  lists.forEach((l) => {
+    if (!l) return;
+    const key = (l.name || l.category || '').trim().toLowerCase();
+    if (!key) return;
+    if (!map.has(key)) {
+      map.set(key, { ...l });
+    } else {
+      const existing = map.get(key)!;
+      // Merge properties (priority, isHidden, color)
+      map.set(key, {
+        ...existing,
+        color: existing.color || l.color,
+        priority: existing.priority ?? l.priority,
+        isHidden: existing.isHidden ?? l.isHidden,
+        description: existing.description || l.description,
+      });
+    }
+  });
+  return Array.from(map.values());
+};
+
+export const loadShoppingLists = (): ShoppingList[] => {
+  const lists = getItemSafe(KEYS.SHOPPING_LISTS, INITIAL_SHOPPING_LISTS);
+  return deduplicateShoppingLists(lists);
+};
+export const saveShoppingLists = (data: ShoppingList[]): void => setItemSafe(KEYS.SHOPPING_LISTS, deduplicateShoppingLists(data));
 
 export const loadShoppingItems = (): ShoppingItem[] => getItemSafe(KEYS.SHOPPING_ITEMS, INITIAL_SHOPPING_ITEMS);
 export const saveShoppingItems = (data: ShoppingItem[]): void => setItemSafe(KEYS.SHOPPING_ITEMS, data);
@@ -248,6 +277,9 @@ export const saveBudgetLimits = (data: BudgetLimit[]): void => setItemSafe(KEYS.
 
 export const loadNotifications = (): AppNotification[] => getItemSafe(KEYS.NOTIFICATIONS, []);
 export const saveNotifications = (data: AppNotification[]): void => setItemSafe(KEYS.NOTIFICATIONS, data);
+
+export const loadActivities = (): ActivityLogEntry[] => getItemSafe<ActivityLogEntry[]>(KEYS.ACTIVITIES, []);
+export const saveActivities = (data: ActivityLogEntry[]): void => setItemSafe(KEYS.ACTIVITIES, data);
 
 export const loadPushSetting = (): boolean => getItemSafe(KEYS.PUSH_ENABLED, false);
 export const savePushSetting = (enabled: boolean): void => setItemSafe(KEYS.PUSH_ENABLED, enabled);
@@ -287,6 +319,8 @@ export const Storage = {
   saveBudgetLimits,
   getNotifications: loadNotifications,
   saveNotifications,
+  getActivities: loadActivities,
+  saveActivities,
   getMortgages: loadMortgages,
   saveMortgages,
   getPushEnabled: loadPushSetting,
@@ -298,6 +332,7 @@ export const Storage = {
     localStorage.removeItem(KEYS.BILLS);
     localStorage.removeItem(KEYS.BUDGET_LIMITS);
     localStorage.removeItem(KEYS.NOTIFICATIONS);
+    localStorage.removeItem(KEYS.ACTIVITIES);
     localStorage.removeItem(KEYS.PUSH_ENABLED);
     localStorage.removeItem(KEYS.MORTGAGES);
   },

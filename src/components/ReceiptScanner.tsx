@@ -623,26 +623,6 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
               )}
             </button>
           </div>
-          <p className="text-sm text-slate-600 mt-1">
-            Zrób zdjęcie lub wgraj paragon. Model Gemini AI automatycznie odczyta pozycje, ceny i przypisze kategorie
-            (np. jedzenie, obiad, remont, koty).
-          </p>
-        </div>
-
-        {/* Sample Load Buttons */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full md:w-auto">
-          <span className="text-xs font-semibold text-slate-500">Przetestuj z przykładu:</span>
-          <div className="flex flex-wrap gap-1.5">
-            {SAMPLE_RECEIPTS.map((sample) => (
-              <button
-                key={sample.id}
-                onClick={() => handleLoadSample(sample)}
-                className="text-xs px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl transition-colors flex items-center space-x-1"
-              >
-                <span>{sample.title.split(' - ')[0]}</span>
-              </button>
-            ))}
-          </div>
         </div>
       </div>
 
@@ -732,17 +712,17 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
         <div
           onDragOver={(e) => {
             e.preventDefault();
-            e.stopPropagation();
+            e?.stopPropagation?.();
             setIsDraggingOver(true);
           }}
           onDragLeave={(e) => {
             e.preventDefault();
-            e.stopPropagation();
+            e?.stopPropagation?.();
             setIsDraggingOver(false);
           }}
           onDrop={(e) => {
             e.preventDefault();
-            e.stopPropagation();
+            e?.stopPropagation?.();
             setIsDraggingOver(false);
             if (e.dataTransfer.files && e.dataTransfer.files[0]) {
               processFile(e.dataTransfer.files[0]);
@@ -873,11 +853,6 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                   <Camera className="w-4 h-4 text-slate-500" />
                   <span>Aparat</span>
                 </button>
-              </div>
-
-              <div className="mt-5 inline-flex items-center space-x-2 text-xs text-slate-400 bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-full">
-                <Clipboard className="w-3.5 h-3.5 text-indigo-500" />
-                <span>Możesz w dowolnym momencie wcisnąć <kbd className="px-1.5 py-0.5 bg-white border border-slate-200 rounded-sm font-mono text-[10px] text-slate-700 font-semibold shadow-2xs">Ctrl + V</kbd> (lub <kbd className="px-1.5 py-0.5 bg-white border border-slate-200 rounded-sm font-mono text-[10px] text-slate-700 font-semibold shadow-2xs">⌘ + V</kbd>), aby wkleić zrzut ekranu</span>
               </div>
             </div>
           )}

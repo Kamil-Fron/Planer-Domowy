@@ -320,6 +320,40 @@ export function recordShoppingItemUsage(name: string, category: string, _unit?: 
 }
 
 /**
+ * Decrement usage counter when a shopping item is deleted.
+ * Prevents cancelled or accidentally added items from artificially ranking high.
+ */
+export function unrecordShoppingItemUsage(name: string) {
+  const trimmed = (name || '').trim();
+  if (!trimmed) return;
+
+  const key = trimmed.toLowerCase();
+  try {
+    const history = loadFrequentHistory();
+    const existing = history[key];
+    if (!existing) return;
+
+    if (existing.timestamps && existing.timestamps.length > 0) {
+      existing.timestamps.pop();
+      existing.count = existing.timestamps.length;
+      if (existing.timestamps.length === 0) {
+        delete history[key];
+      } else {
+        existing.lastUsed = existing.timestamps[existing.timestamps.length - 1];
+      }
+    } else if (existing.count && existing.count > 1) {
+      existing.count -= 1;
+    } else {
+      delete history[key];
+    }
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+/**
  * Generates smart suggestions by combining:
  * 1. Rolling 30-day frequency of user-added items (from localStorage)
  * 2. Recent shopping items in state from the last 30 days
@@ -434,14 +468,14 @@ export function getSmartShoppingSuggestions(
     return userSuggestions.filter((s) => s.name.toLowerCase().includes(q));
   }
 
-  // Build top list: user's frequent items first, up to 12
-  const result: SmartSuggestionItem[] = [...userSuggestions.slice(0, 12)];
+  // Build top list: user's frequent items first, max 10
+  const result: SmartSuggestionItem[] = [...userSuggestions.slice(0, 10)];
 
-  // If fewer than 8 suggestions, fill with default domestic suggestions that aren't already included
-  if (result.length < 8) {
+  // If fewer than 10 suggestions, fill with default domestic suggestions that aren't already included (up to 10)
+  if (result.length < 10) {
     const existingKeys = new Set(result.map((r) => r.name.toLowerCase()));
     for (const def of DEFAULT_SHOPPING_SUGGESTIONS) {
-      if (result.length >= 8) break;
+      if (result.length >= 10) break;
       if (!existingKeys.has(def.name.toLowerCase())) {
         result.push({
           name: def.name,
@@ -456,5 +490,5 @@ export function getSmartShoppingSuggestions(
     }
   }
 
-  return result;
+  return result.slice(0, 10);
 }

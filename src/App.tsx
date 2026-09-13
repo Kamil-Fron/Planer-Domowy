@@ -10,6 +10,7 @@ import {
   UserProfile,
   AppNotification,
   MortgageLoan,
+  ActivityLogEntry,
 } from './types';
 import {
   loadTransactions,
@@ -24,6 +25,8 @@ import {
   saveShoppingItems,
   loadNotifications,
   saveNotifications,
+  loadActivities,
+  saveActivities,
   loadMortgages,
   saveMortgages,
   loadPushSetting,
@@ -60,13 +63,16 @@ import { ReportsView } from './components/ReportsView';
 import { HouseholdModal } from './components/HouseholdModal';
 import { DeleteDataModal, DeleteSelection } from './components/DeleteDataModal';
 import { DataSafetyModal } from './components/DataSafetyModal';
+import { SettingsModal } from './components/SettingsModal';
+import { InAppNotificationBanner } from './components/InAppNotificationBanner';
+import { MobileQuickLauncher } from './components/MobileQuickLauncher';
 import { LoginScreen } from './components/LoginScreen';
 import { QuickAddModal } from './components/QuickAddModal';
 import { QuickAddFAB } from './components/QuickAddFAB';
 import { VersionInfoModal } from './components/VersionInfoModal';
 import { AppFooter } from './components/AppFooter';
 import { FeedbackToast, ToastData } from './components/FeedbackToast';
-import { recordShoppingItemUsage } from './utils/frequentShoppingItems';
+import { recordShoppingItemUsage, unrecordShoppingItemUsage } from './utils/frequentShoppingItems';
 import { recordTransactionUsage } from './utils/frequentTransactions';
 import {
   checkAndTriggerBillNotifications,
@@ -98,6 +104,10 @@ export default function App() {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [settingsModalTab, setSettingsModalTab] = useState<'activity' | 'sync' | 'safety' | 'version' | 'danger'>('activity');
+  const [activities, setActivities] = useState<ActivityLogEntry[]>(loadActivities);
+  const [bannerNotification, setBannerNotification] = useState<AppNotification | null>(null);
   const [toastFeedback, setToastFeedback] = useState<ToastData | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'synced' | 'saving' | 'error' | 'offline'>('synced');
@@ -112,6 +122,31 @@ export default function App() {
   const [navShoppingCategory, setNavShoppingCategory] = useState<string | null>(null);
   const [navShoppingTab, setNavShoppingTab] = useState<'active' | 'completed' | null>(null);
   const [navLimitCategory, setNavLimitCategory] = useState<string | null>(null);
+
+  // Mobile Privacy & Quick-Start Launcher (Shields balance on mobile launch)
+  const [isMobileLauncherOpen, setIsMobileLauncherOpen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const isMobile = window.innerWidth < 768;
+    if (!isMobile) return false;
+    try {
+      const enabled = localStorage.getItem('budget_mobile_quick_launcher_enabled');
+      if (enabled === 'false') return false;
+      const dismissed = sessionStorage.getItem('budget_mobile_launcher_dismissed');
+      if (dismissed === 'true') return false;
+    } catch {
+      // ignore
+    }
+    return true;
+  });
+
+  const handleCloseMobileLauncher = () => {
+    setIsMobileLauncherOpen(false);
+    try {
+      sessionStorage.setItem('budget_mobile_launcher_dismissed', 'true');
+    } catch {
+      // ignore
+    }
+  };
 
   const handleDashboardNavigate = (
     tab: TabType,
@@ -190,14 +225,331 @@ export default function App() {
     };
   });
 
-  // Helper to record new activity notification
-  const logActivity = (title: string, message: string, relatedId?: string) => {
+  // Household Admin Permission Check
+  const isHouseholdAdmin =
+    !household ||
+    !currentUser.isLoggedIn ||
+    household.createdBy === currentUser.id ||
+    household.members?.find((m) => m.id === currentUser.id)?.role === 'owner';
+
+  // Comprehensive Activity & Notification Recording Handler
+  const recordActivity = (options: {
+    action: 'create' | 'update' | 'delete' | 'restore';
+    entityType: 'transaction' | 'shopping_item' | 'bill' | 'budget_limit' | 'shopping_list' | 'household' | 'system';
+    entityId: string;
+    title: string;
+    description: string;
+    snapshot?: any;
+    targetTab?: TabType;
+  }) => {
     const author = currentUser?.name || 'Domownik';
-    const notif = createActivityNotification(title, message, author, 'activity', relatedId);
-    setNotifications((prev) => {
-      const updated = [notif, ...prev.slice(0, 49)];
-      saveNotifications(updated);
+    const now = new Date().toISOString();
+
+    const activityEntry: ActivityLogEntry = {
+      id: `act-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      action: options.action,
+      entityType: options.entityType,
+      entityId: options.entityId,
+      relatedId: options.entityId,
+      title: options.title,
+      description: options.description,
+      authorName: author,
+      userName: author,
+      timestamp: now,
+      snapshot: options.snapshot,
+      deletedPayload:
+        options.action === 'delete' && options.snapshot
+          ? {
+              type: options.entityType as any,
+              data: options.snapshot,
+            }
+          : undefined,
+    };
+
+    setActivities((prev) => {
+      const updated = [activityEntry, ...prev.slice(0, 99)];
+      saveActivities(updated);
       return updated;
+    });
+
+    // Powiadomienia:
+    // 1. Kasowanie NIE trafia do powiadomień ("Nie dodawaj takich aktywności do powiadomień jak usuwanie").
+    // 2. Co więcej, jeśli element zostaje usunięty, istniejące powiadomienie o nim znika ("Jak to zostaje usunięte to powiadomienie znika").
+    if (options.action === 'delete') {
+      setNotifications((prev) => {
+        const filtered = prev.filter((n) => n.relatedId !== options.entityId);
+        saveNotifications(filtered);
+        return filtered;
+      });
+      setBannerNotification((curr) => (curr?.relatedId === options.entityId ? null : curr));
+      return;
+    }
+
+    // 3. Dodanie (create), przywrócenie (restore) lub kupienie artykułu (item_bought) trafia do powiadomień ORAZ wyskakuje w banerze.
+    const isBoughtNotification =
+      options.entityType === 'shopping_item' &&
+      typeof options.title === 'string' &&
+      options.title.startsWith('Kupiono');
+
+    if (options.action === 'create' || options.action === 'restore' || isBoughtNotification) {
+      let notifType: AppNotification['type'] = 'activity';
+      if (options.action === 'restore') {
+        notifType = 'item_restored';
+      } else if (isBoughtNotification) {
+        notifType = 'item_bought';
+      } else if (options.entityType === 'transaction') {
+        notifType = 'transaction_added';
+      } else if (options.entityType === 'shopping_item') {
+        notifType = 'shopping_added';
+      } else if (options.entityType === 'bill') {
+        notifType = 'bill_due';
+      }
+
+      const defaultTab: TabType =
+        options.targetTab ||
+        (options.entityType === 'transaction'
+          ? 'transactions'
+          : options.entityType === 'bill'
+          ? 'bills'
+          : options.entityType === 'shopping_item' || options.entityType === 'shopping_list'
+          ? 'shopping'
+          : options.entityType === 'budget_limit'
+          ? 'limits'
+          : 'dashboard');
+
+      const notif: AppNotification = {
+        id: `notif-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        type: notifType,
+        title: options.title,
+        message: options.description,
+        authorName: author,
+        date: now,
+        read: false,
+        relatedId: options.entityId,
+        targetTab: defaultTab,
+      };
+
+      setNotifications((prev) => {
+        const filtered = prev.filter((n) => n.relatedId !== options.entityId);
+        const updated = [notif, ...filtered.slice(0, 49)];
+        saveNotifications(updated);
+        return updated;
+      });
+
+      // Pokaż wyskakujące powiadomienie mobilne i desktopowe
+      setBannerNotification(notif);
+    }
+  };
+
+  // Helper kompatybilności wstecznej
+  const logActivity = (title: string, message: string, relatedId?: string) => {
+    recordActivity({
+      action: 'create',
+      entityType: 'transaction',
+      entityId: relatedId || `activity-${Date.now()}`,
+      title,
+      description: message,
+    });
+  };
+
+  // Przywracanie usuniętego wpisu z logów aktywności
+  const handleRestoreActivityItem = (entry: ActivityLogEntry) => {
+    const payloadData = entry.snapshot || entry.deletedPayload?.data;
+    if (!payloadData) {
+      setToastFeedback({
+        id: `toast-${Date.now()}`,
+        title: 'Brak danych do przywrócenia tego wpisu',
+        type: 'expense',
+      });
+      return;
+    }
+
+    lastLocalMutationTime.current = Date.now();
+    hasUnsavedLocalChanges.current = true;
+
+    // Mark activity entry as restored in state & storage
+    setActivities((prev) => {
+      const updated = prev.map((act) => (act.id === entry.id ? { ...act, restored: true } : act));
+      saveActivities(updated);
+      return updated;
+    });
+
+    if (entry.entityType === 'transaction') {
+      const tx = payloadData as Transaction;
+      setTransactions((prev) => {
+        if (prev.some((t) => t.id === tx.id)) return prev;
+        const updated = [tx, ...prev];
+        saveTransactions(updated);
+        return updated;
+      });
+      recordActivity({
+        action: 'restore',
+        entityType: 'transaction',
+        entityId: tx.id,
+        title: `Przywrócono transakcję: ${tx.title}`,
+        description: `Kwota ${tx.amount.toFixed(2)} PLN (${tx.category})`,
+        targetTab: 'transactions',
+        snapshot: tx,
+      });
+    } else if (entry.entityType === 'bill') {
+      const bill = payloadData as Bill;
+      setBills((prev) => {
+        if (prev.some((b) => b.id === bill.id)) return prev;
+        const updated = [...prev, bill];
+        saveBills(updated);
+        return updated;
+      });
+      recordActivity({
+        action: 'restore',
+        entityType: 'bill',
+        entityId: bill.id,
+        title: `Przywrócono rachunek: ${bill.name}`,
+        description: `Kwota ${bill.amount.toFixed(2)} PLN, termin: ${bill.dueDate}`,
+        targetTab: 'bills',
+        snapshot: bill,
+      });
+    } else if (entry.entityType === 'shopping_item') {
+      const item = payloadData as ShoppingItem;
+      setShoppingItems((prev) => {
+        if (prev.some((i) => i.id === item.id)) return prev;
+        const updated = [...prev, item];
+        saveShoppingItems(updated);
+        return updated;
+      });
+      recordActivity({
+        action: 'restore',
+        entityType: 'shopping_item',
+        entityId: item.id,
+        title: `Przywrócono artykuł: ${item.name}`,
+        description: `${item.quantity} ${item.unit || 'szt.'} (${item.category})`,
+        targetTab: 'shopping',
+        snapshot: item,
+      });
+    } else if (entry.entityType === 'shopping_list') {
+      const list = payloadData as ShoppingList;
+      setShoppingLists((prev) => {
+        if (prev.some((l) => l.id === list.id)) return prev;
+        const updated = [...prev, list];
+        saveShoppingLists(updated);
+        return updated;
+      });
+      recordActivity({
+        action: 'restore',
+        entityType: 'shopping_list',
+        entityId: list.id,
+        title: `Przywrócono listę zakupów: ${list.name}`,
+        description: `Kategoria: ${list.category}`,
+        targetTab: 'shopping',
+        snapshot: list,
+      });
+    } else if (entry.entityType === 'budget_limit') {
+      const limit = payloadData as BudgetLimit;
+      setBudgetLimits((prev) => {
+        if (prev.some((l) => l.id === limit.id)) return prev;
+        const updated = [...prev, limit];
+        saveBudgetLimits(updated);
+        return updated;
+      });
+      recordActivity({
+        action: 'restore',
+        entityType: 'budget_limit',
+        entityId: limit.id,
+        title: `Przywrócono limit: ${limit.category}`,
+        description: `Miesięczny limit ${limit.monthlyLimit.toFixed(2)} PLN`,
+        targetTab: 'limits',
+        snapshot: limit,
+      });
+    }
+
+    setToastFeedback({
+      id: `toast-${Date.now()}`,
+      title: `Przywrócono wpis: ${entry.title}`,
+      type: 'income',
+    });
+  };
+
+  // Obsługa zatwierdzania i odrzucania próśb o dołączenie do gospodarstwa (Admin)
+  const handleApproveJoinRequest = async (requestId: string) => {
+    if (!household || !household.pendingRequests) return;
+    const req = household.pendingRequests.find((r) => r.id === requestId);
+    if (!req) return;
+
+    const newMember = {
+      id: req.userId || req.id,
+      name: req.name,
+      email: req.email,
+      avatarUrl: req.avatarUrl,
+      role: 'member' as const,
+      joinedAt: new Date().toISOString(),
+    };
+
+    const updatedMembers = [...(household.members || []).filter((m) => m.id !== newMember.id), newMember];
+    const updatedPending = household.pendingRequests.filter((r) => r.id !== requestId);
+
+    const updatedHousehold: Household = {
+      ...household,
+      members: updatedMembers,
+      pendingRequests: updatedPending,
+    };
+
+    setHousehold(updatedHousehold);
+    saveHousehold(updatedHousehold);
+
+    if (isFirebaseConfigured() && household.id) {
+      try {
+        await saveHouseholdToFirestore(household.id, {
+          ...updatedHousehold,
+          lastUpdatedBy: currentUser.email || currentUser.name,
+        });
+      } catch (err) {
+        console.warn('Błąd zatwierdzania prośby w Firestore:', err);
+      }
+    }
+
+    recordActivity({
+      action: 'update',
+      entityType: 'household' as any,
+      entityId: household.id,
+      title: 'Zatwierdzono nowego domownika',
+      description: `${req.name} (${req.email}) dołączył(a) do gospodarstwa`,
+    });
+
+    setToastFeedback({
+      id: `toast-${Date.now()}`,
+      title: `Zatwierdzono domownika: ${req.name}`,
+      type: 'income',
+    });
+  };
+
+  const handleRejectJoinRequest = async (requestId: string) => {
+    if (!household || !household.pendingRequests) return;
+    const req = household.pendingRequests.find((r) => r.id === requestId);
+    if (!req) return;
+
+    const updatedPending = household.pendingRequests.filter((r) => r.id !== requestId);
+    const updatedHousehold: Household = {
+      ...household,
+      pendingRequests: updatedPending,
+    };
+
+    setHousehold(updatedHousehold);
+    saveHousehold(updatedHousehold);
+
+    if (isFirebaseConfigured() && household.id) {
+      try {
+        await saveHouseholdToFirestore(household.id, {
+          ...updatedHousehold,
+          lastUpdatedBy: currentUser.email || currentUser.name,
+        });
+      } catch (err) {
+        console.warn('Błąd odrzucania prośby w Firestore:', err);
+      }
+    }
+
+    setToastFeedback({
+      id: `toast-${Date.now()}`,
+      title: `Odrzucono prośbę od: ${req.name}`,
+      type: 'expense',
     });
   };
 
@@ -535,10 +887,15 @@ export default function App() {
 
     // Powiadomienie o nowej transakcji
     const typeLabel = transactionData.type === 'income' ? 'Wpłata' : 'Wydatek';
-    logActivity(
-      `Nowa transakcja: ${typeLabel}`,
-      `${transactionData.title} (${transactionData.amount.toFixed(2)} PLN)`
-    );
+    recordActivity({
+      action: 'create',
+      entityType: 'transaction',
+      entityId: newTx.id,
+      title: `${typeLabel}: ${newTx.title}`,
+      description: `${newTx.amount.toFixed(2)} PLN (${newTx.category})`,
+      snapshot: newTx,
+      targetTab: 'transactions',
+    });
 
     return newTx.id;
   };
@@ -566,10 +923,15 @@ export default function App() {
       return updated;
     });
     if (deletedTx) {
-      logActivity(
-        'Usunięto transakcję',
-        `Usunięto "${deletedTx.title}" (${deletedTx.amount.toFixed(2)} PLN)`
-      );
+      recordActivity({
+        action: 'delete',
+        entityType: 'transaction',
+        entityId: deletedTx.id,
+        title: `Usunięto transakcję: ${deletedTx.title}`,
+        description: `Wartość: ${deletedTx.amount.toFixed(2)} PLN (${deletedTx.category})`,
+        snapshot: deletedTx,
+        targetTab: 'transactions',
+      });
 
       // Jeśli usunięta transakcja była powiązana z opłaconym rachunkiem,
       // i operacja nie została już obsłużona przez cofnięcie w BillsManager (skipBillRevert === false),
@@ -683,10 +1045,14 @@ export default function App() {
       saveTransactions(updated);
       return updated;
     });
-    logActivity(
-      'Zaktualizowano transakcję',
-      `Zmieniono szczegóły transakcji "${updatedTitle || 'transakcja'}"`
-    );
+    recordActivity({
+      action: 'update',
+      entityType: 'transaction',
+      entityId: id,
+      title: 'Zaktualizowano transakcję',
+      description: `Szczegóły: ${updatedTitle || 'transakcja'}`,
+      targetTab: 'transactions',
+    });
   };
 
   const handleScannedReceipt = (extracted: {
@@ -709,29 +1075,72 @@ export default function App() {
         category: extracted.category,
       })),
     });
-    logActivity('Zeskanowano paragon', `Wczytano paragon "${extracted.title}" na kwotę ${extracted.amount.toFixed(2)} PLN`);
+    recordActivity({
+      action: 'create',
+      entityType: 'transaction',
+      entityId: `receipt-${Date.now()}`,
+      title: 'Zeskanowano paragon',
+      description: `${extracted.title} (${extracted.amount.toFixed(2)} PLN)`,
+      targetTab: 'transactions',
+    });
     setActiveTab('transactions');
   };
 
   // Handlers for Shopping Lists & Items
   const handleAddShoppingList = (listData: Omit<ShoppingList, 'id' | 'createdAt'>) => {
-    const newList: ShoppingList = {
-      ...listData,
-      id: `list-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-    };
+    const normName = listData.name.trim().toLowerCase();
     lastLocalMutationTime.current = Date.now();
     hasUnsavedLocalChanges.current = true;
+    let createdOrUpdatedList: ShoppingList | null = null;
     setShoppingLists((prev) => {
+      const existing = prev.find((l) => (l.name || '').trim().toLowerCase() === normName);
+      if (existing) {
+        createdOrUpdatedList = { ...existing, ...listData };
+        const updated = prev.map((l) => (l.id === existing.id ? { ...l, ...listData } : l));
+        saveShoppingLists(updated);
+        return updated;
+      }
+      const newList: ShoppingList = {
+        ...listData,
+        id: `list-${Date.now()}`,
+        priority: listData.priority || 0,
+        isHidden: listData.isHidden || false,
+        createdAt: new Date().toISOString(),
+      };
+      createdOrUpdatedList = newList;
       const updated = [...prev, newList];
       saveShoppingLists(updated);
       return updated;
     });
-    logActivity('Nowa lista zakupów', `Utworzono listę: "${newList.name}"`);
+    if (createdOrUpdatedList) {
+      recordActivity({
+        action: 'create',
+        entityType: 'shopping_list',
+        entityId: (createdOrUpdatedList as ShoppingList).id,
+        title: `Nowa lista zakupów: ${listData.name}`,
+        description: `Kategoria: ${listData.category}`,
+        snapshot: createdOrUpdatedList,
+        targetTab: 'shopping',
+      });
+    }
+  };
+
+  const handleUpdateShoppingList = (id: string, updates: Partial<ShoppingList>) => {
+    lastLocalMutationTime.current = Date.now();
+    hasUnsavedLocalChanges.current = true;
+    setShoppingLists((prev) => {
+      const updated = prev.map((l) => (l.id === id ? { ...l, ...updates } : l));
+      saveShoppingLists(updated);
+      return updated;
+    });
   };
 
   const handleDeleteShoppingList = (id: string) => {
     const listToDelete = shoppingLists.find((l) => l.id === id);
+    const itemsToDelete = shoppingItems.filter((i) => i.listId === id);
+    itemsToDelete.forEach((item) => {
+      unrecordShoppingItemUsage(item.name);
+    });
     lastLocalMutationTime.current = Date.now();
     hasUnsavedLocalChanges.current = true;
     setShoppingLists((prev) => {
@@ -745,23 +1154,38 @@ export default function App() {
       return updated;
     });
     if (listToDelete) {
-      logActivity('Usunięto listę zakupów', `Skasowano listę "${listToDelete.name}"`);
+      recordActivity({
+        action: 'delete',
+        entityType: 'shopping_list',
+        entityId: listToDelete.id,
+        title: `Usunięto listę zakupów: ${listToDelete.name}`,
+        description: `Kategoria: ${listToDelete.category}`,
+        snapshot: listToDelete,
+        targetTab: 'shopping',
+      });
     }
   };
 
   const handleAddShoppingItem = (itemData: Omit<ShoppingItem, 'id' | 'createdAt'>) => {
     const categoryName = itemData.category || 'Spożywcze';
+    const normCategory = categoryName.trim().toLowerCase();
 
-    // Ensure corresponding shopping list exists so category filters and groupings work seamlessly
-    const matchingList = shoppingLists.find(
-      (l) =>
-        l.name.toLowerCase() === categoryName.toLowerCase() ||
-        l.category.toLowerCase() === categoryName.toLowerCase()
-    );
-
+    // Ensure corresponding shopping list exists (deduplicated)
     let targetListId = itemData.listId;
-    if (!matchingList) {
-      const newListId = `list-${Date.now()}`;
+
+    setShoppingLists((prev) => {
+      const matchingList = prev.find(
+        (l) =>
+          (l.name || '').trim().toLowerCase() === normCategory ||
+          (l.category || '').trim().toLowerCase() === normCategory
+      );
+
+      if (matchingList) {
+        targetListId = matchingList.id;
+        return prev;
+      }
+
+      const newListId = itemData.listId || `list-${Date.now()}`;
       targetListId = newListId;
       const newList: ShoppingList = {
         id: newListId,
@@ -770,14 +1194,14 @@ export default function App() {
         icon: 'ShoppingCart',
         color: '#10b981',
         description: `Kategoria ${categoryName}`,
+        priority: 0,
+        isHidden: false,
         createdAt: new Date().toISOString(),
       };
-      setShoppingLists((prev) => {
-        const updated = [...prev, newList];
-        saveShoppingLists(updated);
-        return updated;
-      });
-    }
+      const updated = [...prev, newList];
+      saveShoppingLists(updated);
+      return updated;
+    });
 
     const newItem: ShoppingItem = {
       ...itemData,
@@ -799,7 +1223,15 @@ export default function App() {
     // Save item frequency for smart dynamic suggestions
     recordShoppingItemUsage(newItem.name, categoryName, newItem.unit);
 
-    logActivity('Dodano produkt do listy', `Dodano "${newItem.name}" (${newItem.quantity} ${newItem.unit || 'szt.'})`);
+    recordActivity({
+      action: 'create',
+      entityType: 'shopping_item',
+      entityId: newItem.id,
+      title: `Dodano do listy: ${newItem.name}`,
+      description: `${newItem.quantity} ${newItem.unit || 'szt.'} (${categoryName})`,
+      snapshot: newItem,
+      targetTab: 'shopping',
+    });
   };
 
   const handleToggleShoppingItem = (id: string) => {
@@ -810,7 +1242,23 @@ export default function App() {
         if (item.id === id) {
           const isCompleted = !item.isCompleted;
           if (isCompleted) {
-            logActivity('Kupiono produkt', `Kupiono "${item.name}"`);
+            recordActivity({
+              action: 'update',
+              entityType: 'shopping_item',
+              entityId: item.id,
+              title: `Kupiono: ${item.name}`,
+              description: `Oznaczono jako kupione (${item.quantity} ${item.unit || 'szt.'} • ${item.category})`,
+              targetTab: 'shopping',
+              snapshot: item,
+            });
+          } else {
+            // Po odznaczeniu (powrót do kupienia), wycofaj powiadomienie o kupieniu tego artykułu
+            setNotifications((nPrev) => {
+              const filtered = nPrev.filter((n) => !(n.relatedId === id && n.type === 'item_bought'));
+              saveNotifications(filtered);
+              return filtered;
+            });
+            setBannerNotification((curr) => (curr?.relatedId === id && curr?.type === 'item_bought' ? null : curr));
           }
           return {
             ...item,
@@ -834,7 +1282,16 @@ export default function App() {
       return updated;
     });
     if (itemToDelete) {
-      logActivity('Usunięto z listy', `Usunięto artykuł "${itemToDelete.name}"`);
+      unrecordShoppingItemUsage(itemToDelete.name);
+      recordActivity({
+        action: 'delete',
+        entityType: 'shopping_item',
+        entityId: itemToDelete.id,
+        title: `Usunięto artykuł: ${itemToDelete.name}`,
+        description: `Kategoria: ${itemToDelete.category}`,
+        snapshot: itemToDelete,
+        targetTab: 'shopping',
+      });
     }
   };
 
@@ -867,10 +1324,15 @@ export default function App() {
       saveBills(updated);
       return updated;
     });
-    logActivity(
-      'Dodano nowy rachunek',
-      `Rachunek: ${newBill.name} (${newBill.amount.toFixed(2)} PLN, termin: ${newBill.dueDate})`
-    );
+    recordActivity({
+      action: 'create',
+      entityType: 'bill',
+      entityId: newBill.id,
+      title: `Nowy rachunek: ${newBill.name}`,
+      description: `${newBill.amount.toFixed(2)} PLN, termin: ${newBill.dueDate}`,
+      snapshot: newBill,
+      targetTab: 'bills',
+    });
   };
 
   const handleUpdateBill = (id: string, updates: Partial<Bill>) => {
@@ -881,9 +1343,23 @@ export default function App() {
         if (b.id === id) {
           const u = { ...b, ...updates };
           if (updates.status === 'paid' && b.status !== 'paid') {
-            logActivity('Opłacono rachunek', `Rachunek "${b.name}" (${b.amount.toFixed(2)} PLN) został oznaczony jako opłacony!`);
+            recordActivity({
+              action: 'update',
+              entityType: 'bill',
+              entityId: b.id,
+              title: `Opłacono rachunek: ${b.name}`,
+              description: `Kwota ${b.amount.toFixed(2)} PLN oznaczona jako uregulowana`,
+              targetTab: 'bills',
+            });
           } else if (updates.amount !== undefined && updates.amount !== b.amount) {
-            logActivity('Zaktualizowano rachunek', `Zmieniono kwotę rachunku "${b.name}" na ${updates.amount.toFixed(2)} PLN`);
+            recordActivity({
+              action: 'update',
+              entityType: 'bill',
+              entityId: b.id,
+              title: `Zaktualizowano rachunek: ${b.name}`,
+              description: `Nowa kwota: ${updates.amount.toFixed(2)} PLN`,
+              targetTab: 'bills',
+            });
           }
           return u;
         }
@@ -904,7 +1380,15 @@ export default function App() {
       return updated;
     });
     if (billToDelete) {
-      logActivity('Usunięto rachunek', `Usunięto rachunek "${billToDelete.name}"`);
+      recordActivity({
+        action: 'delete',
+        entityType: 'bill',
+        entityId: billToDelete.id,
+        title: `Usunięto rachunek: ${billToDelete.name}`,
+        description: `Wartość: ${billToDelete.amount.toFixed(2)} PLN`,
+        snapshot: billToDelete,
+        targetTab: 'bills',
+      });
     }
   };
 
@@ -921,7 +1405,15 @@ export default function App() {
       saveBudgetLimits(updated);
       return updated;
     });
-    logActivity('Ustalono limit budżetowy', `Limit dla ${newLimit.category}: ${newLimit.monthlyLimit.toFixed(2)} PLN`);
+    recordActivity({
+      action: 'create',
+      entityType: 'budget_limit',
+      entityId: newLimit.id,
+      title: `Ustalono limit: ${newLimit.category}`,
+      description: `Miesięczny limit: ${newLimit.monthlyLimit.toFixed(2)} PLN`,
+      snapshot: newLimit,
+      targetTab: 'limits',
+    });
   };
 
   const handleUpdateBudgetLimit = (id: string, limit: number) => {
@@ -930,7 +1422,14 @@ export default function App() {
     setBudgetLimits((prev) => {
       const updated = prev.map((l) => {
         if (l.id === id) {
-          logActivity('Zmieniono limit budżetowy', `Nowy limit dla ${l.category}: ${limit.toFixed(2)} PLN`);
+          recordActivity({
+            action: 'update',
+            entityType: 'budget_limit',
+            entityId: l.id,
+            title: `Zmieniono limit: ${l.category}`,
+            description: `Nowy limit: ${limit.toFixed(2)} PLN`,
+            targetTab: 'limits',
+          });
           return { ...l, monthlyLimit: limit };
         }
         return l;
@@ -950,7 +1449,15 @@ export default function App() {
       return updated;
     });
     if (limitToDelete) {
-      logActivity('Usunięto limit budżetowy', `Skasowano limit dla ${limitToDelete.category}`);
+      recordActivity({
+        action: 'delete',
+        entityType: 'budget_limit',
+        entityId: limitToDelete.id,
+        title: `Usunięto limit: ${limitToDelete.category}`,
+        description: `Miesięczny limit: ${limitToDelete.monthlyLimit.toFixed(2)} PLN`,
+        snapshot: limitToDelete,
+        targetTab: 'limits',
+      });
     }
   };
 
@@ -1547,14 +2054,22 @@ export default function App() {
   };
 
   const handleClearNotifications = () => {
-    setNotifications([]);
-    saveNotifications([]);
+    setNotifications((prev) => {
+      // Keep budget warnings and exceeded alerts even after clearing notifications
+      const persistentBudgetNotifs = prev.filter(
+        (n) => n.type === 'budget_warning' || n.type === 'budget_exceeded'
+      );
+      saveNotifications(persistentBudgetNotifs);
+      return persistentBudgetNotifs;
+    });
   };
 
   const handleMarkNotificationRead = (id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-    );
+    setNotifications((prev) => {
+      const updated = prev.map((n) => (n.id === id ? { ...n, read: true } : n));
+      saveNotifications(updated);
+      return updated;
+    });
   };
 
   // IF NOT LOGGED IN AND NOT IN GUEST MODE: Show dedicated Login Screen directly
@@ -1584,6 +2099,8 @@ export default function App() {
           onLeaveHousehold={handleLeaveHousehold}
           onInviteMember={handleInviteMember}
           onRemoveMember={handleRemoveMember}
+          onApproveJoinRequest={handleApproveJoinRequest}
+          onRejectJoinRequest={handleRejectJoinRequest}
           onTriggerSync={handleTriggerManualSync}
           isSyncing={isSyncing}
           transactions={transactions}
@@ -1599,6 +2116,36 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-800 flex flex-col antialiased selection:bg-indigo-600 selection:text-white font-sans">
+      {/* Real-time In-App Notification Banner (Mobile & Desktop) */}
+      <InAppNotificationBanner
+        notification={bannerNotification}
+        onDismiss={() => setBannerNotification(null)}
+        onMarkRead={handleMarkNotificationRead}
+        onNavigate={(tab, options) => {
+          setBannerNotification(null);
+          handleDashboardNavigate(tab, options);
+        }}
+      />
+
+      {/* Mobile Privacy Quick Launcher (Overlay on Phones on App Launch) */}
+      <MobileQuickLauncher
+        isOpen={isMobileLauncherOpen}
+        onClose={handleCloseMobileLauncher}
+        onNavigate={(tab, options) => {
+          handleCloseMobileLauncher();
+          handleDashboardNavigate(tab, options);
+        }}
+        onOpenQuickAdd={() => {
+          handleCloseMobileLauncher();
+          setIsQuickAddOpen(true);
+        }}
+        pendingShoppingCount={shoppingItems.filter((i) => !i.isCompleted).length}
+        unpaidBillsCount={bills.filter((b) => b.status !== 'paid').length}
+        unreadNotificationsCount={notifications.filter((n) => !n.read).length}
+        userName={currentUser.name}
+        householdName={household?.name}
+      />
+
       {/* Top Main Navigation Header */}
       <Navbar
         activeTab={activeTab}
@@ -1619,13 +2166,49 @@ export default function App() {
           setHouseholdModalTab('household');
           setIsHouseholdModalOpen(true);
         }}
+        onOpenSettings={(tab) => {
+          setSettingsModalTab(tab || 'activity');
+          setIsSettingsModalOpen(true);
+        }}
         onOpenDeleteDataModal={() => setIsDeleteModalOpen(true)}
         onOpenDataSafetyModal={() => setIsDataSafetyModalOpen(true)}
         onOpenQuickAdd={() => setIsQuickAddOpen(true)}
         onOpenVersionInfo={() => setIsVersionModalOpen(true)}
         onClearNotifications={handleClearNotifications}
         onMarkNotificationRead={handleMarkNotificationRead}
+        onLogout={handleLogout}
+        onOpenMobileLauncher={() => setIsMobileLauncherOpen(true)}
         onNavigate={handleDashboardNavigate}
+      />
+
+      {/* Settings, Activity Logs, Sync & Security Modal */}
+      <SettingsModal
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        initialTab={settingsModalTab}
+        activities={activities}
+        onRestoreActivityItem={handleRestoreActivityItem}
+        household={household}
+        currentUser={currentUser}
+        isHouseholdAdmin={isHouseholdAdmin}
+        transactions={transactions}
+        bills={bills}
+        budgetLimits={budgetLimits}
+        shoppingLists={shoppingLists}
+        shoppingItems={shoppingItems}
+        syncStatus={syncStatus}
+        lastSyncedAt={lastSyncedAt}
+        syncErrorMessage={syncErrorMessage}
+        onForceSync={handleForceSync}
+        onRestoreData={handleRestoreData}
+        onOpenDeleteDataModal={() => {
+          setIsSettingsModalOpen(false);
+          setIsDeleteModalOpen(true);
+        }}
+        onNavigate={(tab, options) => {
+          setIsSettingsModalOpen(false);
+          handleDashboardNavigate(tab, options);
+        }}
       />
 
       {/* Household & Family Cloud Sync / Settings Modal */}
@@ -1642,6 +2225,8 @@ export default function App() {
         onLeaveHousehold={handleLeaveHousehold}
         onInviteMember={handleInviteMember}
         onRemoveMember={handleRemoveMember}
+        onApproveJoinRequest={handleApproveJoinRequest}
+        onRejectJoinRequest={handleRejectJoinRequest}
         onTriggerSync={handleTriggerManualSync}
         isSyncing={isSyncing}
         transactions={transactions}
@@ -1737,6 +2322,7 @@ export default function App() {
             shoppingLists={shoppingLists}
             shoppingItems={shoppingItems}
             onAddList={handleAddShoppingList}
+            onUpdateList={handleUpdateShoppingList}
             onDeleteList={handleDeleteShoppingList}
             onAddItem={handleAddShoppingItem}
             onToggleItem={handleToggleShoppingItem}

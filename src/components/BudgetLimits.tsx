@@ -40,23 +40,31 @@ export const BudgetLimits: React.FC<BudgetLimitsProps> = ({
   const [showAddModal, setShowAddModal] = useState(false);
   const [highlightCategory, setHighlightCategory] = useState<string | null>(null);
 
-  // Focus & highlight category when navigated from Dashboard
+  // Focus & highlight category when navigated from notification or Dashboard
   useEffect(() => {
     if (initialLimitCategory) {
-      setHighlightCategory(initialLimitCategory);
+      const matchedLimit = budgetLimits.find(
+        (l) =>
+          l.category.toLowerCase() === initialLimitCategory.toLowerCase() ||
+          l.id === initialLimitCategory
+      );
+      const catToHighlight = matchedLimit ? matchedLimit.category : initialLimitCategory;
+      setHighlightCategory(catToHighlight);
       setTimeout(() => {
-        const el = document.getElementById(`limit-card-${encodeURIComponent(initialLimitCategory)}`);
+        const el =
+          document.getElementById(`limit-card-${encodeURIComponent(catToHighlight)}`) ||
+          (matchedLimit ? document.getElementById(`limit-card-${encodeURIComponent(matchedLimit.id)}`) : null);
         el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 150);
+      }, 180);
       const timer = setTimeout(() => {
         setHighlightCategory(null);
-      }, 4000);
+      }, 6000);
       if (onClearInitialLimitCategory) {
         onClearInitialLimitCategory();
       }
       return () => clearTimeout(timer);
     }
-  }, [initialLimitCategory]);
+  }, [initialLimitCategory, budgetLimits]);
 
   // New limit form
   const [newCategory, setNewCategory] = useState(INITIAL_CATEGORIES[0].name);
@@ -213,17 +221,23 @@ export const BudgetLimits: React.FC<BudgetLimitsProps> = ({
           }
 
           const StatusIcon = statusBadge.icon;
+          const isHighlighted = highlightCategory === limit.category || highlightCategory === limit.id;
 
           return (
             <div
               key={limit.id}
               id={`limit-card-${encodeURIComponent(limit.category)}`}
-              className={`bg-white rounded-2xl p-5 border flex flex-col justify-between transition-all duration-300 ${
-                highlightCategory === limit.category
-                  ? 'border-indigo-500 ring-4 ring-indigo-500/20 shadow-lg scale-[1.01]'
+              className={`bg-white rounded-2xl p-5 border flex flex-col justify-between transition-all duration-300 relative ${
+                isHighlighted
+                  ? 'border-indigo-600 ring-4 ring-indigo-500/30 shadow-xl scale-[1.02] bg-indigo-50/20'
                   : 'border-slate-200 shadow-xs hover:shadow-md'
               }`}
             >
+              {isHighlighted && (
+                <div className="absolute -top-3 left-4 bg-indigo-600 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full shadow-md flex items-center space-x-1 animate-pulse z-10">
+                  <span>🎯 Wybrany limit</span>
+                </div>
+              )}
               <div>
                 {/* Top Row: Category title + Badge + delete */}
                 <div className="flex items-start justify-between gap-2 pb-3 border-b border-slate-100">

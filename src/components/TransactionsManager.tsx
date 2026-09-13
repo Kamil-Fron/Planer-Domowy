@@ -57,6 +57,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery || '');
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedReceiptDetails, setSelectedReceiptDetails] = useState<Transaction | null>(null);
+  const [isolatedTransactionId, setIsolatedTransactionId] = useState<string | null>(null);
 
   // Sync external navigation parameters (e.g. from Dashboard click on Net Balance, Income, Expense or Tx)
   useEffect(() => {
@@ -73,12 +74,11 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
 
   useEffect(() => {
     if (initialSelectedTransactionId) {
+      setIsolatedTransactionId(initialSelectedTransactionId);
       const targetTx = transactions.find((t) => t.id === initialSelectedTransactionId);
       if (targetTx) {
         if (targetTx.receiptItems && targetTx.receiptItems.length > 0) {
           setSelectedReceiptDetails(targetTx);
-        } else {
-          setSearchQuery(targetTx.title);
         }
       }
     }
@@ -122,6 +122,9 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
 
   // Filtered list
   const filtered = transactions.filter((t) => {
+    if (isolatedTransactionId) {
+      return t.id === isolatedTransactionId;
+    }
     const matchesMonth = !selectedMonth || t.date.startsWith(selectedMonth);
     const matchesType = filterType === 'all' || t.type === filterType;
     const matchesCategory = filterCategory === 'all' || t.category === filterCategory;
@@ -214,39 +217,18 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
   };
 
   const dynamicAddSuggestions = React.useMemo(() => {
-    return getSmartTransactionSuggestions(transactions, formType, formTitle, 6);
+    return getSmartTransactionSuggestions(transactions, formType, formTitle, 10);
   }, [transactions, formType, formTitle, showAddModal]);
 
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4 sm:space-y-6 w-full overflow-hidden">
-      {/* Header Banner - Minimalist with only 2 symbol buttons (Green Arrow Up & Red Arrow Down) */}
+      {/* Header Banner */}
       <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex items-center justify-between gap-3">
         <div className="min-w-0 flex-1">
           <h1 className="text-lg sm:text-xl font-bold text-slate-900 truncate">Transakcje</h1>
           <p className="text-xs text-slate-500 truncate mt-0.5">
             Wpłaty, pensje, wydatki i paragony
           </p>
-        </div>
-
-        {/* 2 Symbol-Only Buttons: Green Arrow Up (Income) & Red Arrow Down (Expense) */}
-        <div className="flex items-center space-x-2 shrink-0">
-          <button
-            onClick={() => handleOpenAddModal('income')}
-            className="h-11 w-11 sm:h-10 sm:w-10 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl flex items-center justify-center transition-all shadow-xs"
-            title="Dodaj wpłatę / dochód"
-            aria-label="Wpłata / Dochód"
-          >
-            <ArrowUp className="w-5 h-5 stroke-[2.5]" />
-          </button>
-
-          <button
-            onClick={() => handleOpenAddModal('expense')}
-            className="h-11 w-11 sm:h-10 sm:w-10 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white rounded-xl flex items-center justify-center transition-all shadow-xs"
-            title="Dodaj wydatek"
-            aria-label="Wydatek"
-          >
-            <ArrowDown className="w-5 h-5 stroke-[2.5]" />
-          </button>
         </div>
       </div>
 
@@ -397,6 +379,31 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
           />
         </div>
       </div>
+
+      {/* Isolated Transaction Banner (opened from notification) */}
+      {isolatedTransactionId && (
+        <div className="bg-indigo-50 border-2 border-indigo-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs animate-in fade-in">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <DollarSign className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-xs sm:text-sm font-bold text-indigo-950">
+                Wyświetlanie pojedynczej pozycji z powiadomienia
+              </h3>
+              <p className="text-[11px] text-indigo-700">
+                Wyświetlany jest wyłącznie ten wpis. Kliknij przycisk obok, aby powrócić do pełnej listy transakcji.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setIsolatedTransactionId(null)}
+            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xs rounded-xl shadow-xs transition-colors self-end sm:self-auto shrink-0"
+          >
+            ← Pokaż wszystkie transakcje
+          </button>
+        </div>
+      )}
 
       {/* Transactions List Table */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden divide-y divide-slate-100 w-full">
@@ -834,20 +841,12 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                         onClick={() => {
                           setFormTitle(sug.title);
                           setFormCategory(sug.category);
-                          if (sug.typicalAmount && (!formAmount || formAmount === '0')) {
-                            setFormAmount(sug.typicalAmount.toString());
-                          }
                         }}
-                        className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-900 border border-slate-200 text-xs font-medium text-slate-700 transition-colors"
-                        title={`${sug.title} • Kategoria: ${sug.category}${sug.typicalAmount ? ` • ~${sug.typicalAmount} zł` : ''}`}
+                        className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-900 border border-slate-200 text-xs font-medium text-slate-700 transition-colors cursor-pointer"
+                        title={`${sug.title} • Kategoria: ${sug.category}`}
                       >
                         <span>{sug.emoji}</span>
                         <span className="font-semibold">{sug.title}</span>
-                        {sug.typicalAmount && (
-                          <span className="text-[10px] text-slate-400 font-normal">
-                            ~{sug.typicalAmount} zł
-                          </span>
-                        )}
                       </button>
                     ))}
                   </div>

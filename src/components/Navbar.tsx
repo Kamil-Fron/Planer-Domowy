@@ -28,6 +28,8 @@ import {
   Sparkles,
   Info,
   Landmark,
+  Settings,
+  Shield,
 } from 'lucide-react';
 import { Bill, BudgetLimit, TabType, Transaction, Household, UserProfile, AppNotification } from '../types';
 import { generateAutomatedNotifications } from '../utils/notifications';
@@ -49,6 +51,7 @@ interface NavbarProps {
   onTriggerSync?: () => Promise<void> | void;
   isSyncing?: boolean;
   onOpenHouseholdModal: () => void;
+  onOpenSettings?: (tab?: 'activity' | 'sync' | 'safety' | 'version' | 'danger') => void;
   onOpenDeleteDataModal?: () => void;
   onOpenDataSafetyModal?: () => void;
   onOpenQuickAdd?: () => void;
@@ -56,6 +59,7 @@ interface NavbarProps {
   onClearNotifications?: () => void;
   onMarkNotificationRead?: (id: string) => void;
   onLogout?: () => void;
+  onOpenMobileLauncher?: () => void;
   onNavigate?: (
     tab: TabType,
     options?: {
@@ -86,6 +90,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onTriggerSync,
   isSyncing = false,
   onOpenHouseholdModal,
+  onOpenSettings,
   onOpenDeleteDataModal,
   onOpenDataSafetyModal,
   onOpenQuickAdd,
@@ -93,6 +98,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onClearNotifications,
   onMarkNotificationRead,
   onLogout,
+  onOpenMobileLauncher,
   onNavigate,
 }) => {
   const [isActionMenuOpen, setIsActionMenuOpen] = useState(false);
@@ -110,52 +116,41 @@ export const Navbar: React.FC<NavbarProps> = ({
     setIsActionMenuOpen(false);
 
     if (onNavigate) {
-      if (notif.type === 'bill_due' || notif.type === 'bill_overdue') {
+      if (notif.type === 'item_bought') {
+        onNavigate('shopping', { shoppingTab: 'completed', shoppingCategory: notif.relatedId });
+      } else if (notif.targetTab === 'transactions' || notif.type === 'transaction_added') {
+        onNavigate('transactions', {
+          selectedTxId: notif.relatedId,
+          transactionFilter: 'all',
+        });
+      } else if (notif.targetTab === 'bills' || notif.type === 'bill_due' || notif.type === 'bill_overdue') {
         onNavigate('bills', { payBillId: notif.relatedId });
-      } else if (notif.type === 'budget_warning' || notif.type === 'budget_exceeded') {
-        onNavigate('limits', { limitCategory: notif.relatedId });
-      } else if (notif.type === 'activity') {
-        const text = `${notif.title} ${notif.message}`.toLowerCase();
-        if (text.includes('rachun') || text.includes('opłat') || notif.relatedId?.startsWith('bill-')) {
-          onNavigate('bills', { payBillId: notif.relatedId });
-        } else if (
-          text.includes('zakup') ||
-          text.includes('artykuł') ||
-          text.includes('list') ||
-          text.includes('koszyk') ||
-          text.includes('produkt') ||
-          notif.relatedId?.startsWith('shop-') ||
-          notif.relatedId?.startsWith('list-')
-        ) {
-          const isCompletedItem = text.includes('kupiono') || text.includes('zrobiono zakupy');
-          onNavigate('shopping', {
-            shoppingCategory: notif.relatedId,
-            shoppingTab: isCompletedItem ? 'completed' : 'active',
-          });
-        } else if (text.includes('limit') || text.includes('budżet') || notif.relatedId?.startsWith('limit-')) {
-          onNavigate('limits', { limitCategory: notif.relatedId });
-        } else if (
-          text.includes('paragon') ||
-          text.includes('transakcj') ||
-          text.includes('wpłat') ||
-          text.includes('wydatek') ||
-          text.includes('dochód') ||
-          text.includes('przychód') ||
-          notif.relatedId?.startsWith('tx-')
-        ) {
-          const isIncome = text.includes('wpłat') || text.includes('dochód') || text.includes('przychód');
-          onNavigate('transactions', {
-            transactionFilter: isIncome ? 'income' : 'expense',
-            selectedTxId: notif.relatedId,
-          });
-        } else {
-          onNavigate('dashboard');
-        }
+      } else if (notif.targetTab === 'shopping' || notif.type === 'shopping_added') {
+        onNavigate('shopping', { shoppingCategory: notif.relatedId });
+      } else if (notif.targetTab === 'limits' || notif.type === 'budget_warning' || notif.type === 'budget_exceeded') {
+        const cat =
+          notif.relatedId ||
+          (notif.id.startsWith('budget-exceeded-')
+            ? notif.id.replace(/^budget-exceeded-/, '').replace(/-\d{4}-\d{2}$/, '')
+            : notif.id.startsWith('budget-warning-')
+            ? notif.id.replace(/^budget-warning-/, '').replace(/-\d{4}-\d{2}$/, '')
+            : undefined);
+        onNavigate('limits', { limitCategory: cat });
+      } else if (notif.relatedId?.startsWith('tx-')) {
+        onNavigate('transactions', { selectedTxId: notif.relatedId, transactionFilter: 'all' });
+      } else if (notif.relatedId?.startsWith('bill-')) {
+        onNavigate('bills', { payBillId: notif.relatedId });
+      } else if (notif.relatedId?.startsWith('shop-') || notif.relatedId?.startsWith('list-')) {
+        onNavigate('shopping', { shoppingCategory: notif.relatedId });
+      } else if (notif.targetTab) {
+        onNavigate(notif.targetTab);
       } else {
         onNavigate('dashboard');
       }
     } else {
-      if (notif.type === 'bill_due' || notif.type === 'bill_overdue') {
+      if (notif.targetTab) {
+        onTabChange(notif.targetTab);
+      } else if (notif.type === 'bill_due' || notif.type === 'bill_overdue') {
         onTabChange('bills');
       } else if (notif.type === 'budget_warning' || notif.type === 'budget_exceeded') {
         onTabChange('limits');
@@ -167,7 +162,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   const unreadCount = activeNotifications.filter((n) => !n.read).length;
 
   const handleClearAll = () => {
-    setDismissedIds(allNotifications.map((n) => n.id));
+    // Preserve budget warnings and exceedances even after clearing!
+    const nonBudgetIds = allNotifications
+      .filter((n) => n.type !== 'budget_warning' && n.type !== 'budget_exceeded')
+      .map((n) => n.id);
+    setDismissedIds((prev) => [...prev, ...nonBudgetIds]);
     if (onClearNotifications) {
       onClearNotifications();
     }
@@ -428,13 +427,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                       </div>
                     </div>
 
-                    {/* 2. Powiadomienia & Aktywności Domowników */}
+                    {/* 2. Powiadomienia (Tylko powiadomienia z przejściem do czynności) */}
                     <div className="p-3">
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center space-x-1.5">
                           <Bell className="w-3.5 h-3.5 text-indigo-600" />
                           <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                            Powiadomienia & Aktywności
+                            Powiadomienia
                           </span>
                           {unreadCount > 0 && (
                             <span className="text-[10px] bg-rose-50 text-rose-700 px-1.5 py-0.2 rounded-full font-bold border border-rose-100">
@@ -456,59 +455,120 @@ export const Navbar: React.FC<NavbarProps> = ({
                         {activeNotifications.length === 0 ? (
                           <div className="py-3 text-center text-slate-400 text-xs flex items-center justify-center space-x-1.5 bg-slate-50/50 rounded-xl">
                             <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-                            <span>Brak nowych powiadomień i aktywności.</span>
+                            <span>Brak nowych powiadomień.</span>
                           </div>
                         ) : (
                           activeNotifications.slice(0, 8).map((notif) => {
-                            const isActivity = notif.type === 'activity';
+                            const isBudgetExceeded = notif.type === 'budget_exceeded';
+                            const isBudgetWarning = notif.type === 'budget_warning';
+                            const isBudgetAlert = isBudgetExceeded || isBudgetWarning;
+
                             return (
                               <div
                                 key={notif.id}
                                 onClick={() => handleNotificationClick(notif)}
-                                className={`p-2.5 rounded-xl border transition-all flex items-start space-x-2.5 cursor-pointer group hover:scale-[1.01] active:scale-[0.99] ${
-                                  notif.read
-                                    ? 'bg-white border-slate-100 opacity-75 hover:bg-slate-50 hover:border-slate-200'
-                                    : 'bg-indigo-50/30 border-indigo-100/60 hover:bg-indigo-50/70 hover:border-indigo-200'
+                                className={`p-3 rounded-xl border transition-all flex items-start space-x-2.5 cursor-pointer group hover:scale-[1.01] active:scale-[0.99] ${
+                                  isBudgetExceeded
+                                    ? 'bg-rose-50 border-rose-300 shadow-xs ring-1 ring-rose-200/70 hover:bg-rose-100/90'
+                                    : isBudgetWarning
+                                    ? 'bg-amber-50 border-amber-300 shadow-xs ring-1 ring-amber-200/70 hover:bg-amber-100/90'
+                                    : !notif.read
+                                    ? 'bg-emerald-50/70 border-emerald-200/90 hover:bg-emerald-100/70 hover:border-emerald-300 shadow-2xs'
+                                    : 'bg-white border-slate-100 opacity-75 hover:bg-slate-50 hover:border-slate-200'
                                 }`}
-                                title="Kliknij, aby przejść do powiązanego miejsca w aplikacji"
+                                title="Kliknij, aby przejść do tego limitu"
                               >
                                 <div className="mt-0.5 flex-shrink-0">
-                                  {notif.type === 'bill_overdue' || notif.type === 'budget_exceeded' ? (
+                                  {isBudgetExceeded ? (
+                                    <div className="w-7 h-7 rounded-lg bg-rose-600 text-white flex items-center justify-center shadow-xs">
+                                      <AlertTriangle className="w-4 h-4 stroke-[2.5]" />
+                                    </div>
+                                  ) : isBudgetWarning ? (
+                                    <div className="w-7 h-7 rounded-lg bg-amber-500 text-white flex items-center justify-center shadow-xs">
+                                      <AlertTriangle className="w-4 h-4 stroke-[2.5]" />
+                                    </div>
+                                  ) : notif.type === 'item_bought' ? (
+                                    <div className="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center ring-1 ring-emerald-300">
+                                      <CheckCircle2 className="w-3.5 h-3.5" />
+                                    </div>
+                                  ) : notif.type === 'bill_overdue' ? (
                                     <div className="w-6 h-6 rounded-lg bg-rose-100 text-rose-600 flex items-center justify-center">
                                       <AlertTriangle className="w-3.5 h-3.5" />
                                     </div>
-                                  ) : isActivity ? (
-                                    <div className="w-6 h-6 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center">
-                                      <Activity className="w-3.5 h-3.5" />
+                                  ) : notif.type === 'item_restored' ? (
+                                    <div className="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                                      <RefreshCw className="w-3.5 h-3.5" />
                                     </div>
                                   ) : (
-                                    <div className="w-6 h-6 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center">
+                                    <div className="w-6 h-6 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center">
                                       <Bell className="w-3.5 h-3.5" />
                                     </div>
                                   )}
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                  <div className="flex items-center justify-between gap-1">
-                                    <p className="text-[11px] font-bold text-slate-900 leading-tight truncate group-hover:text-indigo-600 transition-colors">
-                                      {notif.title}
-                                    </p>
-                                    <span className="text-[9px] text-slate-400 whitespace-nowrap flex-shrink-0">
+                                  <div className="flex items-start justify-between gap-1.5">
+                                    <div className="min-w-0">
+                                      <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                                        {isBudgetExceeded ? (
+                                          <span className="text-[9px] font-black uppercase tracking-wider text-rose-800 bg-rose-200/90 px-1.5 py-0.5 rounded-md shrink-0">
+                                            Przekroczenie
+                                          </span>
+                                        ) : isBudgetWarning ? (
+                                          <span className="text-[9px] font-black uppercase tracking-wider text-amber-900 bg-amber-200/90 px-1.5 py-0.5 rounded-md shrink-0">
+                                            Ostrzeżenie
+                                          </span>
+                                        ) : !notif.read ? (
+                                          <span className="inline-flex items-center space-x-1 text-[9px] font-bold text-emerald-700 bg-emerald-100/90 px-1.5 py-0.2 rounded-full shrink-0">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                                            <span>Nowe</span>
+                                          </span>
+                                        ) : null}
+                                        <p
+                                          className={`text-xs font-bold leading-tight ${
+                                            isBudgetExceeded
+                                              ? 'text-rose-950 font-black'
+                                              : isBudgetWarning
+                                              ? 'text-amber-950 font-black'
+                                              : 'text-slate-900 truncate group-hover:text-emerald-800'
+                                          }`}
+                                        >
+                                          {notif.title}
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <span className="text-[9px] text-slate-400 whitespace-nowrap flex-shrink-0 mt-0.5">
                                       {formatNotifTime(notif.date)}
                                     </span>
                                   </div>
-                                  <p className="text-[11px] text-slate-600 leading-snug mt-0.5 line-clamp-2">
+                                  <p
+                                    className={`text-xs leading-relaxed mt-1 break-words ${
+                                      isBudgetExceeded
+                                        ? 'text-rose-950 font-semibold'
+                                        : isBudgetWarning
+                                        ? 'text-amber-950 font-semibold'
+                                        : 'text-[11px] text-slate-600 line-clamp-2'
+                                    }`}
+                                  >
                                     {notif.message}
                                   </p>
-                                  <div className="flex items-center justify-between mt-1">
+                                  <div className="flex items-center justify-between mt-1.5 pt-1 border-t border-slate-200/40">
                                     {notif.authorName ? (
-                                      <span className="inline-block text-[9px] font-semibold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded-md">
+                                      <span className="inline-block text-[9px] font-semibold text-slate-700 bg-white/80 px-1.5 py-0.2 rounded-md border border-slate-200">
                                         👤 {notif.authorName}
                                       </span>
                                     ) : (
                                       <span />
                                     )}
-                                    <span className="text-[9px] font-semibold text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                                      przejdź →
+                                    <span
+                                      className={`text-[10px] font-bold flex items-center space-x-1 ${
+                                        isBudgetExceeded
+                                          ? 'text-rose-700'
+                                          : isBudgetWarning
+                                          ? 'text-amber-800'
+                                          : 'text-emerald-700 opacity-0 group-hover:opacity-100 transition-opacity'
+                                      }`}
+                                    >
+                                      <span>{isBudgetAlert ? 'Przejdź do tego limitu →' : 'pokaż czynność →'}</span>
                                     </span>
                                   </div>
                                 </div>
@@ -567,90 +627,54 @@ export const Navbar: React.FC<NavbarProps> = ({
                       )}
                     </div>
 
-                    {/* Synchronizacja z chmurą */}
-                    {onTriggerSync && (
-                      <div className="p-2 border-t border-slate-100">
+                    {/* Opcja trybu prywatności / szybkiego startu na telefonach */}
+                    {onOpenMobileLauncher && (
+                      <div className="p-2 border-t border-slate-100 sm:hidden">
                         <button
                           onClick={() => {
                             setIsActionMenuOpen(false);
-                            onTriggerSync();
+                            onOpenMobileLauncher();
                           }}
-                          disabled={isSyncing || syncStatus === 'saving'}
-                          className="w-full text-left p-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-indigo-50/70 hover:text-indigo-800 transition-colors flex items-center justify-between"
+                          className="w-full text-left p-2.5 rounded-xl text-xs font-bold text-slate-800 hover:bg-emerald-50 hover:text-emerald-800 transition-all flex items-center justify-between border border-emerald-100 bg-emerald-50/40"
                         >
-                          <div className="flex items-center space-x-2 min-w-0">
-                            <RefreshCw className={`w-4 h-4 text-indigo-600 shrink-0 ${isSyncing || syncStatus === 'saving' ? 'animate-spin' : ''}`} />
-                            <span className="truncate">Zsynchronizuj teraz z chmurą</span>
+                          <div className="flex items-center space-x-2.5 min-w-0">
+                            <div className="w-6 h-6 rounded-lg bg-emerald-600 text-white flex items-center justify-center shadow-2xs">
+                              <Shield className="w-3.5 h-3.5" />
+                            </div>
+                            <div>
+                              <p className="text-xs font-bold text-slate-900 leading-none">Tryb prywatności</p>
+                              <p className="text-[10px] text-slate-500 font-normal mt-0.5">Szybki start & ukryte saldo</p>
+                            </div>
                           </div>
-                          <span className="text-[10px] text-slate-400">
-                            {lastSyncedAt ? lastSyncedAt.toLocaleTimeString('pl-PL') : ''}
+                          <span className="text-[10px] font-bold text-emerald-700 bg-white px-2 py-0.5 rounded-md border border-emerald-200">
+                            Włącz
                           </span>
                         </button>
                       </div>
                     )}
 
-                    {/* Centrum Bezpieczeństwa & Kopie Zapasowe */}
-                    {onOpenDataSafetyModal && (
-                      <div className="p-2 border-t border-slate-100">
+                    {/* 4. Sekcja Ustawień (Aktywność, Synchronizacja, Bezpieczeństwo, Wersja) */}
+                    {onOpenSettings && (
+                      <div className="p-2 border-t border-slate-100 bg-slate-50/60 rounded-b-2xl">
                         <button
                           onClick={() => {
                             setIsActionMenuOpen(false);
-                            onOpenDataSafetyModal();
+                            onOpenSettings('activity');
                           }}
-                          className="w-full text-left p-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-indigo-50/70 hover:text-indigo-800 transition-colors flex items-center justify-between"
+                          className="w-full text-left p-2.5 rounded-xl text-xs font-bold text-slate-800 hover:bg-white hover:text-indigo-600 transition-all flex items-center justify-between border border-transparent hover:border-slate-200 shadow-2xs"
                         >
-                          <div className="flex items-center space-x-2 min-w-0">
-                            <ShieldCheck className="w-4 h-4 text-indigo-600 shrink-0" />
-                            <span className="truncate">Centrum Bezpieczeństwa & Kopie</span>
+                          <div className="flex items-center space-x-2.5 min-w-0">
+                            <div className="w-6 h-6 rounded-lg bg-slate-200 text-slate-700 flex items-center justify-center">
+                              <Settings className="w-3.5 h-3.5" />
+                            </div>
+                            <div>
+                              <p className="text-xs font-bold text-slate-900 leading-none">Ustawienia & Aktywność</p>
+                              <p className="text-[10px] text-slate-400 font-normal mt-0.5">Logi, sync, kopie zapasowe, wersja</p>
+                            </div>
                           </div>
-                          <span
-                            className={`w-2 h-2 rounded-full shrink-0 ${
-                              syncStatus === 'synced'
-                                ? 'bg-emerald-500'
-                                : syncStatus === 'saving'
-                                ? 'bg-blue-500 animate-pulse'
-                                : syncStatus === 'error'
-                                ? 'bg-rose-500'
-                                : 'bg-slate-400'
-                            }`}
-                          />
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Opis wersji & UX (Autor: bobEKam) */}
-                    {onOpenVersionInfo && (
-                      <div className="p-2 border-t border-slate-100">
-                        <button
-                          onClick={() => {
-                            setIsActionMenuOpen(false);
-                            onOpenVersionInfo();
-                          }}
-                          className="w-full text-left p-2 rounded-xl text-xs font-semibold text-indigo-700 hover:bg-indigo-50 transition-colors flex items-center justify-between"
-                        >
-                          <div className="flex items-center space-x-2 min-w-0">
-                            <Sparkles className="w-4 h-4 text-indigo-600 shrink-0" />
-                            <span className="truncate">Opis wersji & UX • Autor: bobEKam</span>
-                          </div>
-                          <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-md border border-indigo-200/60">
-                            v2.7.0
+                          <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
+                            Otwórz
                           </span>
-                        </button>
-                      </div>
-                    )}
-
-                    {/* 4. Usuwanie Danych (Kosz) */}
-                    {onOpenDeleteDataModal && (
-                      <div className="p-2 bg-slate-50/50">
-                        <button
-                          onClick={() => {
-                            setIsActionMenuOpen(false);
-                            onOpenDeleteDataModal();
-                          }}
-                          className="w-full text-left p-2 rounded-xl text-xs font-semibold text-rose-600 hover:bg-rose-50 transition-colors flex items-center space-x-2"
-                        >
-                          <Trash2 className="w-4 h-4 text-rose-500 flex-shrink-0" />
-                          <span>Usuń wybrane dane...</span>
                         </button>
                       </div>
                     )}
@@ -790,28 +814,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <Home className="w-4 h-4 text-indigo-600" />
                   <span>Dom & PWA Telefon</span>
                 </button>
-                {onOpenVersionInfo && (
+                {onOpenSettings && (
                   <button
                     onClick={() => {
                       setShowMobileMoreMenu(false);
-                      onOpenVersionInfo();
+                      onOpenSettings('activity');
                     }}
-                    className="w-full text-left px-3.5 py-2.5 text-xs flex items-center space-x-2 font-semibold text-indigo-700 hover:bg-indigo-50 border-t border-slate-100"
+                    className="w-full text-left px-3.5 py-2.5 text-xs flex items-center space-x-2 font-semibold text-slate-800 hover:bg-indigo-50 border-t border-slate-100"
                   >
-                    <Sparkles className="w-4 h-4 text-indigo-600" />
-                    <span>Opis wersji & UX (bobEKam)</span>
-                  </button>
-                )}
-                {onOpenDeleteDataModal && (
-                  <button
-                    onClick={() => {
-                      setShowMobileMoreMenu(false);
-                      onOpenDeleteDataModal();
-                    }}
-                    className="w-full text-left px-3.5 py-2.5 text-xs flex items-center space-x-2 font-semibold text-rose-600 hover:bg-rose-50 border-t border-slate-100"
-                  >
-                    <Trash2 className="w-4 h-4 text-rose-500" />
-                    <span>Usuń wybrane dane</span>
+                    <Settings className="w-4 h-4 text-indigo-600" />
+                    <span>Ustawienia & Aktywność</span>
                   </button>
                 )}
               </div>

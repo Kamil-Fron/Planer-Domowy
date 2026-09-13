@@ -1157,19 +1157,15 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
           {/* Badges: Fixed vs Variable & Cycle */}
           <div className="mt-3 flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
-              <button
-                type="button"
-                onClick={() => handleOpenEditBill(bill)}
-                className={`px-2 py-0.5 rounded-md text-[11px] font-bold border transition-all cursor-pointer flex items-center space-x-1 hover:scale-105 active:scale-95 ${
+              <span
+                className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold border ${
                   isFixed
-                    ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 hover:border-indigo-300'
-                    : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 hover:border-amber-300'
+                    ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                    : 'bg-amber-50 text-amber-700 border-amber-200'
                 }`}
-                title="Kliknij, aby zmienić typ rachunku (stała / zmienna) lub edytować dane"
               >
-                <span>{isFixed ? '🔒 Opłata stała' : '⚡ Opłata zmienna'}</span>
-                <Edit3 className="w-2.5 h-2.5 opacity-60 ml-0.5" />
-              </button>
+                {isFixed ? '🔒 Opłata stała' : '⚡ Opłata zmienna'}
+              </span>
               <span className="text-[11px] text-slate-500 font-medium bg-slate-100 px-2 py-0.5 rounded-md capitalize">
                 {bill.billingCycle}
               </span>
@@ -2075,26 +2071,38 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
 
       {/* Batch Pay Modal for Near Due Bills */}
       {showBatchPayModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 border border-slate-200 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center space-x-3">
-              <div className="p-3 bg-emerald-100 text-emerald-700 rounded-2xl">
-                <CheckCircle2 className="w-6 h-6" />
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-4 sm:p-6 border border-slate-200 shadow-2xl space-y-3.5 sm:space-y-4 animate-in fade-in zoom-in-95 duration-150 max-h-[92vh] flex flex-col">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 sm:p-3 bg-emerald-100 text-emerald-700 rounded-2xl shrink-0">
+                  <CheckCircle2 className="w-5 h-5 sm:w-6 sm:h-6" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-slate-900 leading-tight">
+                    Rachunki do opłacenia
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Ureguluj oczekujące rachunki stałe i zmienne.
+                  </p>
+                </div>
               </div>
-              <div>
-                <h3 className="font-bold text-base text-slate-900">
-                  Rachunki do opłacenia
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Ureguluj wszystkie oczekujące rachunki (stałe i zmienne). Dla zmiennych możesz wpisać dokładną kwotę z faktury.
-                </p>
-              </div>
+              <button
+                type="button"
+                onClick={() => setShowBatchPayModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
+                title="Zamknij"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
             {/* Selection Toolbar */}
-            <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
-              <span className="font-medium">Lista do opłacenia ({nearPendingBills.length}):</span>
-              <div className="flex items-center space-x-2 font-semibold">
+            <div className="flex items-center justify-between text-xs text-slate-500 pt-0.5 border-t border-slate-100">
+              <span className="font-semibold text-slate-700">
+                Lista do opłacenia ({nearPendingBills.length}):
+              </span>
+              <div className="flex items-center space-x-2 font-bold">
                 <button
                   type="button"
                   onClick={() => setSelectedBatchBills(nearPendingBills.map((b) => b.id))}
@@ -2102,7 +2110,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                 >
                   Zaznacz wszystkie
                 </button>
-                <span>•</span>
+                <span className="text-slate-300">•</span>
                 <button
                   type="button"
                   onClick={() => setSelectedBatchBills([])}
@@ -2113,21 +2121,23 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
               </div>
             </div>
 
-            {/* List with Individual Pay Buttons */}
-            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+            {/* List with Individual Cards */}
+            <div className="space-y-2.5 overflow-y-auto pr-1 flex-1 max-h-[42vh] sm:max-h-72">
               {nearPendingBills.map((b) => {
                 const isSelected = selectedBatchBills.includes(b.id);
                 const isVariable = b.pricingType === 'variable';
+
                 return (
                   <div
                     key={b.id}
-                    className={`p-3 rounded-xl border flex items-center justify-between gap-2.5 text-xs transition-colors ${
+                    className={`p-3 rounded-2xl border transition-all ${
                       isSelected
-                        ? 'bg-emerald-50/60 border-emerald-200'
-                        : 'bg-slate-50 border-slate-100 hover:bg-slate-100/70'
+                        ? 'bg-emerald-50/70 border-emerald-300 ring-1 ring-emerald-400/20 shadow-xs'
+                        : 'bg-slate-50/90 border-slate-200 hover:bg-slate-100/70'
                     }`}
                   >
-                    <div className="flex items-center space-x-3 min-w-0">
+                    {/* Top Row: Checkbox, Full Name & Badges */}
+                    <div className="flex items-start gap-2.5">
                       <input
                         type="checkbox"
                         checked={isSelected}
@@ -2138,62 +2148,74 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                             setSelectedBatchBills(selectedBatchBills.filter((id) => id !== b.id));
                           }
                         }}
-                        className="rounded-sm text-emerald-600 focus:ring-emerald-600 w-4 h-4 shrink-0"
+                        className="mt-1 rounded text-emerald-600 focus:ring-emerald-600 w-4 h-4 shrink-0 cursor-pointer"
                       />
-                      <div className="truncate">
-                        <div className="flex items-center space-x-1.5 truncate">
-                          <span className="font-bold text-slate-800 truncate">{b.name}</span>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2 flex-wrap sm:flex-nowrap">
+                          <span className="font-bold text-slate-900 text-sm leading-snug break-words">
+                            {b.name}
+                          </span>
                           <span
-                            className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold shrink-0 ${
                               isVariable
-                                ? 'bg-blue-100 text-blue-700 border border-blue-200'
-                                : 'bg-slate-200 text-slate-700'
+                                ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                                : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
                             }`}
                           >
-                            {isVariable ? 'Zmienny' : 'Stały'}
+                            {isVariable ? '⚡ Zmienna' : '🔒 Stała'}
                           </span>
                         </div>
-                        <span className="text-[10px] text-slate-400 block capitalize">
-                          {b.provider} • Termin: {b.dueDate}
-                        </span>
+
+                        <div className="text-[11px] text-slate-500 mt-1 flex items-center space-x-2 flex-wrap">
+                          <span className="font-medium text-slate-600">{b.provider}</span>
+                          <span className="text-slate-300">•</span>
+                          <span>
+                            Termin: <strong className="text-slate-700">{b.dueDate}</strong>
+                          </span>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="flex items-center space-x-2 shrink-0">
-                      {isVariable ? (
-                        <div className="flex items-center space-x-1 bg-blue-50/80 border border-blue-200 rounded-lg px-1.5 py-1">
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={batchCustomAmounts[b.id] ?? b.amount}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setBatchCustomAmounts((prev) => ({ ...prev, [b.id]: val }));
-                            }}
-                            className="w-16 px-1 py-0.5 text-right text-xs font-black text-slate-900 bg-white border border-blue-300 rounded focus:border-blue-500 focus:outline-hidden"
-                            placeholder="0.00"
-                            title="Zmień kwotę do opłacenia dla tego rachunku zmiennego"
-                          />
-                          <span className="text-[10px] font-bold text-blue-900">PLN</span>
-                        </div>
-                      ) : (
-                        <span className="font-black text-slate-900 whitespace-nowrap text-xs">
-                          {b.amount.toFixed(2)} PLN
-                        </span>
-                      )}
+                    {/* Bottom Row: Amount Controls & Single Pay Button */}
+                    <div className="mt-2.5 pt-2 border-t border-slate-200/60 flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center">
+                        {isVariable ? (
+                          <div className="flex items-center space-x-1.5 bg-white border border-blue-300 rounded-xl px-2.5 py-1 shadow-2xs">
+                            <span className="text-[11px] font-medium text-slate-500">Kwota:</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={batchCustomAmounts[b.id] ?? b.amount}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setBatchCustomAmounts((prev) => ({ ...prev, [b.id]: val }));
+                              }}
+                              className="w-20 text-right text-xs font-black text-slate-900 bg-transparent focus:outline-hidden"
+                              placeholder="0.00"
+                              title="Wpisz kwotę z faktury dla tego rachunku zmiennego"
+                            />
+                            <span className="text-[11px] font-bold text-blue-900">PLN</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-baseline space-x-1">
+                            <span className="text-xs text-slate-500 font-medium">Do zapłaty:</span>
+                            <span className="font-black text-slate-900 text-sm">
+                              {b.amount.toFixed(2)} PLN
+                            </span>
+                          </div>
+                        )}
+                      </div>
 
-                      {/* Individual Approval Button */}
                       <button
                         type="button"
-                        onClick={() => {
-                          handleOpenPayModal(b);
-                        }}
-                        className="px-2 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-lg text-xs font-bold transition-colors flex items-center space-x-1 shadow-2xs cursor-pointer"
-                        title="Wybierz datę i opłać tylko ten rachunek"
+                        onClick={() => handleOpenPayModal(b)}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 shadow-2xs cursor-pointer ml-auto"
+                        title="Wybierz dokładną datę i opłać tylko ten rachunek"
                       >
-                        <Check className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Zatwierdź</span>
+                        <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                        <span>Opłać</span>
                       </button>
                     </div>
                   </div>
@@ -2202,7 +2224,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
             </div>
 
             {/* Data opłacenia dla operacji zbiorczej */}
-            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-bold text-slate-700 flex items-center space-x-1.5">
                   <Calendar className="w-3.5 h-3.5 text-slate-500" />
@@ -2262,7 +2284,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
             </div>
 
             {/* Modal Actions */}
-            <div className="flex items-center justify-between space-x-2 pt-2 border-t border-slate-100">
+            <div className="flex items-center justify-between space-x-2 pt-1 border-t border-slate-100">
               <button
                 type="button"
                 onClick={() => setShowBatchPayModal(false)}

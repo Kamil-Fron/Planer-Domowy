@@ -132,27 +132,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
     })
     .slice(0, 4);
 
-  // Bills paid with a future date
-  const todayISO = new Date().toISOString().split('T')[0];
-  const futurePaidBills = bills
-    .map((b) => {
-      let futureDate: string | null = null;
-      if (b.status === 'paid' && b.paymentDate && b.paymentDate > todayISO) {
-        futureDate = b.paymentDate;
-      } else if (b.paymentHistory && b.paymentHistory.length > 0) {
-        const futureEntry = b.paymentHistory.find(
-          (h) => h.paidDate && h.paidDate > todayISO
-        );
-        if (futureEntry) {
-          futureDate = futureEntry.paidDate;
-        }
-      }
-      if (futureDate) {
-        return { ...b, futurePaymentDate: futureDate };
-      }
-      return null;
-    })
-    .filter((b): b is Bill & { futurePaymentDate: string } => b !== null);
 
   // Mini Sparkline Data for Income/Expense
   const daysInMonth = Array.from({ length: 15 }, (_, i) => {
@@ -379,93 +358,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
             <button
               onClick={() => onNavigate('bills')}
-              className={`p-3.5 rounded-xl border text-left transition-all flex flex-col justify-between group cursor-pointer relative ${
-                futurePaidBills.length > 0
-                  ? 'bg-emerald-50/80 hover:bg-emerald-100/90 text-slate-900 border-emerald-300 ring-2 ring-emerald-400/30 shadow-xs'
-                  : 'bg-slate-50 hover:bg-slate-100 text-slate-900 border-slate-200'
-              }`}
+              className="p-3.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-900 border border-slate-200 text-left transition-all flex flex-col justify-between group cursor-pointer"
             >
-              <div className="flex items-center justify-between w-full">
-                <div
-                  className={`p-2 rounded-lg text-white w-fit group-hover:scale-105 transition-transform ${
-                    futurePaidBills.length > 0 ? 'bg-emerald-700' : 'bg-slate-800'
-                  }`}
-                >
-                  <Zap className="w-4 h-4" />
-                </div>
-                {futurePaidBills.length > 0 && (
-                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-600 text-white shadow-2xs">
-                    {futurePaidBills.length} z datą przyszłą
-                  </span>
-                )}
+              <div className="p-2 rounded-lg bg-slate-800 text-white w-fit group-hover:scale-105 transition-transform">
+                <Zap className="w-4 h-4" />
               </div>
-              <div className="mt-2">
-                <span className="text-xs font-bold text-slate-800 block">Rachunki i Media</span>
-                {futurePaidBills.length > 0 && (
-                  <span className="text-[10px] text-emerald-800 font-semibold flex items-center space-x-1 mt-0.5">
-                    <span>✓ Opłacone w przyszłości</span>
-                  </span>
-                )}
-              </div>
+              <span className="text-xs font-bold mt-2 text-slate-800">Rachunki i Media</span>
             </button>
           </div>
         </div>
       </div>
 
-      {/* 2a. Future Paid Bills Alert Strip */}
-      {futurePaidBills.length > 0 && (
-        <div className="bg-emerald-50/90 border border-emerald-300 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
-          <div className="flex items-start space-x-3">
-            <div className="p-2 rounded-xl bg-emerald-600 text-white flex-shrink-0 mt-0.5 shadow-2xs">
-              <CheckCircle2 className="w-4 h-4 stroke-[2.5]" />
-            </div>
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h4 className="text-sm font-bold text-emerald-950">
-                  Rachunki opłacone z datą przyszłą ({futurePaidBills.length})
-                </h4>
-                <span className="text-[11px] font-bold text-emerald-800 bg-emerald-200/80 px-2 py-0.5 rounded-md">
-                  Płatność zaksięgowana z terminem przyszłym
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-2 mt-2">
-                {futurePaidBills.map((b) => (
-                  <button
-                    key={b.id}
-                    onClick={() => onNavigate('bills', { payBillId: b.id })}
-                    className="flex items-center space-x-2 text-xs font-medium px-3 py-1.5 bg-white hover:bg-emerald-100/90 rounded-xl border border-emerald-300 text-slate-800 shadow-2xs transition-all cursor-pointer group active:scale-95 text-left"
-                    title={`Rachunek: ${b.name}, opłacony z datą: ${b.futurePaymentDate}`}
-                  >
-                    <div>
-                      <strong className="text-slate-900 font-bold group-hover:text-emerald-950">
-                        {b.name}
-                      </strong>
-                      <span className="text-emerald-700 ml-1 font-semibold">
-                        {b.amount.toFixed(2)} zł
-                      </span>
-                      <span className="text-[10px] text-slate-500 block sm:inline sm:ml-1">
-                        Termin opłaty: <strong className="text-emerald-700">{b.futurePaymentDate}</strong>
-                      </span>
-                    </div>
-                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg text-[10px] font-bold shrink-0">
-                      Opłacony ✓
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <button
-            onClick={() => onNavigate('bills')}
-            className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-xl transition-colors whitespace-nowrap shadow-xs"
-          >
-            Zobacz rachunki →
-          </button>
-        </div>
-      )}
-
-      {/* 2b. Upcoming Bills Alert Strip */}
+      {/* 2. Upcoming Bills Alert Strip */}
       {upcomingBills.length > 0 && (
         <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
           <div className="flex items-start space-x-3">

@@ -64,6 +64,9 @@ function loadSubscriptions() {
   try {
     if (fs.existsSync(SUBSCRIPTIONS_FILE)) {
       pushSubscriptions = JSON.parse(fs.readFileSync(SUBSCRIPTIONS_FILE, "utf-8"));
+    } else {
+      pushSubscriptions = [];
+      fs.writeFileSync(SUBSCRIPTIONS_FILE, JSON.stringify([], null, 2));
     }
   } catch (e) {
     pushSubscriptions = [];
@@ -556,7 +559,10 @@ app.post("/api/send-push-notification", async (req, res) => {
     await Promise.all(
       targets.map(async (target) => {
         try {
-          await webpush.sendNotification(target.subscription, payload);
+          await webpush.sendNotification(target.subscription, payload, {
+            TTL: 86400,
+            urgency: "high",
+          });
           successCount++;
         } catch (err: any) {
           if (err.statusCode === 404 || err.statusCode === 410) {
@@ -593,14 +599,27 @@ app.post("/api/send-push-notification", async (req, res) => {
 // Test push directly to requesting device
 app.post("/api/test-push-notification", async (req, res) => {
   try {
-    const { subscription, title, body } = req.body;
-    if (!subscription || !subscription.endpoint) {
-      return res.status(400).json({ success: false, error: "Brak subskrypcji urządzenia." });
+    const { subscription, title, body, userId, householdId } = req.body;
+
+    let targetSubs: any[] = [];
+    if (subscription && subscription.endpoint) {
+      targetSubs.push(subscription);
+    } else if (userId || householdId) {
+      targetSubs = pushSubscriptions
+        .filter((s) => (!userId || s.userId === userId) && (!householdId || s.householdId === householdId))
+        .map((s) => s.subscription);
+    }
+
+    if (targetSubs.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Brak aktywnej subskrypcji dla tego urządzenia. Kliknij 'Włącz powiadomienia w telefonie', aby zarejestrować to urządzenie.",
+      });
     }
 
     const payload = JSON.stringify({
-      title: title || "🔔 Test powiadomienia",
-      body: body || "Powiadomienia w telefonie działają prawidłowo!",
+      title: title || "🔔 Test powiadomienia w telefonie",
+      body: body || "Powiadomienia w tle działają prawidłowo!",
       icon: "/pwa-192x192.png",
       badge: "/pwa-192x192.png",
       data: {
@@ -609,8 +628,24 @@ app.post("/api/test-push-notification", async (req, res) => {
       },
     });
 
-    await webpush.sendNotification(subscription, payload);
-    return res.json({ success: true, message: "Powiadomienie testowe wysłane!" });
+    let sent = 0;
+    for (const sub of targetSubs) {
+      try {
+        await webpush.sendNotification(sub, payload, {
+          TTL: 86400,
+          urgency: "high",
+        });
+        sent++;
+      } catch (e: any) {
+        console.warn("Błąd wysyłki test push:", e?.message || e);
+      }
+    }
+
+    return res.json({
+      success: true,
+      sentCount: sent,
+      message: `Powiadomienie testowe wysłano pomyślnie (${sent} urządzeń)!`,
+    });
   } catch (e: any) {
     console.error("Błąd test-push-notification:", e);
     return res.status(500).json({ success: false, error: e?.message || "Błąd wysyłki testowej." });

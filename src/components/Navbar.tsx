@@ -32,6 +32,7 @@ import {
   Shield,
   Smartphone,
   BellRing,
+  ExternalLink,
 } from 'lucide-react';
 import { Bill, BudgetLimit, TabType, Transaction, Household, UserProfile, AppNotification } from '../types';
 import { generateAutomatedNotifications, sendBrowserPushNotification } from '../utils/notifications';
@@ -40,6 +41,10 @@ import {
   isPushSupported,
   getNotificationPermission,
   subscribeToPushNotifications,
+  sendTestPushNotification,
+  isRunningInIframe,
+  isAppleDevice,
+  isStandalonePWA,
 } from '../utils/pushManager';
 
 interface NavbarProps {
@@ -146,9 +151,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   );
   const [isSubscribingPush, setIsSubscribingPush] = useState(false);
   const [testPushMsg, setTestPushMsg] = useState<string | null>(null);
+  const [pushErrorMsg, setPushErrorMsg] = useState<string | null>(null);
 
   const handleEnablePush = async () => {
     setIsSubscribingPush(true);
+    setPushErrorMsg(null);
     try {
       const { subscription, error } = await subscribeToPushNotifications({
         householdId: household?.id || 'default',
@@ -157,31 +164,72 @@ export const Navbar: React.FC<NavbarProps> = ({
       });
       if (subscription) {
         setPushPermission('granted');
+        setPushErrorMsg(null);
         setTestPushMsg('Włączono! ✅');
-        setTimeout(() => setTestPushMsg(null), 3000);
+        setTimeout(() => setTestPushMsg(null), 4000);
       } else if (error) {
-        console.warn('Push error:', error);
+        setPushErrorMsg(error);
       }
     } catch (e: any) {
-      console.warn('Błąd włączania push:', e);
+      setPushErrorMsg(e?.message || 'Nie udało się włączyć powiadomień.');
     } finally {
       setIsSubscribingPush(false);
     }
   };
 
   const handleSendTestPush = async () => {
-    setTestPushMsg('Wysyłanie...');
+    setTestPushMsg('Wysyłanie na telefon...');
+    setPushErrorMsg(null);
     try {
-      await sendBrowserPushNotification('🔔 Test powiadomień w telefonie', {
-        body: 'Powiadomienia w tle działają poprawnie!',
-        icon: '/pwa-192x192.png',
-        badge: '/pwa-192x192.png',
+      // 1. Check if device has an active push subscription
+      let currentSub: PushSubscription | null = null;
+      if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+        try {
+          const reg = await navigator.serviceWorker.ready;
+          currentSub = await reg.pushManager.getSubscription();
+        } catch {}
+      }
+
+      // If no subscription yet, perform subscription first
+      if (!currentSub) {
+        const { subscription, error } = await subscribeToPushNotifications({
+          householdId: household?.id || 'default',
+          userId: currentUser?.id || 'user',
+          userName: currentUser?.name || 'Domownik',
+        });
+        if (error) {
+          setPushErrorMsg(error);
+          setTestPushMsg('Błąd rejestracji');
+          setTimeout(() => setTestPushMsg(null), 3000);
+          return;
+        }
+        currentSub = subscription;
+      }
+
+      // 2. Trigger real background push via backend endpoint
+      const result = await sendTestPushNotification({
+        subscription: currentSub,
+        householdId: household?.id,
+        userId: currentUser?.id,
       });
-      setTestPushMsg('Wysłano! 🔔');
-      setTimeout(() => setTestPushMsg(null), 3000);
-    } catch {
+
+      if (result.success) {
+        setTestPushMsg('Wysłano na telefon! 📲');
+        // Also trigger local SW notification for immediate feedback
+        sendBrowserPushNotification('🔔 Test powiadomień w telefonie', {
+          body: 'Powiadomienia w tle działają prawidłowo!',
+          icon: '/pwa-192x192.png',
+          badge: '/pwa-192x192.png',
+        }).catch(() => {});
+      } else {
+        setPushErrorMsg(result.error || 'Błąd wysyłki testowej');
+        setTestPushMsg('Błąd');
+      }
+      setTimeout(() => setTestPushMsg(null), 4000);
+    } catch (err: any) {
+      setPushErrorMsg(err?.message || 'Błąd połączenia');
       setTestPushMsg('Błąd');
-      setTimeout(() => setTestPushMsg(null), 3000);
+      setTimeout(() => setTestPushMsg(null), 4000);
     }
   };
 
@@ -594,18 +642,62 @@ export const Navbar: React.FC<NavbarProps> = ({
                       {/* Status powiadomień w telefonie */}
                       <div className="px-3 pt-2">
                         {pushPermission === 'granted' ? (
-                          <div className="p-2 bg-emerald-50/80 border border-emerald-200 rounded-xl flex items-center justify-between text-[11px]">
-                            <div className="flex items-center space-x-1.5 text-emerald-900 font-medium min-w-0">
-                              <Smartphone className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                              <span className="truncate">Powiadomienia w telefonie: <strong className="text-emerald-700">Włączone</strong></span>
+                          <div className="p-2 bg-emerald-50/90 border border-emerald-200 rounded-xl space-y-1.5 text-[11px]">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center space-x-1.5 text-emerald-900 font-medium min-w-0">
+                                <Smartphone className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                <span className="truncate">Powiadomienia w telefonie: <strong className="text-emerald-700">Włączone</strong></span>
+                              </div>
+                              <button
+                                onClick={handleSendTestPush}
+                                className="px-2.5 py-1 text-[10px] font-bold bg-white text-emerald-700 hover:bg-emerald-100 rounded-md border border-emerald-300 transition-colors shrink-0 shadow-2xs"
+                                title="Wyślij próbne powiadomienie na to urządzenie"
+                              >
+                                {testPushMsg || 'Test 📲'}
+                              </button>
                             </div>
-                            <button
-                              onClick={handleSendTestPush}
-                              className="px-2 py-0.5 text-[10px] font-bold bg-white text-emerald-700 hover:bg-emerald-100 rounded-md border border-emerald-300 transition-colors shrink-0 shadow-2xs"
-                              title="Wyślij próbne powiadomienie na to urządzenie"
+                            {pushErrorMsg && (
+                              <p className="text-[10px] text-rose-600 font-semibold">{pushErrorMsg}</p>
+                            )}
+                          </div>
+                        ) : pushPermission === 'denied' ? (
+                          <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-[11px] space-y-1">
+                            <div className="flex items-center space-x-1.5 text-amber-900 font-bold">
+                              <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                              <span>Powiadomienia zablokowane</span>
+                            </div>
+                            <p className="text-[10px] text-amber-800 leading-snug">
+                              Przeglądarka zablokowała powiadomienia dla tej strony. Kliknij ikonę kłódki/ustawień obok paska adresu, aby zezwolić na Powiadomienia.
+                            </p>
+                          </div>
+                        ) : isRunningInIframe() ? (
+                          <div className="p-2.5 bg-indigo-50/80 border border-indigo-200 rounded-xl text-[11px] space-y-1.5">
+                            <div className="flex items-start space-x-1.5 text-indigo-950 font-bold">
+                              <Info className="w-3.5 h-3.5 text-indigo-600 shrink-0 mt-0.5" />
+                              <span>Włącz powiadomienia w telefonie</span>
+                            </div>
+                            <p className="text-[10px] text-slate-600 leading-snug">
+                              Aby otrzymywać powiadomienia w tle na telefonie, otwórz aplikację bezpośrednio w nowej karcie lub na smartfonie.
+                            </p>
+                            <a
+                              href={typeof window !== 'undefined' ? window.location.href : '#'}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="w-full py-1.5 px-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-xs transition-all flex items-center justify-center space-x-1.5 shadow-2xs text-center"
                             >
-                              {testPushMsg || 'Test 📲'}
-                            </button>
+                              <span>Otwórz w nowej karcie</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          </div>
+                        ) : isAppleDevice() && !isStandalonePWA() ? (
+                          <div className="p-2.5 bg-sky-50 border border-sky-200 rounded-xl text-[11px] space-y-1.5">
+                            <div className="flex items-start space-x-1.5 text-sky-950 font-bold">
+                              <Smartphone className="w-3.5 h-3.5 text-sky-600 shrink-0 mt-0.5" />
+                              <span>Powiadomienia na iPhone (iOS)</span>
+                            </div>
+                            <p className="text-[10px] text-sky-800 leading-snug">
+                              Na iOS powiadomienia push wymagają dodania do ekranu głównego: kliknij przycisk <strong>Udostępnij</strong> (kwadrat ze strzałką) → <strong>Dodaj do ekranu początkowego</strong>, a potem otwórz aplikację z ikony.
+                            </p>
                           </div>
                         ) : isPushSupported() ? (
                           <div className="p-2.5 bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200/90 rounded-xl text-[11px]">
@@ -618,6 +710,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                                 </p>
                               </div>
                             </div>
+                            {pushErrorMsg && (
+                              <p className="text-[10px] text-rose-600 font-semibold mt-1">{pushErrorMsg}</p>
+                            )}
                             <button
                               onClick={handleEnablePush}
                               disabled={isSubscribingPush}

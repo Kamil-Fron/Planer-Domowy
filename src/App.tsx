@@ -282,10 +282,16 @@ export default function App() {
                   device: navigator.userAgent.substring(0, 50),
                   updatedAt: new Date().toISOString(),
                 };
-                return {
+                const updatedHousehold = {
                   ...prev,
                   pushSubscriptions: [...existingSubs, newSub],
                 };
+                if (isFirebaseConfigured() && prev.id) {
+                  saveHouseholdToFirestore(prev.id, {
+                    pushSubscriptions: updatedHousehold.pushSubscriptions,
+                  }).catch(() => {});
+                }
+                return updatedHousehold;
               });
             }
           }
@@ -910,6 +916,7 @@ export default function App() {
           shoppingItems: current.shoppingItems,
           notifications: current.notifications,
           mortgages: current.mortgages,
+          pushSubscriptions: household.pushSubscriptions || [],
           lastUpdatedBy: currentUser.email || currentUser.name,
         });
         hasUnsavedLocalChanges.current = false;

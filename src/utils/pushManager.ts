@@ -16,6 +16,25 @@ export function isPushSupported(): boolean {
   return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 }
 
+export function isRunningInIframe(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+}
+
+export function isAppleDevice(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+export function isStandalonePWA(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
+}
+
 export function getNotificationPermission(): NotificationPermission | 'unsupported' {
   if (!isPushSupported()) return 'unsupported';
   return Notification.permission;
@@ -61,7 +80,20 @@ export async function subscribeToPushNotifications(options: {
   userId: string;
   userName: string;
 }): Promise<{ subscription: PushSubscription | null; error?: string }> {
+  if (isRunningInIframe() && typeof Notification !== 'undefined' && Notification.permission !== 'granted') {
+    return {
+      subscription: null,
+      error: 'Przeglądarka blokuje prośbę o powiadomienia w oknie podglądu (iframe). Otwórz aplikację w nowej karcie lub bezpośrednio w telefonie.',
+    };
+  }
+
   if (!isPushSupported()) {
+    if (isAppleDevice() && !isStandalonePWA()) {
+      return {
+        subscription: null,
+        error: 'Na iPhone (iOS) powiadomienia push działają po dodaniu aplikacji do ekranu początkowego. Kliknij Udostępnij (ikona ze strzałką) -> Dodaj do ekranu początkowego.',
+      };
+    }
     return { subscription: null, error: 'Powiadomienia Push nie są wspierane w tej przeglądarce.' };
   }
 
@@ -69,7 +101,13 @@ export async function subscribeToPushNotifications(options: {
     // 1. Ask permission
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') {
-      return { subscription: null, error: 'Brak zgody na powiadomienia w przeglądarce.' };
+      return {
+        subscription: null,
+        error:
+          permission === 'denied'
+            ? 'Powiadomienia są zablokowane w przeglądarce dla tej witryny. Kliknij ikonę kłódki/ustawień obok paska adresu i włącz Powiadomienia.'
+            : 'Nie udzielono zgody na powiadomienia w przeglądarce.',
+      };
     }
 
     // 2. Register SW
@@ -84,14 +122,19 @@ export async function subscribeToPushNotifications(options: {
       return { subscription: null, error: 'Serwer nie udostępnił klucza VAPID.' };
     }
 
-    // 4. Subscribe or retrieve existing subscription
+    // 4. Subscribe or refresh existing subscription with current VAPID key
+    const convertedVapidKey = urlBase64ToUint8Array(vapidKey);
     let subscription = await registration.pushManager.getSubscription();
-    if (!subscription) {
-      subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(vapidKey),
-      });
+    if (subscription) {
+      try {
+        await subscription.unsubscribe();
+      } catch {}
     }
+
+    subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: convertedVapidKey,
+    });
 
     // 5. Send subscription to server
     const payload = {
@@ -115,6 +158,34 @@ export async function subscribeToPushNotifications(options: {
   } catch (err: any) {
     console.error('Błąd włączania powiadomień push:', err);
     return { subscription: null, error: err?.message || 'Wystąpił błąd podczas rejestracji push.' };
+  }
+}
+
+// Send test push directly via backend Web Push service
+export async function sendTestPushNotification(options?: {
+  subscription?: PushSubscription | null;
+  householdId?: string;
+  userId?: string;
+}): Promise<{ success: boolean; message?: string; error?: string }> {
+  try {
+    const res = await fetch('/api/test-push-notification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        subscription: options?.subscription ? options.subscription.toJSON() : undefined,
+        householdId: options?.householdId,
+        userId: options?.userId,
+        title: '🔔 Test powiadomienia w telefonie',
+        body: 'Powiadomienia w tle działają prawidłowo!',
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return { success: false, error: data?.error || 'Błąd wysyłki testowego powiadomienia.' };
+    }
+    return { success: true, message: data.message };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Błąd połączenia z serwerem.' };
   }
 }
 

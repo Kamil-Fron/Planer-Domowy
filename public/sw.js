@@ -24,19 +24,17 @@ self.addEventListener('push', (event) => {
     body: data.body || 'Nowe powiadomienie od domownika',
     icon: data.icon || '/pwa-192x192.png',
     badge: data.badge || '/pwa-192x192.png',
-    image: data.image,
-    tag: data.tag || 'budget-notif-' + (data.id || Date.now()),
-    data: data.data || { url: '/' },
-    vibrate: [200, 100, 200, 100, 200],
+    tag: 'budget-' + Date.now(),
     renotify: true,
-    requireInteraction: false,
-    actions: [
-      { action: 'open', title: 'Otwórz aplikację' },
-      { action: 'dismiss', title: 'Zamknij' }
-    ]
+    data: data.data || { url: '/' },
+    vibrate: [200, 100, 200],
   };
 
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(
+    self.registration.showNotification(title, options).catch((err) => {
+      console.error('Błąd showNotification w Service Workerze:', err);
+    })
+  );
 });
 
 // Handle Notification Click

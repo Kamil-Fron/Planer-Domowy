@@ -576,10 +576,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </div>
             </div>
             <button
-              onClick={() => onNavigate('mortgage')}
+              onClick={() => onNavigate('debts')}
               className="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50/70 hover:bg-indigo-100/70 px-3.5 py-2 rounded-xl border border-indigo-100 transition-colors flex items-center space-x-1 self-start sm:self-auto cursor-pointer"
             >
-              <span>Szczegóły & Nadpłaty</span>
+              <span>Zadłużenia & Spłaty</span>
               <span>→</span>
             </button>
           </div>

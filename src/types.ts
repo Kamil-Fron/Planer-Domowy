@@ -1,12 +1,22 @@
 export type TransactionType = 'expense' | 'income';
 
-export type TabType = 'dashboard' | 'scanner' | 'shopping' | 'bills' | 'transactions' | 'limits' | 'reports' | 'mortgage';
+export type TabType =
+  | 'dashboard'
+  | 'scanner'
+  | 'shopping'
+  | 'bills'
+  | 'transactions'
+  | 'limits'
+  | 'reports'
+  | 'debts'
+  | 'mortgage';
 
 export type ExpenseCategory =
   | 'Jedzenie i artykuły spożywcze'
   | 'Remont i dom'
   | 'Dla kotów i zwierząt'
   | 'Rachunki i media'
+  | 'Zobowiązania i pożyczki'
   | 'Kredyty i pożyczki'
   | 'Zdrowie i kosmetyki'
   | 'Transport i paliwo'
@@ -19,6 +29,7 @@ export type IncomeCategory =
   | 'Wypłata z etatu'
   | 'Premia / Bonus'
   | 'Gotówka'
+  | 'Zobowiązania i pożyczki'
   | 'Pożyczka / Kredyt'
   | 'Zwrot (zakupy, podatki)'
   | 'Freelance / Zlecenia'
@@ -55,6 +66,9 @@ export interface Transaction {
   billPeriodDueDate?: string; // Termin płatności cyklu, którego dotyczy ta transakcja
   mortgageId?: string; // ID powiązanego kredytu
   mortgagePaymentType?: 'regular' | 'overpayment'; // Typ wpłaty: rata standardowa lub nadpłata
+  debtId?: string; // ID powiązanego zadłużenia / pożyczki
+  debtAction?: 'borrow' | 'repay_borrowed' | 'lend' | 'receive_lent'; // Akcja zadłużenia
+  debtCounterparty?: string; // Podmiot / osoba powiązana
   principalAmount?: number; // Kwota spłaconego kapitału (pomniejszająca saldo zadłużenia)
   interestAmount?: number; // Kwota odsetek bankowych
   isBalanceRollover?: boolean; // Flaga: transakcja przesunięcia bilansu z innego miesiąca
@@ -306,4 +320,59 @@ export interface MortgageLoan {
   paymentsHistory: MortgagePaymentRecord[];
   createdAt: string;
 }
+
+export type DebtType = 'borrowed' | 'lent';
+// 'borrowed': Zobowiązanie / Moje długi (ja pożyczyłem i muszę oddać)
+// 'lent': Pożyczone innym / Do odzyskania (ktoś pożyczył ode mnie i ma mi oddać)
+
+export type DebtCategory =
+  | 'kredyt_bankowy'
+  | 'pozyczka_prywatna'
+  | 'pozyczka_rodzina'
+  | 'chwilowka'
+  | 'inne';
+
+export interface DebtPaymentRecord {
+  id: string;
+  date: string; // YYYY-MM-DD
+  amount: number;
+  type: 'regular' | 'overpayment' | 'settlement';
+  principalAmount?: number;
+  interestAmount?: number;
+  remainingAfter: number;
+  notes?: string;
+  transactionId?: string; // Powiązana transakcja w budżecie
+}
+
+export interface DebtItem {
+  id: string;
+  type: DebtType; // 'borrowed' (Muszę oddać) | 'lent' (Do odzyskania)
+  category: DebtCategory;
+  name: string; // np. "Kredyt hipoteczny", "Pożyczka od Tomka", "Pożyczyłem Markowi"
+  counterparty: string; // Kto / Bank / Znajomy, np. "PKO BP", "Tomek", "Marek"
+  initialAmount: number; // Całkowita kwota zadłużenia
+  totalAmount?: number; // Alias całkowitej kwoty
+  currentRemaining: number; // Pozostało do oddania lub do odzyskania
+  paidAmount: number; // Spłacono lub odzyskano
+  startDate: string; // YYYY-MM-DD
+  dueDate?: string; // Termin całkowitego zwrotu (YYYY-MM-DD)
+  status: 'active' | 'settled'; // 'active' (w trakcie) | 'settled' (rozliczone)
+  notes?: string;
+
+  // Opcjonalne zaawansowane parametry kredytowe (dla kredytów bankowych):
+  isBankLoan?: boolean;
+  monthlyPayment?: number; // Miesięczna rata
+  interestRate?: number; // Oprocentowanie roczne %
+  loanTermYears?: number; // Czas trwania w latach
+  paymentDayOfMonth?: number; // Dzień miesiąca
+  gracePeriodMonths?: number;
+  gracePeriodEndDate?: string;
+  rateType?: 'equal' | 'decreasing';
+  wiborOrMarginNotes?: string;
+
+  paymentsHistory: DebtPaymentRecord[];
+  createdAt: string;
+  updatedAt?: string;
+}
+
 

@@ -9,6 +9,7 @@ import {
   Household,
   UserProfile,
   MortgageLoan,
+  DebtItem,
 } from './types';
 import {
   INITIAL_TRANSACTIONS,
@@ -31,9 +32,11 @@ const KEYS = {
   USER_PROFILE: 'budget_planner_user_v1',
   SNAPSHOTS: 'budget_planner_snapshots_history_v1',
   MORTGAGES: 'budget_planner_mortgages_v1',
+  DEBTS: 'budget_planner_debts_v1',
 };
 
 export const INITIAL_MORTGAGES: MortgageLoan[] = [];
+export const INITIAL_DEBTS: DebtItem[] = [];
 
 export interface DataSnapshot {
   id: string;
@@ -306,6 +309,54 @@ export const loadMortgages = (): MortgageLoan[] => {
 };
 export const saveMortgages = (data: MortgageLoan[]): void => setItemSafe(KEYS.MORTGAGES, data);
 
+export const loadDebts = (): DebtItem[] => {
+  const list = getItemSafe<DebtItem[]>(KEYS.DEBTS, INITIAL_DEBTS);
+  if (Array.isArray(list) && list.length > 0) {
+    return list;
+  }
+  // Seamless migration from legacy mortgages if debts list is empty
+  const mortgages = loadMortgages();
+  if (Array.isArray(mortgages) && mortgages.length > 0) {
+    const converted: DebtItem[] = mortgages.map((m) => ({
+      id: m.id,
+      type: 'borrowed',
+      category: 'kredyt_bankowy',
+      name: m.name || 'Kredyt hipoteczny',
+      counterparty: m.bankName || 'Bank',
+      initialAmount: m.totalLoanAmount || 0,
+      currentRemaining: m.remainingPrincipal ?? m.totalLoanAmount ?? 0,
+      paidAmount: Math.max(0, (m.totalLoanAmount || 0) - (m.remainingPrincipal || 0)) || (m.initialPaidPrincipal || 0),
+      startDate: m.startDate || new Date().toISOString().split('T')[0],
+      status: (m.remainingPrincipal ?? 1) <= 0 ? 'settled' : 'active',
+      isBankLoan: true,
+      monthlyPayment: m.monthlyPayment,
+      interestRate: m.interestRate,
+      loanTermYears: m.loanTermYears,
+      paymentDayOfMonth: m.paymentDayOfMonth,
+      gracePeriodMonths: m.gracePeriodMonths,
+      gracePeriodEndDate: m.gracePeriodEndDate,
+      rateType: m.rateType,
+      wiborOrMarginNotes: m.wiborOrMarginNotes,
+      paymentsHistory: (m.paymentsHistory || []).map((p) => ({
+        id: p.id,
+        date: p.date,
+        amount: p.totalAmount,
+        type: p.type === 'overpayment' ? 'overpayment' : 'regular',
+        principalAmount: p.principalAmount,
+        interestAmount: p.interestAmount,
+        remainingAfter: p.remainingPrincipalAfter,
+        notes: p.notes,
+        transactionId: p.transactionId,
+      })),
+      createdAt: m.createdAt || new Date().toISOString(),
+    }));
+    saveDebts(converted);
+    return converted;
+  }
+  return [];
+};
+export const saveDebts = (data: DebtItem[]): void => setItemSafe(KEYS.DEBTS, data);
+
 export const Storage = {
   getTransactions: loadTransactions,
   saveTransactions,
@@ -323,6 +374,8 @@ export const Storage = {
   saveActivities,
   getMortgages: loadMortgages,
   saveMortgages,
+  getDebts: loadDebts,
+  saveDebts,
   getPushEnabled: loadPushSetting,
   setPushEnabled: savePushSetting,
   resetAll(): void {
@@ -335,5 +388,6 @@ export const Storage = {
     localStorage.removeItem(KEYS.ACTIVITIES);
     localStorage.removeItem(KEYS.PUSH_ENABLED);
     localStorage.removeItem(KEYS.MORTGAGES);
+    localStorage.removeItem(KEYS.DEBTS);
   },
 };

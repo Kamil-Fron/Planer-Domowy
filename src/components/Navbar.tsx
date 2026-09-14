@@ -33,6 +33,7 @@ import {
   Smartphone,
   BellRing,
   ExternalLink,
+  Scale,
 } from 'lucide-react';
 import { Bill, BudgetLimit, TabType, Transaction, Household, UserProfile, AppNotification } from '../types';
 import { generateAutomatedNotifications, sendBrowserPushNotification } from '../utils/notifications';
@@ -329,7 +330,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'bills', label: 'Rachunki Domowe', icon: Zap },
     { id: 'transactions', label: 'Transakcje', icon: ArrowLeftRight },
     { id: 'limits', label: 'Limity Budżetu', icon: Target },
-    { id: 'mortgage', label: 'Kredyt Hipoteczny', icon: Landmark },
+    { id: 'debts', label: 'Zadłużenia', icon: Scale },
     { id: 'reports', label: 'Wykresy & Raporty', icon: BarChart3 },
   ];
 
@@ -1093,14 +1094,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <button
                   onClick={() => {
                     setShowMobileMoreMenu(false);
-                    onTabChange('mortgage');
+                    onTabChange('debts');
                   }}
                   className={`w-full text-left px-3.5 py-2.5 text-xs flex items-center space-x-2 font-semibold ${
-                    activeTab === 'mortgage' ? 'text-indigo-600 bg-indigo-50' : 'text-slate-700 hover:bg-slate-50'
+                    activeTab === 'debts' || activeTab === 'mortgage' ? 'text-indigo-600 bg-indigo-50' : 'text-slate-700 hover:bg-slate-50'
                   }`}
                 >
-                  <Landmark className="w-4 h-4 text-indigo-600" />
-                  <span>Kredyt Hipoteczny</span>
+                  <Scale className="w-4 h-4 text-indigo-600" />
+                  <span>Zadłużenia & Pożyczki</span>
                 </button>
                 <button
                   onClick={() => {

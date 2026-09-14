@@ -534,10 +534,16 @@ app.post("/api/send-push-notification", async (req, res) => {
       });
     }
 
-    // Filter out the sender so they do NOT receive push notifications about their own actions
-    const targets = Array.from(combinedMap.values()).filter(
-      (entry) => !senderUserId || entry.userId !== senderUserId
-    );
+    // Include all registered subscriptions in the household (self-notifications are enabled as requested by user)
+    const targets = Array.from(combinedMap.values());
+
+    const entityId = data?.entityId || data?.selectedTxId || data?.relatedId || "";
+    let targetUrl = "/";
+    if (targetTab === "transactions") {
+      targetUrl = `/?tab=transactions${entityId ? `&txId=${encodeURIComponent(entityId)}` : ""}`;
+    } else if (targetTab) {
+      targetUrl = `/?tab=${encodeURIComponent(targetTab)}${entityId ? `&entityId=${encodeURIComponent(entityId)}` : ""}`;
+    }
 
     const payload = JSON.stringify({
       title,
@@ -545,8 +551,10 @@ app.post("/api/send-push-notification", async (req, res) => {
       icon: "/pwa-192x192.png",
       badge: "/pwa-192x192.png",
       data: {
-        url: "/",
+        url: targetUrl,
         targetTab: targetTab || "dashboard",
+        entityId,
+        selectedTxId: entityId,
         senderUserName: senderUserName || "Domownik",
         timestamp: Date.now(),
         ...data,
@@ -559,10 +567,20 @@ app.post("/api/send-push-notification", async (req, res) => {
     await Promise.all(
       targets.map(async (target) => {
         try {
-          await webpush.sendNotification(target.subscription, payload, {
+          const endpoint = target.subscription.endpoint || "";
+          const isApple = endpoint.includes("push.apple.com");
+          const pushOptions: any = {
             TTL: 86400,
             urgency: "high",
-          });
+          };
+          if (isApple) {
+            pushOptions.headers = {
+              "apns-push-type": "alert",
+              "apns-priority": "10",
+            };
+          }
+
+          await webpush.sendNotification(target.subscription, payload, pushOptions);
           successCount++;
         } catch (err: any) {
           if (err.statusCode === 404 || err.statusCode === 410) {
@@ -631,10 +649,20 @@ app.post("/api/test-push-notification", async (req, res) => {
     let sent = 0;
     for (const sub of targetSubs) {
       try {
-        await webpush.sendNotification(sub, payload, {
+        const endpoint = sub.endpoint || "";
+        const isApple = endpoint.includes("push.apple.com");
+        const pushOptions: any = {
           TTL: 86400,
           urgency: "high",
-        });
+        };
+        if (isApple) {
+          pushOptions.headers = {
+            "apns-push-type": "alert",
+            "apns-priority": "10",
+          };
+        }
+
+        await webpush.sendNotification(sub, payload, pushOptions);
         sent++;
       } catch (e: any) {
         console.warn("Błąd wysyłki test push:", e?.message || e);

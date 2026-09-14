@@ -10,6 +10,7 @@ import {
   UserProfile,
   AppNotification,
   MortgageLoan,
+  DebtItem,
   ActivityLogEntry,
 } from './types';
 import {
@@ -29,6 +30,8 @@ import {
   saveActivities,
   loadMortgages,
   saveMortgages,
+  loadDebts,
+  saveDebts,
   loadPushSetting,
   savePushSetting,
   loadHousehold,
@@ -59,6 +62,7 @@ import { ShoppingLists } from './components/ShoppingLists';
 import { BillsManager } from './components/BillsManager';
 import { BudgetLimits } from './components/BudgetLimits';
 import { MortgageManager } from './components/MortgageManager';
+import { DebtManager } from './components/DebtManager';
 import { ReportsView } from './components/ReportsView';
 import { HouseholdModal } from './components/HouseholdModal';
 import { DeleteDataModal, DeleteSelection } from './components/DeleteDataModal';
@@ -98,6 +102,7 @@ export default function App() {
   const [shoppingItems, setShoppingItems] = useState<ShoppingItem[]>(loadShoppingItems);
   const [notifications, setNotifications] = useState<AppNotification[]>(loadNotifications);
   const [mortgages, setMortgages] = useState<MortgageLoan[]>(loadMortgages);
+  const [debts, setDebts] = useState<DebtItem[]>(loadDebts);
   const [pushEnabled, setPushEnabled] = useState<boolean>(loadPushSetting);
 
   // Household & Auth States
@@ -235,13 +240,47 @@ export default function App() {
   const knownNotificationIds = useRef<Set<string>>(new Set(notifications.map((n) => n.id)));
   const isInitialFirestoreLoad = useRef<boolean>(true);
 
-  // Handle messages from Service Worker (e.g., notification clicks while app is open or navigating)
+  // Handle deep navigation from URL query parameters (e.g. when app is opened directly from background push on phone)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab') as TabType;
+      const txIdParam = params.get('txId') || params.get('selectedTxId') || params.get('entityId');
+      const billIdParam = params.get('billId');
+
+      if (txIdParam) {
+        setActiveTab('transactions');
+        setNavTxSelectedId(txIdParam);
+      } else if (tabParam) {
+        setActiveTab(tabParam);
+        if (billIdParam) setNavPayBillId(billIdParam);
+      }
+    } catch (e) {
+      console.warn('Błąd odczytu parametrów URL:', e);
+    }
+  }, []);
+
+  // Handle messages from Service Worker (when user clicks push notification while app window is open/focused)
   useEffect(() => {
     if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
     const handleSwMessage = (event: MessageEvent) => {
       if (event.data?.type === 'NAVIGATE_FROM_NOTIFICATION') {
         const targetTab = event.data.targetTab as TabType;
-        if (targetTab) {
+        const notifData = event.data.notificationData || {};
+        const entityId = notifData.selectedTxId || notifData.entityId || notifData.relatedId;
+
+        if (targetTab === 'transactions' || (entityId && entityId.startsWith('tx-'))) {
+          setActiveTab('transactions');
+          if (entityId) {
+            setNavTxSelectedId(entityId);
+          }
+        } else if (targetTab === 'bills' || (entityId && entityId.startsWith('bill-'))) {
+          setActiveTab('bills');
+          if (entityId) {
+            setNavPayBillId(entityId);
+          }
+        } else if (targetTab) {
           setActiveTab(targetTab);
         }
       }
@@ -413,8 +452,7 @@ export default function App() {
         return updated;
       });
 
-      // WAŻNE: Nie wyświetlamy banera wyskakującego użytkownikowi, który SAM właśnie wykonał tę akcję.
-      // Zamiast tego wysyłamy powiadomienie PUSH do telefonów pozostałych domowników w tle!
+      // Wysyłamy powiadomienie PUSH w tle do urządzeń w gospodarstwie domowym (w tym własnego)
       if (household?.id) {
         sendPushNotificationToHousehold({
           householdId: household.id,
@@ -426,6 +464,8 @@ export default function App() {
           extraSubscriptions: household.pushSubscriptions,
           data: {
             entityId: options.entityId,
+            selectedTxId: options.entityId,
+            relatedId: options.entityId,
             targetTab: defaultTab,
             authorName: author,
           },
@@ -965,6 +1005,10 @@ export default function App() {
   }, [mortgages]);
 
   useEffect(() => {
+    saveDebts(debts);
+  }, [debts]);
+
+  useEffect(() => {
     savePushSetting(pushEnabled);
   }, [pushEnabled]);
 
@@ -1019,6 +1063,43 @@ export default function App() {
       snapshot: newTx,
       targetTab: 'transactions',
     });
+
+    // Automatyczna synchronizacja zobowiązania (spłata długu / odzyskanie pożyczonych środków)
+    if (newTx.debtId) {
+      setDebts((prevDebts) => {
+        const found = prevDebts.find((d) => d.id === newTx.debtId);
+        if (!found) return prevDebts;
+
+        const isRepayment =
+          (found.type === 'borrowed' && newTx.type === 'expense') ||
+          (found.type === 'lent' && newTx.type === 'income');
+
+        if (isRepayment) {
+          const newPaid = found.paidAmount + newTx.amount;
+          const newRemaining = Math.max(0, found.initialAmount - newPaid);
+          const updatedDebt: DebtItem = {
+            ...found,
+            paidAmount: newPaid,
+            currentRemaining: newRemaining,
+            status: newRemaining <= 0.01 ? 'settled' : 'active',
+            paymentsHistory: [
+              ...found.paymentsHistory,
+              {
+                id: `payment-${Date.now()}`,
+                date: newTx.date,
+                amount: newTx.amount,
+                note: newTx.title,
+                transactionId: newTx.id,
+              },
+            ],
+          };
+          const next = prevDebts.map((d) => (d.id === found.id ? updatedDebt : d));
+          saveDebts(next);
+          return next;
+        }
+        return prevDebts;
+      });
+    }
 
     return newTx.id;
   };
@@ -1148,6 +1229,29 @@ export default function App() {
             return updatedBills;
           }
           return prevBills;
+        });
+      }
+
+      // Jeśli usunięta transakcja była powiązana ze spłatą zadłużenia, cofnij spłatę w zobowiązaniu
+      if (deletedTx.debtId) {
+        setDebts((prevDebts) => {
+          const found = prevDebts.find((d) => d.id === deletedTx.debtId);
+          if (!found) return prevDebts;
+
+          const remainingHistory = found.paymentsHistory.filter((p) => p.transactionId !== deletedTx.id);
+          const newPaid = Math.max(0, found.paidAmount - deletedTx.amount);
+          const newRemaining = Math.max(0, found.initialAmount - newPaid);
+
+          const updatedDebt: DebtItem = {
+            ...found,
+            paidAmount: newPaid,
+            currentRemaining: newRemaining,
+            status: newRemaining <= 0.01 ? 'settled' : 'active',
+            paymentsHistory: remainingHistory,
+          };
+          const next = prevDebts.map((d) => (d.id === found.id ? updatedDebt : d));
+          saveDebts(next);
+          return next;
         });
       }
     }
@@ -1595,6 +1699,65 @@ export default function App() {
       return next;
     });
     logActivity('Zaktualizowano kredyt hipoteczny', `Zapisano parametry kredytu "${updated.name}"`);
+  };
+
+  // Handlers for Debts & Loans
+  const handleAddDebt = (debtData: Omit<DebtItem, 'id' | 'createdAt'> & { id?: string }) => {
+    const newDebt: DebtItem = {
+      ...debtData,
+      id: debtData.id || `debt-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      createdAt: new Date().toISOString(),
+    };
+    lastLocalMutationTime.current = Date.now();
+    hasUnsavedLocalChanges.current = true;
+    setDebts((prev) => {
+      const updated = [newDebt, ...prev];
+      saveDebts(updated);
+      return updated;
+    });
+
+    const typeDesc = newDebt.type === 'borrowed' ? 'Zobowiązanie / pożyczka do spłaty' : 'Udzielona pożyczka';
+    recordActivity({
+      action: 'create',
+      entityType: 'debt' as any,
+      entityId: newDebt.id,
+      title: `Nowe zobowiązanie: ${newDebt.name}`,
+      description: `${(newDebt.initialAmount || 0).toFixed(2)} PLN (${typeDesc})`,
+      targetTab: 'debts',
+      snapshot: newDebt,
+    });
+  };
+
+  const handleUpdateDebt = (updatedDebt: DebtItem) => {
+    lastLocalMutationTime.current = Date.now();
+    hasUnsavedLocalChanges.current = true;
+    setDebts((prev) => {
+      const exists = prev.some((d) => d.id === updatedDebt.id);
+      const updated = exists ? prev.map((d) => (d.id === updatedDebt.id ? updatedDebt : d)) : [updatedDebt, ...prev];
+      saveDebts(updated);
+      return updated;
+    });
+  };
+
+  const handleDeleteDebt = (id: string) => {
+    const debtToDelete = debts.find((d) => d.id === id);
+    lastLocalMutationTime.current = Date.now();
+    hasUnsavedLocalChanges.current = true;
+    setDebts((prev) => {
+      const updated = prev.filter((d) => d.id !== id);
+      saveDebts(updated);
+      return updated;
+    });
+    if (debtToDelete) {
+      recordActivity({
+        action: 'delete',
+        entityType: 'debt' as any,
+        entityId: debtToDelete.id,
+        title: `Usunięto zobowiązanie: ${debtToDelete.name}`,
+        description: `Kwota ${(debtToDelete.initialAmount || 0).toFixed(2)} PLN`,
+        targetTab: 'debts',
+      });
+    }
   };
 
   // Selective Data Deletion
@@ -2519,13 +2682,15 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'mortgage' && (
-          <MortgageManager
-            mortgages={mortgages}
-            transactions={transactions}
-            onUpdateMortgage={handleUpdateMortgage}
+        {(activeTab === 'debts' || activeTab === 'mortgage') && (
+          <DebtManager
+            debts={debts}
+            onAddDebt={handleAddDebt}
+            onUpdateDebt={handleUpdateDebt}
+            onDeleteDebt={handleDeleteDebt}
             onAddTransaction={handleAddTransaction}
             onDeleteTransaction={handleDeleteTransaction}
+            transactions={transactions}
             onSuccessFeedback={(title, amount, type, onUndo, subtitle) => {
               setToastFeedback({
                 id: `toast-${Date.now()}`,

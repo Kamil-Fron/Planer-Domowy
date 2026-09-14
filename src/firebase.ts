@@ -34,6 +34,7 @@ import {
   UserProfile,
   AppNotification,
   MortgageLoan,
+  DebtItem,
   HouseholdPushSubscription,
 } from './types';
 
@@ -426,6 +427,7 @@ export interface HouseholdFirestoreData {
   shoppingItems: ShoppingItem[];
   notifications?: AppNotification[];
   mortgages?: MortgageLoan[];
+  debts?: DebtItem[];
   pushSubscriptions?: HouseholdPushSubscription[];
   lastUpdatedAt: string;
   lastUpdatedBy?: string;

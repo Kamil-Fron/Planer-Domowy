@@ -11,14 +11,33 @@ import {
   ShoppingCart,
   Home,
   Check,
+  HandCoins,
+  Landmark,
+  Bell,
+  Activity,
 } from 'lucide-react';
-import { Bill, BudgetLimit, Household, ShoppingItem, ShoppingList, Transaction } from '../types';
+import {
+  ActivityLogEntry,
+  AppNotification,
+  Bill,
+  BudgetLimit,
+  DebtItem,
+  Household,
+  MortgageLoan,
+  ShoppingItem,
+  ShoppingList,
+  Transaction,
+} from '../types';
 
 export interface DeleteSelection {
   transactions: boolean;
   bills: boolean;
   budgetLimits: boolean;
   shopping: boolean;
+  debts: boolean;
+  mortgages: boolean;
+  notifications: boolean;
+  activities: boolean;
   household: boolean;
 }
 
@@ -30,6 +49,10 @@ interface DeleteDataModalProps {
   budgetLimits: BudgetLimit[];
   shoppingLists: ShoppingList[];
   shoppingItems: ShoppingItem[];
+  debts?: DebtItem[];
+  mortgages?: MortgageLoan[];
+  notifications?: AppNotification[];
+  activities?: ActivityLogEntry[];
   household: Household | null;
   onConfirmDelete: (selection: DeleteSelection) => void;
 }
@@ -42,6 +65,10 @@ export const DeleteDataModal: React.FC<DeleteDataModalProps> = ({
   budgetLimits,
   shoppingLists,
   shoppingItems,
+  debts = [],
+  mortgages = [],
+  notifications = [],
+  activities = [],
   household,
   onConfirmDelete,
 }) => {
@@ -50,6 +77,10 @@ export const DeleteDataModal: React.FC<DeleteDataModalProps> = ({
     bills: true,
     budgetLimits: false,
     shopping: true,
+    debts: true,
+    mortgages: true,
+    notifications: false,
+    activities: false,
     household: false,
   });
 
@@ -64,7 +95,11 @@ export const DeleteDataModal: React.FC<DeleteDataModalProps> = ({
       bills: checked,
       budgetLimits: checked,
       shopping: checked,
-      household: checked,
+      debts: checked,
+      mortgages: checked,
+      notifications: checked,
+      activities: checked,
+      household: checked && !!household,
     });
   };
 
@@ -91,7 +126,7 @@ export const DeleteDataModal: React.FC<DeleteDataModalProps> = ({
             </div>
             <div>
               <h2 className="text-base sm:text-lg font-bold">Usuwanie wybranych danych</h2>
-              <p className="text-xs text-rose-100">Wybierz elementy, które chcesz wyczyścić</p>
+              <p className="text-xs text-rose-100">Wybierz elementy bazy, które chcesz wyczyścić</p>
             </div>
           </div>
           <button
@@ -110,7 +145,7 @@ export const DeleteDataModal: React.FC<DeleteDataModalProps> = ({
                 <Check className="w-6 h-6" />
               </div>
               <h3 className="text-base font-bold text-slate-900">Pomyślnie usunięto wybrane dane!</h3>
-              <p className="text-xs text-slate-500">Baza danych i pamięć lokalna zostały zaktualizowane.</p>
+              <p className="text-xs text-slate-500">Baza danych, pulpit oraz pamięć lokalna zostały zaktualizowane.</p>
             </div>
           ) : !confirmStep ? (
             <>
@@ -122,14 +157,14 @@ export const DeleteDataModal: React.FC<DeleteDataModalProps> = ({
                 <div className="flex space-x-2 text-xs">
                   <button
                     onClick={() => toggleAll(true)}
-                    className="text-indigo-600 hover:text-indigo-800 font-semibold"
+                    className="text-indigo-600 hover:text-indigo-800 font-semibold cursor-pointer"
                   >
                     Zaznacz wszystkie
                   </button>
                   <span className="text-slate-300">|</span>
                   <button
                     onClick={() => toggleAll(false)}
-                    className="text-slate-500 hover:text-slate-700 font-semibold"
+                    className="text-slate-500 hover:text-slate-700 font-semibold cursor-pointer"
                   >
                     Odznacz
                   </button>
@@ -137,10 +172,10 @@ export const DeleteDataModal: React.FC<DeleteDataModalProps> = ({
               </div>
 
               {/* Items List */}
-              <div className="space-y-2.5">
+              <div className="space-y-2">
                 {/* 1. Transakcje */}
                 <label
-                  className={`flex items-start justify-between p-3.5 rounded-2xl border cursor-pointer transition-all ${
+                  className={`flex items-start justify-between p-3 rounded-2xl border cursor-pointer transition-all ${
                     selection.transactions
                       ? 'bg-rose-50/60 border-rose-300 shadow-xs'
                       : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
@@ -181,7 +216,7 @@ export const DeleteDataModal: React.FC<DeleteDataModalProps> = ({
 
                 {/* 2. Rachunki */}
                 <label
-                  className={`flex items-start justify-between p-3.5 rounded-2xl border cursor-pointer transition-all ${
+                  className={`flex items-start justify-between p-3 rounded-2xl border cursor-pointer transition-all ${
                     selection.bills
                       ? 'bg-rose-50/60 border-rose-300 shadow-xs'
                       : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
@@ -203,7 +238,7 @@ export const DeleteDataModal: React.FC<DeleteDataModalProps> = ({
                         </span>
                       </div>
                       <p className="text-[11px] text-slate-500 mt-0.5">
-                        Czynsz, prąd, abonamenty, harmonogram terminów płatności
+                        Czynsz, media, abonamenty, terminy płatności
                       </p>
                     </div>
                   </div>
@@ -220,7 +255,7 @@ export const DeleteDataModal: React.FC<DeleteDataModalProps> = ({
 
                 {/* 3. Limity budżetowe */}
                 <label
-                  className={`flex items-start justify-between p-3.5 rounded-2xl border cursor-pointer transition-all ${
+                  className={`flex items-start justify-between p-3 rounded-2xl border cursor-pointer transition-all ${
                     selection.budgetLimits
                       ? 'bg-rose-50/60 border-rose-300 shadow-xs'
                       : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
@@ -261,7 +296,7 @@ export const DeleteDataModal: React.FC<DeleteDataModalProps> = ({
 
                 {/* 4. Listy zakupów */}
                 <label
-                  className={`flex items-start justify-between p-3.5 rounded-2xl border cursor-pointer transition-all ${
+                  className={`flex items-start justify-between p-3 rounded-2xl border cursor-pointer transition-all ${
                     selection.shopping
                       ? 'bg-rose-50/60 border-rose-300 shadow-xs'
                       : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
@@ -298,10 +333,168 @@ export const DeleteDataModal: React.FC<DeleteDataModalProps> = ({
                   />
                 </label>
 
-                {/* 5. Dom / Household */}
+                {/* 5. Zobowiązania i pożyczki */}
+                <label
+                  className={`flex items-start justify-between p-3 rounded-2xl border cursor-pointer transition-all ${
+                    selection.debts
+                      ? 'bg-rose-50/60 border-rose-300 shadow-xs'
+                      : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
+                  }`}
+                >
+                  <div className="flex items-start space-x-3">
+                    <div className="mt-0.5">
+                      {selection.debts ? (
+                        <CheckSquare className="w-4 h-4 text-rose-600" />
+                      ) : (
+                        <Square className="w-4 h-4 text-slate-400" />
+                      )}
+                    </div>
+                    <div>
+                      <div className="flex items-center space-x-1.5">
+                        <HandCoins className="w-3.5 h-3.5 text-slate-700" />
+                        <span className="text-xs font-bold text-slate-900">
+                          Zobowiązania i pożyczki
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Kredyty bankowe, pożyczki prywatne, harmonogramy i historia spłat
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-700">
+                    {debts.length} poz.
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="hidden"
+                    checked={selection.debts}
+                    onChange={(e) => setSelection({ ...selection, debts: e.target.checked })}
+                  />
+                </label>
+
+                {/* 6. Kredyty hipoteczne */}
+                {mortgages.length > 0 && (
+                  <label
+                    className={`flex items-start justify-between p-3 rounded-2xl border cursor-pointer transition-all ${
+                      selection.mortgages
+                        ? 'bg-rose-50/60 border-rose-300 shadow-xs'
+                        : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
+                    }`}
+                  >
+                    <div className="flex items-start space-x-3">
+                      <div className="mt-0.5">
+                        {selection.mortgages ? (
+                          <CheckSquare className="w-4 h-4 text-rose-600" />
+                        ) : (
+                          <Square className="w-4 h-4 text-slate-400" />
+                        )}
+                      </div>
+                      <div>
+                        <div className="flex items-center space-x-1.5">
+                          <Landmark className="w-3.5 h-3.5 text-slate-700" />
+                          <span className="text-xs font-bold text-slate-900">
+                            Kredyt hipoteczny (parametry i karencja)
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          Zapisane parametry umowy hipotecznej i historia rat
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-700">
+                      {mortgages.length} poz.
+                    </span>
+                    <input
+                      type="checkbox"
+                      className="hidden"
+                      checked={selection.mortgages}
+                      onChange={(e) => setSelection({ ...selection, mortgages: e.target.checked })}
+                    />
+                  </label>
+                )}
+
+                {/* 7. Powiadomienia */}
+                <label
+                  className={`flex items-start justify-between p-3 rounded-2xl border cursor-pointer transition-all ${
+                    selection.notifications
+                      ? 'bg-rose-50/60 border-rose-300 shadow-xs'
+                      : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
+                  }`}
+                >
+                  <div className="flex items-start space-x-3">
+                    <div className="mt-0.5">
+                      {selection.notifications ? (
+                        <CheckSquare className="w-4 h-4 text-rose-600" />
+                      ) : (
+                        <Square className="w-4 h-4 text-slate-400" />
+                      )}
+                    </div>
+                    <div>
+                      <div className="flex items-center space-x-1.5">
+                        <Bell className="w-3.5 h-3.5 text-slate-700" />
+                        <span className="text-xs font-bold text-slate-900">
+                          Powiadomienia i alerty
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Historia powiadomień w dzwonku i powiadomienia systemowe
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-700">
+                    {notifications.length} poz.
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="hidden"
+                    checked={selection.notifications}
+                    onChange={(e) => setSelection({ ...selection, notifications: e.target.checked })}
+                  />
+                </label>
+
+                {/* 8. Dziennik aktywności */}
+                <label
+                  className={`flex items-start justify-between p-3 rounded-2xl border cursor-pointer transition-all ${
+                    selection.activities
+                      ? 'bg-rose-50/60 border-rose-300 shadow-xs'
+                      : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
+                  }`}
+                >
+                  <div className="flex items-start space-x-3">
+                    <div className="mt-0.5">
+                      {selection.activities ? (
+                        <CheckSquare className="w-4 h-4 text-rose-600" />
+                      ) : (
+                        <Square className="w-4 h-4 text-slate-400" />
+                      )}
+                    </div>
+                    <div>
+                      <div className="flex items-center space-x-1.5">
+                        <Activity className="w-3.5 h-3.5 text-slate-700" />
+                        <span className="text-xs font-bold text-slate-900">
+                          Dziennik aktywności (Audyt)
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Historia akcji domowników, logi operacji i kopie do przywracania
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-700">
+                    {activities.length} wpisów
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="hidden"
+                    checked={selection.activities}
+                    onChange={(e) => setSelection({ ...selection, activities: e.target.checked })}
+                  />
+                </label>
+
+                {/* 9. Dom / Household */}
                 {household && (
                   <label
-                    className={`flex items-start justify-between p-3.5 rounded-2xl border cursor-pointer transition-all ${
+                    className={`flex items-start justify-between p-3 rounded-2xl border cursor-pointer transition-all ${
                       selection.household
                         ? 'bg-rose-50/60 border-rose-300 shadow-xs'
                         : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
@@ -346,7 +539,7 @@ export const DeleteDataModal: React.FC<DeleteDataModalProps> = ({
               <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl flex items-start space-x-2 text-amber-900 text-xs">
                 <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                 <p className="text-[11px] leading-relaxed">
-                  <strong>Uwaga:</strong> Usunięcie wybranych elementów jest trwałe i wpłynie na dane lokalne oraz synchronizację w chmurze Firestore.
+                  <strong>Automatyczna ochrona:</strong> Przed usunięciem aplikacja automatycznie tworzy punkt przywracania (migawkę). Usunięcie wyczyści wybrane dane lokalne oraz zaktualizuje chmurę Firestore.
                 </p>
               </div>
             </>
@@ -359,15 +552,19 @@ export const DeleteDataModal: React.FC<DeleteDataModalProps> = ({
               <div>
                 <h3 className="text-base font-bold text-slate-900">Czy na pewno chcesz usunąć te dane?</h3>
                 <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                  Zaznaczono <strong>{selectedCount}</strong> kategorii do trwałego usunięcia. Tej operacji nie można cofnąć.
+                  Zaznaczono <strong>{selectedCount}</strong> kategorii do usunięcia. Przed operacją zostanie utworzona kopia bezpieczeństwa.
                 </p>
               </div>
 
-              <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-left text-xs space-y-1 max-w-xs mx-auto">
+              <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-left text-xs space-y-1.5 max-w-xs mx-auto">
                 {selection.transactions && <p className="text-rose-700 font-semibold">• Wszystkie transakcje ({transactions.length})</p>}
                 {selection.bills && <p className="text-rose-700 font-semibold">• Wszystkie rachunki ({bills.length})</p>}
                 {selection.budgetLimits && <p className="text-rose-700 font-semibold">• Limity budżetowe ({budgetLimits.length})</p>}
                 {selection.shopping && <p className="text-rose-700 font-semibold">• Listy zakupów ({shoppingLists.length})</p>}
+                {selection.debts && <p className="text-rose-700 font-semibold">• Zobowiązania i pożyczki ({debts.length})</p>}
+                {selection.mortgages && <p className="text-rose-700 font-semibold">• Kredyty hipoteczne ({mortgages.length})</p>}
+                {selection.notifications && <p className="text-rose-700 font-semibold">• Powiadomienia ({notifications.length})</p>}
+                {selection.activities && <p className="text-rose-700 font-semibold">• Dziennik aktywności ({activities.length})</p>}
                 {selection.household && <p className="text-rose-700 font-semibold">• Odłączenie od Domu</p>}
               </div>
             </div>
@@ -382,7 +579,7 @@ export const DeleteDataModal: React.FC<DeleteDataModalProps> = ({
                 if (confirmStep) setConfirmStep(false);
                 else onClose();
               }}
-              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 transition-colors"
+              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
             >
               Anuluj
             </button>
@@ -391,7 +588,7 @@ export const DeleteDataModal: React.FC<DeleteDataModalProps> = ({
               <button
                 onClick={() => setConfirmStep(true)}
                 disabled={selectedCount === 0}
-                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center space-x-1.5"
+                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center space-x-1.5 cursor-pointer"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>Usuń zaznaczone ({selectedCount})</span>
@@ -399,10 +596,10 @@ export const DeleteDataModal: React.FC<DeleteDataModalProps> = ({
             ) : (
               <button
                 onClick={handleExecuteDelete}
-                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center space-x-1.5"
+                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center space-x-1.5 cursor-pointer"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>Tak, usuń bezpowrotnie</span>
+                <span>Tak, usuń wybrane dane</span>
               </button>
             )}
           </div>
@@ -411,3 +608,4 @@ export const DeleteDataModal: React.FC<DeleteDataModalProps> = ({
     </div>
   );
 };
+

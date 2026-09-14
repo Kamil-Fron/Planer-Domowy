@@ -42,6 +42,7 @@ export const SwipeableShoppingItemRow: React.FC<SwipeableShoppingItemRowProps> =
   onRequestDelete,
   onEdit,
 }) => {
+  const [swipeDirection, setSwipeDirection] = React.useState<'left' | 'right' | null>(null);
   const itemCategory = item.category || 'Spożywcze';
   const accentColor = listColor || '#4f46e5';
 
@@ -64,14 +65,22 @@ export const SwipeableShoppingItemRow: React.FC<SwipeableShoppingItemRowProps> =
       }`}
     >
       {/* Background Actions Revealed ONLY on Swipe */}
-      {/* Swipe Right -> EDIT (Indigo) */}
-      <div className="absolute inset-y-0 left-0 w-full bg-indigo-600 flex items-center justify-start pl-5 space-x-2 text-white z-0 pointer-events-none">
+      {/* Swipe Right -> EDIT (Green / Emerald) */}
+      <div
+        className={`absolute inset-y-0 left-0 bg-emerald-600 flex items-center justify-start pl-5 space-x-2 text-white z-0 pointer-events-none transition-opacity duration-150 ${
+          swipeDirection === 'left' ? 'opacity-0' : 'opacity-100'
+        } ${swipeDirection === 'right' ? 'w-full' : 'w-1/2'}`}
+      >
         <Pencil className="w-5 h-5 text-white" />
         <span className="text-xs font-bold uppercase tracking-wider">Edytuj</span>
       </div>
 
-      {/* Swipe Left -> DELETE (Rose/Red) */}
-      <div className="absolute inset-y-0 right-0 w-full bg-rose-600 flex items-center justify-end pr-5 space-x-2 text-white z-0 pointer-events-none">
+      {/* Swipe Left -> DELETE (Rose / Red) */}
+      <div
+        className={`absolute inset-y-0 right-0 bg-rose-600 flex items-center justify-end pr-5 space-x-2 text-white z-0 pointer-events-none transition-opacity duration-150 ${
+          swipeDirection === 'right' ? 'opacity-0' : 'opacity-100'
+        } ${swipeDirection === 'left' ? 'w-full' : 'w-1/2'}`}
+      >
         <span className="text-xs font-bold uppercase tracking-wider">Usuń</span>
         <Trash2 className="w-5 h-5 text-white" />
       </div>
@@ -81,7 +90,17 @@ export const SwipeableShoppingItemRow: React.FC<SwipeableShoppingItemRowProps> =
         drag="x"
         dragConstraints={{ left: 0, right: 0 }}
         dragElastic={0.45}
+        onDrag={(_, info) => {
+          if (info.offset.x > 8) {
+            setSwipeDirection('right');
+          } else if (info.offset.x < -8) {
+            setSwipeDirection('left');
+          } else {
+            setSwipeDirection(null);
+          }
+        }}
         onDragEnd={(_, info) => {
+          setSwipeDirection(null);
           if (info.offset.x < -70) {
             onRequestDelete(item);
           } else if (info.offset.x > 70) {

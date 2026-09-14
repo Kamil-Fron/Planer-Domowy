@@ -218,6 +218,7 @@ export default function App() {
     shoppingItems,
     notifications,
     mortgages,
+    debts,
     household,
     currentUser,
   });
@@ -231,6 +232,7 @@ export default function App() {
       shoppingItems,
       notifications,
       mortgages,
+      debts,
       household,
       currentUser,
     };
@@ -847,6 +849,7 @@ export default function App() {
         const cloudItems = cloudData.shoppingItems || [];
         const cloudNotifs = cloudData.notifications || [];
         const cloudMortgages = cloudData.mortgages;
+        const cloudDebts = cloudData.debts;
 
         // Wykryj powiadomienia dodane przez INNYCH domowników podczas gdy aplikacja jest otwarta:
         if (!isInitialFirestoreLoad.current && cloudNotifs.length > 0) {
@@ -895,6 +898,11 @@ export default function App() {
         if (cloudMortgages && Array.isArray(cloudMortgages)) {
           setMortgages(cloudMortgages);
           saveMortgages(cloudMortgages);
+        }
+
+        if (cloudDebts && Array.isArray(cloudDebts)) {
+          setDebts(cloudDebts);
+          saveDebts(cloudDebts);
         }
 
         if (cloudData.members && Array.isArray(cloudData.members)) {
@@ -956,6 +964,7 @@ export default function App() {
           shoppingItems: current.shoppingItems,
           notifications: current.notifications,
           mortgages: current.mortgages,
+          debts: current.debts,
           pushSubscriptions: household.pushSubscriptions || [],
           lastUpdatedBy: currentUser.email || currentUser.name,
         });
@@ -973,7 +982,7 @@ export default function App() {
     }, 600);
 
     return () => clearTimeout(timer);
-  }, [transactions, bills, budgetLimits, shoppingLists, shoppingItems, notifications, mortgages, household?.id, currentUser]);
+  }, [transactions, bills, budgetLimits, shoppingLists, shoppingItems, notifications, mortgages, debts, household?.id, currentUser]);
 
   // 4. Persistence to LocalStorage fallback
   useEffect(() => {
@@ -1789,6 +1798,26 @@ export default function App() {
       saveDebts(updated);
       return updated;
     });
+    // Synchronizuj powiązany kredyt w mortgages, jeśli to kredyt bankowy
+    if (updatedDebt.isBankLoan) {
+      setMortgages((prev) => {
+        const next = prev.map((m) =>
+          m.id === updatedDebt.id
+            ? {
+                ...m,
+                name: updatedDebt.name,
+                bankName: updatedDebt.bankName || updatedDebt.counterparty,
+                loanAmount: updatedDebt.initialAmount,
+                remainingPrincipal: updatedDebt.currentRemaining,
+                monthlyPayment: updatedDebt.monthlyPayment || m.monthlyPayment,
+                interestRate: updatedDebt.interestRate || m.interestRate,
+              }
+            : m
+        );
+        saveMortgages(next);
+        return next;
+      });
+    }
   };
 
   const handleDeleteDebt = (id: string) => {
@@ -1798,6 +1827,12 @@ export default function App() {
     setDebts((prev) => {
       const updated = prev.filter((d) => d.id !== id);
       saveDebts(updated);
+      return updated;
+    });
+    // Usuń również z mortgages jeśli to powiązany kredyt
+    setMortgages((prev) => {
+      const updated = prev.filter((m) => m.id !== id);
+      saveMortgages(updated);
       return updated;
     });
     if (debtToDelete) {
@@ -1814,25 +1849,40 @@ export default function App() {
 
   // Selective Data Deletion
   const handleDeleteSelectedData = async (selection: DeleteSelection) => {
+    lastLocalMutationTime.current = Date.now();
+    hasUnsavedLocalChanges.current = true;
+
+    // Bezpieczeństwo: utwórz migawkę kopii zapasowej przed usunięciem danych
+    saveBackupSnapshot('Migawka bezpieczeństwa przed selektywnym usunięciem danych', {
+      transactions,
+      bills,
+      budgetLimits,
+      shoppingLists,
+      shoppingItems,
+      debts,
+      mortgages,
+    });
+
     let newTransactions = transactions;
     let newBills = bills;
     let newLimits = budgetLimits;
     let newShoppingLists = shoppingLists;
     let newShoppingItems = shoppingItems;
+    let newDebts = debts;
+    let newMortgages = mortgages;
+    let newNotifications = notifications;
     let newHousehold = household;
 
     if (selection.transactions) {
       newTransactions = [];
       setTransactions([]);
       saveTransactions([]);
-      clearAllBackupSnapshots();
     }
 
     if (selection.bills) {
       newBills = [];
       setBills([]);
       saveBills([]);
-      clearAllBackupSnapshots();
     }
 
     if (selection.budgetLimits) {
@@ -1848,6 +1898,31 @@ export default function App() {
       setShoppingItems([]);
       saveShoppingLists([]);
       saveShoppingItems([]);
+    }
+
+    if (selection.debts) {
+      newDebts = [];
+      setDebts([]);
+      saveDebts([]);
+      // Wyczyszczenie zobowiązań usuwa również pozycje z mortgages
+      newMortgages = [];
+      setMortgages([]);
+      saveMortgages([]);
+    } else if (selection.mortgages) {
+      newMortgages = [];
+      setMortgages([]);
+      saveMortgages([]);
+    }
+
+    if (selection.notifications) {
+      newNotifications = [];
+      setNotifications([]);
+      saveNotifications([]);
+    }
+
+    if (selection.activities) {
+      setActivities([]);
+      saveActivities([]);
     }
 
     if (selection.household) {
@@ -1878,13 +1953,26 @@ export default function App() {
           budgetLimits: newLimits,
           shoppingLists: newShoppingLists,
           shoppingItems: newShoppingItems,
-          notifications,
+          notifications: newNotifications,
+          debts: newDebts,
+          mortgages: newMortgages,
           lastUpdatedBy: currentUser.email || currentUser.name,
         });
         hasUnsavedLocalChanges.current = false;
       } catch (err) {
         console.warn('Błąd aktualizacji Firestore po usunięciu danych:', err);
       }
+    }
+
+    if (!selection.activities) {
+      recordActivity({
+        action: 'delete',
+        entityType: 'system',
+        entityId: 'bulk-delete',
+        title: 'Selektywne czyszczenie bazy',
+        description: 'Wyczyszczono wybrane kategorie danych',
+        targetTab: 'dashboard',
+      });
     }
   };
 
@@ -2604,6 +2692,10 @@ export default function App() {
         budgetLimits={budgetLimits}
         shoppingLists={shoppingLists}
         shoppingItems={shoppingItems}
+        debts={debts}
+        mortgages={mortgages}
+        notifications={notifications}
+        activities={activities}
         household={household}
         onConfirmDelete={handleDeleteSelectedData}
       />
@@ -2635,6 +2727,7 @@ export default function App() {
             shoppingLists={shoppingLists}
             shoppingItems={shoppingItems}
             mortgages={mortgages}
+            debts={debts}
             selectedMonth={selectedMonth}
             onNavigate={handleDashboardNavigate}
             onQuickAddTransaction={() => {

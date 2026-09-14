@@ -593,7 +593,7 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
         {/* Footer */}
         <div className="p-3 sm:p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
           <div className="text-[11px] text-slate-500">
-            Autor: <strong className="text-slate-700">bobEKam</strong> (bobEKam@gmail.com) • <span className="font-semibold text-indigo-600">v2.5.0</span>
+            Autor: <strong className="text-slate-700">bobEKam</strong> (bobEKam@gmail.com) • <span className="font-semibold text-indigo-600">v2.7.1</span>
           </div>
           <button
             onClick={onClose}

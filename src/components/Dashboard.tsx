@@ -193,14 +193,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
     ) : false)
   ) : false;
 
-  // Podsumowanie Zobowiązań & Pożyczek (debts + mortgages)
+  // Podsumowanie Zobowiązań & Pożyczek (debts + legacy mortgages)
   const borrowedDebts = debts.filter((d) => d.type === 'borrowed');
   const lentDebts = debts.filter((d) => d.type === 'lent');
 
+  // Archiwalny fallback do primaryLoan TYLKO gdy debts jest całkiem puste i istnieje nieprzemigrowany primaryLoan
+  const hasDebtsRecords = debts.length > 0;
+  const useLegacyLoan = !hasDebtsRecords && !!primaryLoan;
+
   // Kwoty do oddania (moje długi i kredyty)
-  const totalBorrowedInitial = borrowedDebts.reduce((s, d) => s + (d.initialAmount || d.totalAmount || 0), 0) + (borrowedDebts.length === 0 && primaryLoan ? loanTotalAmount : 0);
-  const totalBorrowedRemaining = borrowedDebts.reduce((s, d) => s + (d.currentRemaining ?? 0), 0) + (borrowedDebts.length === 0 && primaryLoan ? loanRemainingPrincipal : 0);
-  const totalBorrowedPaid = borrowedDebts.reduce((s, d) => s + (d.paidAmount || 0), 0) + (borrowedDebts.length === 0 && primaryLoan ? loanTotalPaid : 0);
+  const totalBorrowedInitial = borrowedDebts.reduce((s, d) => s + (d.initialAmount || d.totalAmount || 0), 0) + (useLegacyLoan && primaryLoan ? loanTotalAmount : 0);
+  const totalBorrowedRemaining = borrowedDebts.reduce((s, d) => s + (d.currentRemaining ?? 0), 0) + (useLegacyLoan && primaryLoan ? loanRemainingPrincipal : 0);
+  const totalBorrowedPaid = borrowedDebts.reduce((s, d) => s + (d.paidAmount || 0), 0) + (useLegacyLoan && primaryLoan ? loanTotalPaid : 0);
   const borrowedPaidPercent = totalBorrowedInitial > 0 ? (totalBorrowedPaid / totalBorrowedInitial) * 100 : 0;
 
   // Kwoty do odzyskania (pożyczone komuś)
@@ -210,7 +214,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const lentRecoveredPercent = totalLentInitial > 0 ? (totalLentRecovered / totalLentInitial) * 100 : 0;
 
   // Miesięczne raty stałe (kredyty bankowe i pożyczki)
-  const totalMonthlyInstallments = borrowedDebts.reduce((s, d) => s + (d.monthlyPayment || 0), 0) || (primaryLoan ? primaryLoan.monthlyPayment : 0);
+  const totalMonthlyInstallments = borrowedDebts.reduce((s, d) => s + (d.monthlyPayment || 0), 0) + (useLegacyLoan && primaryLoan ? (primaryLoan.monthlyPayment || 0) : 0);
   const primaryBankDebt = debts.find((d) => d.isBankLoan || d.category === 'kredyt_bankowy');
 
   return (
@@ -589,7 +593,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     {primaryBankDebt.bankName}
                   </span>
                 )}
-                {primaryLoan && !primaryBankDebt && (
+                {!primaryBankDebt && useLegacyLoan && primaryLoan && (
                   <span className="text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-100 px-2 py-0.5 rounded-md">
                     {primaryLoan.bankName}
                   </span>
@@ -601,11 +605,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 )}
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                {borrowedDebts.length > 0 || primaryLoan
-                  ? `${borrowedDebts.length || 1} zobowiązań do spłaty • ${lentDebts.length} do odzyskania`
+                {borrowedDebts.length > 0 || (useLegacyLoan && primaryLoan)
+                  ? `${borrowedDebts.length || (useLegacyLoan && primaryLoan ? 1 : 0)} zobowiązań do spłaty • ${lentDebts.length} do odzyskania`
                   : 'Kredyty, pożyczki prywatne oraz środki pożyczone innym'}
                 {primaryBankDebt?.paymentDayOfMonth && (
                   <> • Rata bankowa: każdego <strong className="text-slate-700">{primaryBankDebt.paymentDayOfMonth}.</strong> dnia miesiąca</>
+                )}
+                {!primaryBankDebt && useLegacyLoan && primaryLoan?.paymentDayOfMonth && (
+                  <> • Rata bankowa: każdego <strong className="text-slate-700">{primaryLoan.paymentDayOfMonth}.</strong> dnia miesiąca</>
                 )}
               </p>
             </div>
@@ -632,7 +639,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <span>Ile muszę oddać</span>
                 <span className="text-slate-400">→</span>
               </span>
-              <span className="text-slate-500 font-medium">({borrowedDebts.length || (primaryLoan ? 1 : 0)} poz.)</span>
+              <span className="text-slate-500 font-medium">({borrowedDebts.length || (useLegacyLoan && primaryLoan ? 1 : 0)} poz.)</span>
             </span>
             <div className="flex items-baseline space-x-1.5">
               <span className="text-xl font-black text-rose-600">
@@ -704,10 +711,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <span className="text-[11px] text-slate-500">/ mies.</span>
               </div>
               <div className="text-[11px] text-slate-600 space-y-0.5 pt-1">
-                {primaryBankDebt?.interestRate || primaryLoan?.interestRate ? (
+                {primaryBankDebt?.interestRate || (useLegacyLoan && primaryLoan?.interestRate) ? (
                   <p className="text-[11px] text-slate-500">
                     Oprocentowanie: <strong className="text-amber-600">{primaryBankDebt?.interestRate || primaryLoan?.interestRate}%</strong>
-                    {(primaryBankDebt?.loanTermYears || primaryLoan?.loanTermYears) && (
+                    {(primaryBankDebt?.loanTermYears || (useLegacyLoan && primaryLoan?.loanTermYears)) && (
                       <span> ({primaryBankDebt?.loanTermYears || primaryLoan?.loanTermYears} lat)</span>
                     )}
                   </p>

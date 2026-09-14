@@ -47,6 +47,8 @@ export interface DataSnapshot {
     bills: number;
     budgetLimits: number;
     shoppingItems: number;
+    debts?: number;
+    mortgages?: number;
   };
   data: {
     transactions: Transaction[];
@@ -54,6 +56,8 @@ export interface DataSnapshot {
     budgetLimits: BudgetLimit[];
     shoppingLists: ShoppingList[];
     shoppingItems: ShoppingItem[];
+    debts?: DebtItem[];
+    mortgages?: MortgageLoan[];
   };
 }
 
@@ -91,6 +95,8 @@ export const saveBackupSnapshot = (
     budgetLimits: BudgetLimit[];
     shoppingLists: ShoppingList[];
     shoppingItems: ShoppingItem[];
+    debts?: DebtItem[];
+    mortgages?: MortgageLoan[];
   }
 ): void => {
   try {
@@ -104,6 +110,8 @@ export const saveBackupSnapshot = (
         bills: data.bills?.length || 0,
         budgetLimits: data.budgetLimits?.length || 0,
         shoppingItems: data.shoppingItems?.length || 0,
+        debts: data.debts?.length || 0,
+        mortgages: data.mortgages?.length || 0,
       },
       data: {
         transactions: data.transactions || [],
@@ -111,6 +119,8 @@ export const saveBackupSnapshot = (
         budgetLimits: data.budgetLimits || [],
         shoppingLists: data.shoppingLists || [],
         shoppingItems: data.shoppingItems || [],
+        debts: data.debts || [],
+        mortgages: data.mortgages || [],
       },
     };
 

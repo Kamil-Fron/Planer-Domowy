@@ -49,10 +49,10 @@ export const VersionInfoModal: React.FC<VersionInfoModalProps> = ({ isOpen, onCl
               </h2>
               <div className="flex items-center space-x-2 text-xs text-slate-500 font-medium">
                 <span className="bg-indigo-100 text-indigo-800 font-bold px-2 py-0.5 rounded-md">
-                  Wersja v2.7.0
+                  Wersja v2.7.1
                 </span>
                 <span>•</span>
-                <span>Inteligentne Propozycje 30D & Ergonomia</span>
+                <span>Kompletne Selektywne Usuwanie & Reaktywny Pulpit Zobowiązań</span>
               </div>
             </div>
           </div>
@@ -124,14 +124,63 @@ export const VersionInfoModal: React.FC<VersionInfoModalProps> = ({ isOpen, onCl
             </div>
           </div>
 
-          {/* Version Changelog v2.7.0 */}
+          {/* Version Changelog v2.7.1 */}
           <div>
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center space-x-1.5">
               <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Opis Wersji: v2.7.0 (Dynamiczne Propozycje 30D & Uporządkowany Szybki Wpis)</span>
+              <span>Opis Wersji: v2.7.1 (Kompletne Selektywne Usuwanie & Reaktywny Pulpit Zobowiązań)</span>
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
               <div className="p-3.5 bg-white border border-indigo-200 rounded-2xl shadow-2xs">
+                <div className="flex items-center space-x-2 mb-1.5 font-bold text-slate-900 text-xs">
+                  <Sparkles className="w-4 h-4 text-indigo-600" />
+                  <span>Kompletne Selektywne Usuwanie Danych</span>
+                </div>
+                <p className="text-xs text-slate-600">
+                  Rozszerzono narzędzie selektywnego czyszczenia bazy danych o zobowiązania/pożyczki prywatne, kredyty bankowe, powiadomienia oraz dziennik aktywności.
+                </p>
+              </div>
+
+              <div className="p-3.5 bg-white border border-indigo-200 rounded-2xl shadow-2xs">
+                <div className="flex items-center space-x-2 mb-1.5 font-bold text-slate-900 text-xs">
+                  <Zap className="w-4 h-4 text-emerald-600" />
+                  <span>Reaktywny Baner Zobowiązań na Pulpicie</span>
+                </div>
+                <p className="text-xs text-slate-600">
+                  Naprawiono powiązanie banera „Podsumowanie Zobowiązań” na pulpicie. Każda modyfikacja, dodanie lub usunięcie długu natychmiast przelicza kwoty i odświeża widok.
+                </p>
+              </div>
+
+              <div className="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-2xs">
+                <div className="flex items-center space-x-2 mb-1.5 font-bold text-slate-900 text-xs">
+                  <Layers className="w-4 h-4 text-amber-500" />
+                  <span>Chmurowa Synchronizacja Firestore</span>
+                </div>
+                <p className="text-xs text-slate-600">
+                  Zobowiązania zostały zintegrowane z profilem domowym w chmurze – automatyczna synchronizacja Firestore gwarantuje spójność pomiędzy urządzeniami domowników.
+                </p>
+              </div>
+
+              <div className="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-2xs">
+                <div className="flex items-center space-x-2 mb-1.5 font-bold text-slate-900 text-xs">
+                  <CheckCircle2 className="w-4 h-4 text-blue-500" />
+                  <span>Automatyczna Migawka Bezpieczeństwa</span>
+                </div>
+                <p className="text-xs text-slate-600">
+                  Przed każdą operacją selektywnego usuwania aplikacja automatycznie rejestruje migawkę bezpieczeństwa, umożliwiając łatwe przywrócenie w razie pomyłki.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Previous Changelog v2.7.0 */}
+          <div>
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center space-x-1.5">
+              <Layers className="w-3.5 h-3.5 text-slate-400" />
+              <span>Poprzednia Wersja: v2.7.0 (Dynamiczne Propozycje 30D & Uporządkowany Szybki Wpis)</span>
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+              <div className="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-2xs">
                 <div className="flex items-center space-x-2 mb-1.5 font-bold text-slate-900 text-xs">
                   <Sparkles className="w-4 h-4 text-indigo-600" />
                   <span>30-Dniowe Okno Częstości (Rolling Window)</span>
@@ -141,13 +190,13 @@ export const VersionInfoModal: React.FC<VersionInfoModalProps> = ({ isOpen, onCl
                 </p>
               </div>
 
-              <div className="p-3.5 bg-white border border-indigo-200 rounded-2xl shadow-2xs">
+              <div className="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-2xs">
                 <div className="flex items-center space-x-2 mb-1.5 font-bold text-slate-900 text-xs">
                   <Layers className="w-4 h-4 text-emerald-600" />
                   <span>Sortowanie wg Częstości Opisu</span>
                 </div>
                 <p className="text-xs text-slate-600">
-                  Propozycje są bezwzględnie sortowane według liczby użyć danego opisu/nazwy w ciągu ostatnich 30 dni, a nie według kategorii. Najczęściej wpisywane pozycje lądują na samej górze.
+                  Propozycje są bezwzględnie sortowane według liczby użyć danego opisu/nazwy w ciągu ostatnich 30 dni, a nie według kategorii.
                 </p>
               </div>
 
@@ -157,7 +206,7 @@ export const VersionInfoModal: React.FC<VersionInfoModalProps> = ({ isOpen, onCl
                   <span>Czyste, Pojemne Czipsy</span>
                 </div>
                 <p className="text-xs text-slate-600">
-                  Usunięto wyświetlanie kategorii i liczników użyć (x2, x5) z widoku kafelków. Zyskano dużo miejsca, a kategoria nadal automatycznie przypisuje się po kliknięciu.
+                  Usunięto wyświetlanie kategorii i liczników użyć (x2, x5) z widoku kafelków. Kategoria nadal automatycznie przypisuje się po kliknięciu.
                 </p>
               </div>
 

@@ -1083,12 +1083,14 @@ export default function App() {
             currentRemaining: newRemaining,
             status: newRemaining <= 0.01 ? 'settled' : 'active',
             paymentsHistory: [
-              ...found.paymentsHistory,
+              ...(found.paymentsHistory || []),
               {
-                id: `payment-${Date.now()}`,
+                id: `payment-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
                 date: newTx.date,
                 amount: newTx.amount,
-                note: newTx.title,
+                type: 'regular',
+                remainingAfter: newRemaining,
+                notes: newTx.comment || newTx.title,
                 transactionId: newTx.id,
               },
             ],
@@ -1261,6 +1263,8 @@ export default function App() {
     lastLocalMutationTime.current = Date.now();
     hasUnsavedLocalChanges.current = true;
     let updatedTitle = '';
+    const origTx = transactions.find((t) => t.id === id);
+
     setTransactions((prev) => {
       const updated = prev.map((t) => {
         if (t.id === id) {
@@ -1272,6 +1276,54 @@ export default function App() {
       saveTransactions(updated);
       return updated;
     });
+
+    // Synchronizacja zobowiązań przy edycji transakcji powiązanej
+    if (origTx && (origTx.debtId || updates.debtId)) {
+      setDebts((prevDebts) => {
+        const nextDebts = prevDebts.map((debt) => {
+          const hasPayment = debt.paymentsHistory?.some((p) => p.transactionId === id);
+          const finalDebtId = updates.debtId !== undefined ? updates.debtId : origTx.debtId;
+          const isTargetDebt = debt.id === finalDebtId;
+
+          if (!hasPayment && !isTargetDebt) return debt;
+
+          let payments = (debt.paymentsHistory || []).filter((p) => p.transactionId !== id);
+
+          if (isTargetDebt && finalDebtId) {
+            const finalAmount = updates.amount !== undefined ? updates.amount : origTx.amount;
+            const finalDate = updates.date !== undefined ? updates.date : origTx.date;
+            const finalNotes = updates.title || updates.comment || origTx.title;
+
+            payments.push({
+              id: `payment-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+              date: finalDate,
+              amount: finalAmount,
+              type: 'regular',
+              remainingAfter: 0,
+              notes: finalNotes,
+              transactionId: id,
+            });
+          }
+
+          const newPaid = payments.reduce((sum, p) => sum + p.amount, 0);
+          const newRemaining = Math.max(0, debt.initialAmount - newPaid);
+
+          // Update remainingAfter
+          payments = payments.map((p) => (p.transactionId === id ? { ...p, remainingAfter: newRemaining } : p));
+
+          return {
+            ...debt,
+            paidAmount: newPaid,
+            currentRemaining: newRemaining,
+            status: newRemaining <= 0.01 ? ('settled' as const) : ('active' as const),
+            paymentsHistory: payments,
+          };
+        });
+        saveDebts(nextDebts);
+        return nextDebts;
+      });
+    }
+
     recordActivity({
       action: 'update',
       entityType: 'transaction',
@@ -2610,6 +2662,7 @@ export default function App() {
               setNavTxSearch('');
               setNavTxSelectedId(null);
             }}
+            debts={debts}
           />
         )}
 
@@ -2657,6 +2710,7 @@ export default function App() {
             onDeleteTransaction={handleDeleteTransaction}
             initialPayBillId={navPayBillId}
             onClearInitialPayBillId={() => setNavPayBillId(null)}
+            debts={debts}
           />
         )}
 
@@ -2732,6 +2786,7 @@ export default function App() {
         transactions={transactions}
         shoppingLists={shoppingLists}
         shoppingItems={shoppingItems}
+        debts={debts}
         onOpenScanner={() => {
           setIsQuickAddOpen(false);
           setActiveTab('scanner');

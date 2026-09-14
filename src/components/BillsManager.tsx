@@ -32,8 +32,10 @@ import {
   CalendarPlus,
   Info,
   AlertCircle,
+  Landmark,
+  Link2,
 } from 'lucide-react';
-import { Bill, UtilityServiceType, Transaction, BillPricingType, BillPaymentHistoryItem } from '../types';
+import { Bill, UtilityServiceType, Transaction, BillPricingType, BillPaymentHistoryItem, DebtItem } from '../types';
 import {
   calculateNextDueDate,
   calculatePreviousDueDate,
@@ -56,6 +58,7 @@ interface BillsManagerProps {
   onDeleteTransaction?: (id: string, skipBillRevert?: boolean) => void;
   initialPayBillId?: string | null;
   onClearInitialPayBillId?: () => void;
+  debts?: DebtItem[];
 }
 
 const formatMonthName = (monthStr: string) => {
@@ -86,6 +89,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   onDeleteTransaction,
   initialPayBillId,
   onClearInitialPayBillId,
+  debts = [],
 }) => {
   const [internalMonth, setInternalMonth] = useState(() => {
     return selectedMonth || new Date().toISOString().slice(0, 7);
@@ -154,6 +158,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   const [dueDate, setDueDate] = useState(new Date().toISOString().split('T')[0]);
   const [billingCycle, setBillingCycle] = useState<Bill['billingCycle']>('miesięcznie');
   const [notes, setNotes] = useState('');
+  const [selectedDebtId, setSelectedDebtId] = useState<string>('');
   const [hasMeterReading, setHasMeterReading] = useState(false);
   const [meterPrev, setMeterPrev] = useState('');
   const [meterCurr, setMeterCurr] = useState('');
@@ -173,6 +178,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   const [editDueDate, setEditDueDate] = useState('');
   const [editBillingCycle, setEditBillingCycle] = useState<Bill['billingCycle']>('miesięcznie');
   const [editNotes, setEditNotes] = useState('');
+  const [editSelectedDebtId, setEditSelectedDebtId] = useState<string>('');
   const [editHasMeterReading, setEditHasMeterReading] = useState(false);
   const [editMeterPrev, setEditMeterPrev] = useState('');
   const [editMeterCurr, setEditMeterCurr] = useState('');
@@ -188,6 +194,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
     setEditDueDate(b.dueDate);
     setEditBillingCycle(b.billingCycle);
     setEditNotes(b.notes || '');
+    setEditSelectedDebtId(b.debtId || '');
     if (b.meterReading) {
       setEditHasMeterReading(true);
       setEditMeterPrev(
@@ -232,6 +239,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
       dueDate: editDueDate,
       billingCycle: editBillingCycle,
       notes: editNotes.trim() || undefined,
+      debtId: editSelectedDebtId || undefined,
     };
 
     if (editHasMeterReading) {
@@ -259,6 +267,8 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   // Service helpers
   const getServiceMeta = (type: UtilityServiceType) => {
     switch (type) {
+      case 'kredyt':
+        return { label: 'Rata kredytu / Pożyczka', icon: Landmark, color: '#6366f1', bg: 'bg-indigo-50', text: 'text-indigo-700' };
       case 'woda':
         return { label: 'Woda i ścieki', icon: Droplets, color: '#06b6d4', bg: 'bg-cyan-50', text: 'text-cyan-700' };
       case 'prąd':
@@ -664,14 +674,14 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
     const txId = `tx-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const historyId = `hist-${Date.now()}-${bill.id}`;
 
-    // 1. Zapisz transakcję w wydatkach powiązaną z rachunkiem (billId, billPaymentHistoryId, billPeriodDueDate)
+    // 1. Zapisz transakcję w wydatkach powiązaną z rachunkiem (billId, billPaymentHistoryId, billPeriodDueDate, debtId)
     onAddTransaction({
       id: txId,
       type: 'expense',
       amount: parsedAmount,
-      category: 'Rachunki i media',
+      category: bill.debtId ? 'Zobowiązania i pożyczki' : 'Rachunki i media',
       date: payModalDate,
-      title: `Rachunek: ${bill.name}`,
+      title: bill.debtId ? `Spłata zobowiązania: ${bill.name}` : `Rachunek: ${bill.name}`,
       comment:
         cycles > 1
           ? `Opłacono za ${cycles} okresy rozliczeniowe z góry (${periodName}): ${parsedAmount.toFixed(2)} PLN.${
@@ -685,6 +695,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
       billId: bill.id,
       billPaymentHistoryId: historyId,
       billPeriodDueDate: bill.dueDate,
+      debtId: bill.debtId,
     });
 
     const newHistoryItem: BillPaymentHistoryItem = {
@@ -796,15 +807,16 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         id: txId,
         type: 'expense',
         amount: finalAmount,
-        category: 'Rachunki i media',
+        category: bill.debtId ? 'Zobowiązania i pożyczki' : 'Rachunki i media',
         date: payDate,
-        title: `Rachunek: ${bill.name}`,
+        title: bill.debtId ? `Spłata zobowiązania: ${bill.name}` : `Rachunek: ${bill.name}`,
         comment: `Płatność (${bill.provider}) za okres ${periodName}${
           bill.pricingType === 'variable' ? ' [opłata zmienna]' : ''
         }`,
         billId: bill.id,
         billPaymentHistoryId: historyId,
         billPeriodDueDate: bill.dueDate,
+        debtId: bill.debtId,
       });
 
       const newHistoryItem: BillPaymentHistoryItem = {
@@ -961,17 +973,18 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
     if (initialStatus === 'paid') {
       const newBillId = `bill-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
 
-      // 1. Zapisz transakcję w wydatkach z billId
+      // 1. Zapisz transakcję w wydatkach z billId i ewentualnym debtId
       onAddTransaction({
         type: 'expense',
         amount: parsedAmount,
-        category: 'Rachunki i media',
+        category: selectedDebtId ? 'Zobowiązania i pożyczki' : 'Rachunki i media',
         date: actualPayDate,
-        title: `Rachunek: ${name.trim()}`,
+        title: selectedDebtId ? `Spłata zobowiązania: ${name.trim()}` : `Rachunek: ${name.trim()}`,
         comment: `Opłacono rachunek (${name.trim()}) za okres ${periodName}.${
           meterData ? ` Stan licznika: ${meterData.current} ${meterData.unit}.` : ''
         }`,
         billId: newBillId,
+        debtId: selectedDebtId || undefined,
       });
 
       const newHistoryItem = {
@@ -989,7 +1002,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         name: name.trim(),
         serviceType,
         pricingType,
-        provider: name.trim(),
+        provider: provider.trim() || name.trim(),
         amount: parsedAmount,
         dueDate,
         previousDueDate: dueDate,
@@ -1000,6 +1013,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         paymentHistory: [newHistoryItem],
         notes: notes.trim() || undefined,
         meterReading: meterData,
+        debtId: selectedDebtId || undefined,
       });
 
       showToast(
@@ -1013,13 +1027,14 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         name: name.trim(),
         serviceType,
         pricingType,
-        provider: name.trim(),
+        provider: provider.trim() || name.trim(),
         amount: parsedAmount,
         dueDate,
         billingCycle,
         status: 'pending',
         notes: notes.trim() || undefined,
         meterReading: meterData,
+        debtId: selectedDebtId || undefined,
       });
 
       showToast(`Pomyślnie dodano rachunek "${name.trim()}" (termin: ${dueDate}).`);
@@ -1030,6 +1045,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
     setProvider('');
     setAmount('');
     setNotes('');
+    setSelectedDebtId('');
     setPaidDate(new Date().toISOString().split('T')[0]);
     setPricingType('fixed');
     setInitialStatus('pending');
@@ -1073,6 +1089,22 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
               <div>
                 <h3 className="font-bold text-sm text-slate-900 leading-snug">{bill.name}</h3>
                 <p className="text-xs text-slate-500 mt-0.5">{bill.provider}</p>
+                {bill.debtId && (() => {
+                  const linkedDebt = debts.find((d) => d.id === bill.debtId);
+                  return (
+                    <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                        <Landmark className="w-3 h-3 text-indigo-600 shrink-0" />
+                        <span>Spłata: {linkedDebt ? linkedDebt.name : 'Zobowiązanie'}</span>
+                        {linkedDebt && (
+                          <span className="text-[10px] text-indigo-500 font-normal">
+                            (pozostało {linkedDebt.currentRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} zł)
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 
@@ -2562,6 +2594,20 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                     Wydatek z datą: {payModalDate}
                   </span>
                 </div>
+                {bill.debtId && (() => {
+                  const linkedDebt = debts.find((d) => d.id === bill.debtId);
+                  return (
+                    <div className="flex items-center justify-between text-indigo-700 bg-indigo-50/80 p-2 rounded-lg border border-indigo-200">
+                      <span className="flex items-center gap-1.5 font-semibold">
+                        <Landmark className="w-3.5 h-3.5 text-indigo-600" />
+                        Spłata zobowiązania:
+                      </span>
+                      <span className="font-bold">
+                        {linkedDebt ? linkedDebt.name : 'Zobowiązanie'} (pomniejszy saldo)
+                      </span>
+                    </div>
+                  );
+                })()}
                 <div className="flex items-center justify-between">
                   <span className="text-slate-500">Kolejny cykl płatności:</span>
                   <span className="font-semibold text-slate-800">
@@ -2870,6 +2916,73 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
             </div>
 
             <form onSubmit={handleSubmitBill} className="space-y-3.5">
+              {/* Debt Link Section */}
+              {debts && debts.length > 0 && (
+                <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                      <Landmark className="w-4 h-4 text-indigo-600" />
+                      <span>Cykliczna płatność za zobowiązanie / kredyt (opcjonalnie)</span>
+                    </label>
+                    {selectedDebtId && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDebtId('')}
+                        className="text-[11px] text-indigo-600 hover:text-indigo-800 underline"
+                      >
+                        Odłącz
+                      </button>
+                    )}
+                  </div>
+                  <select
+                    value={selectedDebtId}
+                    onChange={(e) => {
+                      const dId = e.target.value;
+                      setSelectedDebtId(dId);
+                      if (dId) {
+                        const targetDebt = debts.find((d) => d.id === dId);
+                        if (targetDebt) {
+                          if (!name || name === 'Nowy rachunek') {
+                            setName(`Rata: ${targetDebt.name}`);
+                          }
+                          if (!provider) {
+                            setProvider(targetDebt.counterparty || targetDebt.bankName || targetDebt.name);
+                          }
+                          if (targetDebt.monthlyPayment) {
+                            setAmount(String(targetDebt.monthlyPayment));
+                          } else if (targetDebt.currentRemaining) {
+                            setAmount(String(targetDebt.currentRemaining));
+                          }
+                          setServiceType('kredyt');
+                          setPricingType('fixed');
+                          setBillingCycle('miesięcznie');
+                          if (targetDebt.paymentDayOfMonth) {
+                            const now = new Date();
+                            const y = now.getFullYear();
+                            const m = String(now.getMonth() + 1).padStart(2, '0');
+                            const day = String(Math.min(targetDebt.paymentDayOfMonth, 28)).padStart(2, '0');
+                            setDueDate(`${y}-${m}-${day}`);
+                          }
+                        }
+                      }
+                    }}
+                    className="w-full px-3 py-2 text-xs font-semibold bg-white border border-indigo-200 rounded-lg text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                  >
+                    <option value="">-- Zwykły rachunek domowy (bez powiązania) --</option>
+                    {debts.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.type === 'borrowed' ? '🏦 Kredyt / Zobowiązanie' : '🤝 Pożyczka'}: {d.name} ({d.counterparty}) — do spłaty: {d.currentRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł
+                      </option>
+                    ))}
+                  </select>
+                  {selectedDebtId && (
+                    <p className="text-[11px] text-indigo-800 leading-relaxed">
+                      💡 <strong>Płatność cykliczna za zobowiązanie</strong>: Każde opłacenie tego rachunku automatycznie zaksięguje wydatek w <em>Zobowiązaniach i pożyczkach</em>, pomniejszy saldo kredytu oraz doda wpis w historii spłat.
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Pricing Type Selection: Fixed vs Variable */}
               <div>
                 <label className="block text-xs font-bold text-slate-800 mb-1.5">
@@ -2962,6 +3075,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                     }}
                     className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-emerald-500 focus:outline-hidden font-medium"
                   >
+                    <option value="kredyt">🏦 Rata kredytu / Pożyczka</option>
                     <option value="prąd">⚡ Prąd elektryczny</option>
                     <option value="gaz">🔥 Gaz ziemny</option>
                     <option value="woda">💧 Woda i ścieki</option>
@@ -3180,6 +3294,39 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
             </div>
 
             <form onSubmit={handleSaveEditBill} className="space-y-4">
+              {/* Debt Link Section in Edit */}
+              {debts && debts.length > 0 && (
+                <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                      <Landmark className="w-4 h-4 text-indigo-600" />
+                      <span>Powiązanie ze zobowiązaniem / kredytem</span>
+                    </label>
+                    {editSelectedDebtId && (
+                      <button
+                        type="button"
+                        onClick={() => setEditSelectedDebtId('')}
+                        className="text-[11px] text-indigo-600 hover:text-indigo-800 underline"
+                      >
+                        Odłącz
+                      </button>
+                    )}
+                  </div>
+                  <select
+                    value={editSelectedDebtId}
+                    onChange={(e) => setEditSelectedDebtId(e.target.value)}
+                    className="w-full px-3 py-2 text-xs font-semibold bg-white border border-indigo-200 rounded-lg text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                  >
+                    <option value="">-- Brak powiązania (zwykły rachunek) --</option>
+                    {debts.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.type === 'borrowed' ? '🏦 Kredyt / Zobowiązanie' : '🤝 Pożyczka'}: {d.name} ({d.counterparty}) — do spłaty: {d.currentRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               {/* Pricing Type Selection: Fixed vs Variable */}
               <div>
                 <label className="block text-xs font-bold text-slate-800 mb-1.5">
@@ -3294,6 +3441,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                     }}
                     className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-indigo-500 focus:outline-hidden font-medium"
                   >
+                    <option value="kredyt">🏦 Rata kredytu / Pożyczka</option>
                     <option value="prąd">⚡ Prąd elektryczny</option>
                     <option value="gaz">🔥 Gaz ziemny</option>
                     <option value="woda">💧 Woda i ścieki</option>

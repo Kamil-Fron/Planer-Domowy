@@ -30,7 +30,6 @@ export type IncomeCategory =
   | 'Premia / Bonus'
   | 'Gotówka'
   | 'Zobowiązania i pożyczki'
-  | 'Pożyczka / Kredyt'
   | 'Zwrot (zakupy, podatki)'
   | 'Freelance / Zlecenia'
   | 'Świadczenia / 800+'
@@ -116,6 +115,7 @@ export type UtilityServiceType =
   | 'śmieci'
   | 'telefon'
   | 'subskrypcje'
+  | 'kredyt'
   | 'inne';
 
 export interface MeterReading {
@@ -160,6 +160,7 @@ export interface Bill {
   accumulatedDebt?: number; // Skumulowana kwota z nieopłaconych poprzednich okresów
   rolloverCount?: number; // Liczba przeniesionych / skumulowanych okresów
   baseAmount?: number; // Kwota bazowa pojedynczego okresu przed kumulacją
+  debtId?: string; // Powiązane zobowiązanie (np. kredyt hipoteczny, pożyczka)
   createdAt: string;
 }
 
@@ -361,14 +362,22 @@ export interface DebtItem {
 
   // Opcjonalne zaawansowane parametry kredytowe (dla kredytów bankowych):
   isBankLoan?: boolean;
+  bankName?: string; // Nazwa banku
+  loanAccountNumber?: string; // Numer konta do spłaty
   monthlyPayment?: number; // Miesięczna rata
-  interestRate?: number; // Oprocentowanie roczne %
+  interestRate?: number; // Oprocentowanie roczne % (całkowite)
+  marginRate?: number; // Marża banku %
+  referenceRate?: number; // Stopa bazowa (WIBOR/WIRON) %
+  referenceRateType?: string; // 'WIBOR 3M' | 'WIBOR 6M' | 'WIRON' | 'Stałe' | 'Inne'
   loanTermYears?: number; // Czas trwania w latach
-  paymentDayOfMonth?: number; // Dzień miesiąca
-  gracePeriodMonths?: number;
-  gracePeriodEndDate?: string;
-  rateType?: 'equal' | 'decreasing';
+  paymentDayOfMonth?: number; // Dzień miesiąca pobrania raty
+  gracePeriodMonths?: number; // Okres karencji w miesiącach
+  gracePeriodEndDate?: string; // Data zakończenia karencji
+  rateType?: 'equal' | 'decreasing'; // Typ rat: równe / malejące
   wiborOrMarginNotes?: string;
+  insuranceMonthly?: number; // Ubezpieczenie pomostowe / na życie / nieruchomości (miesięcznie)
+  overpaymentCommission?: number; // Prowizja za wcześniejszą spłatę w %
+  overpaymentCommissionYears?: number; // Przez ile pierwszych lat obowiązuje prowizja
 
   paymentsHistory: DebtPaymentRecord[];
   createdAt: string;

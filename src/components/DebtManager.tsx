@@ -87,13 +87,53 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
   const [formNotes, setFormNotes] = useState('');
   const [formCreateTransaction, setFormCreateTransaction] = useState(false);
 
-  // Bank loan extra fields
+  // Bank loan extra fields (expanded mortgage settings)
+  const [formBankName, setFormBankName] = useState('');
+  const [formLoanAccountNumber, setFormLoanAccountNumber] = useState('');
   const [formMonthlyPayment, setFormMonthlyPayment] = useState('');
   const [formInterestRate, setFormInterestRate] = useState('');
+  const [formMarginRate, setFormMarginRate] = useState('');
+  const [formReferenceRate, setFormReferenceRate] = useState('');
+  const [formReferenceRateType, setFormReferenceRateType] = useState('WIBOR 3M');
   const [formLoanTermYears, setFormLoanTermYears] = useState('');
   const [formPaymentDayOfMonth, setFormPaymentDayOfMonth] = useState('10');
   const [formGracePeriodMonths, setFormGracePeriodMonths] = useState('0');
+  const [formGracePeriodEndDate, setFormGracePeriodEndDate] = useState('');
   const [formRateType, setFormRateType] = useState<'equal' | 'decreasing'>('equal');
+  const [formInsuranceMonthly, setFormInsuranceMonthly] = useState('');
+  const [formOverpaymentCommission, setFormOverpaymentCommission] = useState('');
+  const [formOverpaymentCommissionYears, setFormOverpaymentCommissionYears] = useState('');
+  const [formWiborOrMarginNotes, setFormWiborOrMarginNotes] = useState('');
+
+  // Edit Debt Modal Form State
+  const [editName, setEditName] = useState('');
+  const [editCounterparty, setEditCounterparty] = useState('');
+  const [editType, setEditType] = useState<DebtType>('borrowed');
+  const [editCategory, setEditCategory] = useState<DebtCategory>('pozyczka_prywatna');
+  const [editInitialAmount, setEditInitialAmount] = useState('');
+  const [editPaidAmount, setEditPaidAmount] = useState('');
+  const [editStartDate, setEditStartDate] = useState('');
+  const [editDueDate, setEditDueDate] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+  const [editStatus, setEditStatus] = useState<'active' | 'settled'>('active');
+
+  // Edit Mortgage fields
+  const [editBankName, setEditBankName] = useState('');
+  const [editLoanAccountNumber, setEditLoanAccountNumber] = useState('');
+  const [editMonthlyPayment, setEditMonthlyPayment] = useState('');
+  const [editInterestRate, setEditInterestRate] = useState('');
+  const [editMarginRate, setEditMarginRate] = useState('');
+  const [editReferenceRate, setEditReferenceRate] = useState('');
+  const [editReferenceRateType, setEditReferenceRateType] = useState('WIBOR 3M');
+  const [editLoanTermYears, setEditLoanTermYears] = useState('');
+  const [editPaymentDayOfMonth, setEditPaymentDayOfMonth] = useState('10');
+  const [editGracePeriodMonths, setEditGracePeriodMonths] = useState('0');
+  const [editGracePeriodEndDate, setEditGracePeriodEndDate] = useState('');
+  const [editRateType, setEditRateType] = useState<'equal' | 'decreasing'>('equal');
+  const [editInsuranceMonthly, setEditInsuranceMonthly] = useState('');
+  const [editOverpaymentCommission, setEditOverpaymentCommission] = useState('');
+  const [editOverpaymentCommissionYears, setEditOverpaymentCommissionYears] = useState('');
+  const [editWiborOrMarginNotes, setEditWiborOrMarginNotes] = useState('');
 
   // Overpayment simulator state for bank loans
   const [simulatorOverpayment, setSimulatorOverpayment] = useState('500');
@@ -171,12 +211,123 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
     setFormDueDate('');
     setFormNotes('');
     setFormCreateTransaction(false);
+    setFormBankName('');
+    setFormLoanAccountNumber('');
     setFormMonthlyPayment('');
     setFormInterestRate('');
+    setFormMarginRate('');
+    setFormReferenceRate('');
+    setFormReferenceRateType('WIBOR 3M');
     setFormLoanTermYears('');
     setFormPaymentDayOfMonth('10');
     setFormGracePeriodMonths('0');
+    setFormGracePeriodEndDate('');
     setFormRateType('equal');
+    setFormInsuranceMonthly('');
+    setFormOverpaymentCommission('');
+    setFormOverpaymentCommissionYears('');
+    setFormWiborOrMarginNotes('');
+  };
+
+  // Open Edit Modal
+  const handleOpenEditModal = (debt: DebtItem) => {
+    setSelectedDebtForEdit(debt);
+    setEditName(debt.name);
+    setEditCounterparty(debt.counterparty);
+    setEditType(debt.type);
+    setEditCategory(debt.category);
+    setEditInitialAmount(debt.initialAmount.toString());
+    setEditPaidAmount(debt.paidAmount.toString());
+    setEditStartDate(debt.startDate);
+    setEditDueDate(debt.dueDate || '');
+    setEditNotes(debt.notes || '');
+    setEditStatus(debt.status);
+
+    // Bank loan / mortgage fields
+    setEditBankName(debt.bankName || (debt.isBankLoan ? debt.counterparty : ''));
+    setEditLoanAccountNumber(debt.loanAccountNumber || '');
+    setEditMonthlyPayment(debt.monthlyPayment ? debt.monthlyPayment.toString() : '');
+    setEditInterestRate(debt.interestRate ? debt.interestRate.toString() : '');
+    setEditMarginRate(debt.marginRate ? debt.marginRate.toString() : '');
+    setEditReferenceRate(debt.referenceRate ? debt.referenceRate.toString() : '');
+    setEditReferenceRateType(debt.referenceRateType || 'WIBOR 3M');
+    setEditLoanTermYears(debt.loanTermYears ? debt.loanTermYears.toString() : '');
+    setEditPaymentDayOfMonth(debt.paymentDayOfMonth ? debt.paymentDayOfMonth.toString() : '10');
+    setEditGracePeriodMonths(debt.gracePeriodMonths ? debt.gracePeriodMonths.toString() : '0');
+    setEditGracePeriodEndDate(debt.gracePeriodEndDate || '');
+    setEditRateType(debt.rateType || 'equal');
+    setEditInsuranceMonthly(debt.insuranceMonthly ? debt.insuranceMonthly.toString() : '');
+    setEditOverpaymentCommission(
+      debt.overpaymentCommission !== undefined ? debt.overpaymentCommission.toString() : ''
+    );
+    setEditOverpaymentCommissionYears(
+      debt.overpaymentCommissionYears ? debt.overpaymentCommissionYears.toString() : ''
+    );
+    setEditWiborOrMarginNotes(debt.wiborOrMarginNotes || '');
+  };
+
+  // Save Edit Debt
+  const handleSaveEditDebt = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedDebtForEdit) return;
+
+    const initAmount = parseFloat(editInitialAmount.replace(',', '.'));
+    if (isNaN(initAmount) || initAmount <= 0) {
+      alert('Wpisz poprawną kwotę całkowitą zadłużenia.');
+      return;
+    }
+    const paid = parseFloat((editPaidAmount || '0').replace(',', '.')) || 0;
+    const remaining = Math.max(0, initAmount - paid);
+    const isBank = editCategory === 'kredyt_bankowy';
+
+    const updatedDebt: DebtItem = {
+      ...selectedDebtForEdit,
+      name: editName.trim(),
+      counterparty: editCounterparty.trim(),
+      type: editType,
+      category: editCategory,
+      initialAmount: initAmount,
+      paidAmount: paid,
+      currentRemaining: remaining,
+      startDate: editStartDate,
+      dueDate: editDueDate || undefined,
+      status: editStatus === 'settled' || remaining <= 0 ? 'settled' : 'active',
+      notes: editNotes.trim() || undefined,
+      isBankLoan: isBank,
+      bankName: isBank ? editBankName.trim() || undefined : undefined,
+      loanAccountNumber: isBank ? editLoanAccountNumber.trim() || undefined : undefined,
+      monthlyPayment: isBank && editMonthlyPayment ? parseFloat(editMonthlyPayment.replace(',', '.')) : undefined,
+      interestRate: isBank && editInterestRate ? parseFloat(editInterestRate.replace(',', '.')) : undefined,
+      marginRate: isBank && editMarginRate ? parseFloat(editMarginRate.replace(',', '.')) : undefined,
+      referenceRate: isBank && editReferenceRate ? parseFloat(editReferenceRate.replace(',', '.')) : undefined,
+      referenceRateType: isBank ? editReferenceRateType : undefined,
+      loanTermYears: isBank && editLoanTermYears ? parseFloat(editLoanTermYears) : undefined,
+      paymentDayOfMonth: isBank && editPaymentDayOfMonth ? parseInt(editPaymentDayOfMonth, 10) : undefined,
+      gracePeriodMonths: isBank && editGracePeriodMonths ? parseInt(editGracePeriodMonths, 10) : undefined,
+      gracePeriodEndDate: isBank && editGracePeriodEndDate ? editGracePeriodEndDate : undefined,
+      rateType: isBank ? editRateType : undefined,
+      insuranceMonthly: isBank && editInsuranceMonthly ? parseFloat(editInsuranceMonthly.replace(',', '.')) : undefined,
+      overpaymentCommission:
+        isBank && editOverpaymentCommission ? parseFloat(editOverpaymentCommission.replace(',', '.')) : undefined,
+      overpaymentCommissionYears:
+        isBank && editOverpaymentCommissionYears ? parseInt(editOverpaymentCommissionYears, 10) : undefined,
+      wiborOrMarginNotes: isBank && editWiborOrMarginNotes ? editWiborOrMarginNotes.trim() : undefined,
+      updatedAt: new Date().toISOString(),
+    };
+
+    onUpdateDebt(updatedDebt);
+
+    if (onSuccessFeedback) {
+      onSuccessFeedback(
+        updatedDebt.name,
+        remaining,
+        updatedDebt.type === 'borrowed' ? 'expense' : 'income',
+        undefined,
+        'Zaktualizowano dane zobowiązania'
+      );
+    }
+
+    setSelectedDebtForEdit(null);
   };
 
   // Handle Add Debt Submit
@@ -196,7 +347,7 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
       type: formType,
       category: formCategory,
       name: formName.trim() || (isBank ? 'Kredyt bankowy' : formType === 'borrowed' ? 'Pożyczka' : 'Pożyczka komuś'),
-      counterparty: formCounterparty.trim() || (isBank ? 'Bank' : formType === 'borrowed' ? 'Wierzyciel' : 'Dłużnik'),
+      counterparty: formCounterparty.trim() || (isBank ? (formBankName.trim() || 'Bank') : formType === 'borrowed' ? 'Wierzyciel' : 'Dłużnik'),
       initialAmount: initAmount,
       currentRemaining: remaining,
       paidAmount: paidAlready,
@@ -205,22 +356,32 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
       status: remaining <= 0 ? 'settled' : 'active',
       notes: formNotes.trim() || undefined,
       isBankLoan: isBank,
+      bankName: isBank ? (formBankName.trim() || formCounterparty.trim() || undefined) : undefined,
+      loanAccountNumber: isBank && formLoanAccountNumber ? formLoanAccountNumber.trim() : undefined,
       monthlyPayment: isBank && formMonthlyPayment ? parseFloat(formMonthlyPayment.replace(',', '.')) : undefined,
       interestRate: isBank && formInterestRate ? parseFloat(formInterestRate.replace(',', '.')) : undefined,
+      marginRate: isBank && formMarginRate ? parseFloat(formMarginRate.replace(',', '.')) : undefined,
+      referenceRate: isBank && formReferenceRate ? parseFloat(formReferenceRate.replace(',', '.')) : undefined,
+      referenceRateType: isBank ? formReferenceRateType : undefined,
       loanTermYears: isBank && formLoanTermYears ? parseFloat(formLoanTermYears) : undefined,
       paymentDayOfMonth: isBank ? parseInt(formPaymentDayOfMonth, 10) || 10 : undefined,
       gracePeriodMonths: isBank ? parseInt(formGracePeriodMonths, 10) || 0 : undefined,
+      gracePeriodEndDate: isBank && formGracePeriodEndDate ? formGracePeriodEndDate : undefined,
       rateType: isBank ? formRateType : undefined,
+      insuranceMonthly: isBank && formInsuranceMonthly ? parseFloat(formInsuranceMonthly.replace(',', '.')) : undefined,
+      overpaymentCommission: isBank && formOverpaymentCommission ? parseFloat(formOverpaymentCommission.replace(',', '.')) : undefined,
+      overpaymentCommissionYears: isBank && formOverpaymentCommissionYears ? parseInt(formOverpaymentCommissionYears, 10) : undefined,
+      wiborOrMarginNotes: isBank && formWiborOrMarginNotes ? formWiborOrMarginNotes.trim() : undefined,
       paymentsHistory: [],
       createdAt: new Date().toISOString(),
     };
 
     onAddDebt(newDebt);
 
-    // If user requested initial transaction:
-    if (formCreateTransaction && remaining > 0) {
+    // Automatyczna rejestracja początkowej transakcji w budżecie (zgodnie z życzeniem użytkownika)
+    if (initAmount > 0) {
       if (formType === 'borrowed') {
-        // We received cash (Income)
+        // Wpływ gotówki z zaciągnięcia długu do budżetu
         onAddTransaction({
           title: `Zaciągnięcie zobowiązania: ${newDebt.name}`,
           amount: initAmount,
@@ -233,7 +394,7 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
           comment: `Otrzymano środki z: ${newDebt.counterparty}`,
         });
       } else {
-        // We lent cash (Expense)
+        // Wydatek gotówki pożyczonej komuś
         onAddTransaction({
           title: `Udzielenie pożyczki: ${newDebt.name}`,
           amount: initAmount,
@@ -641,6 +802,13 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
 
                   <div className="flex items-center space-x-1">
                     <button
+                      onClick={() => handleOpenEditModal(item)}
+                      title="Edytuj zobowiązanie"
+                      className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-50 rounded-lg transition-colors"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    <button
                       onClick={() => setSelectedDebtForDetails(item)}
                       title="Szczegóły i historia"
                       className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-50 rounded-lg transition-colors"
@@ -727,6 +895,27 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                       <span className="flex items-center space-x-1 font-medium text-slate-600">
                         <Percent className="w-3 h-3 text-slate-400" />
                         <span>Oproc: {item.interestRate}%</span>
+                      </span>
+                    )}
+                    {item.marginRate && (
+                      <span className="flex items-center space-x-1 font-medium text-slate-600">
+                        <span>Marża: {item.marginRate}%</span>
+                      </span>
+                    )}
+                    {item.referenceRateType && (
+                      <span className="flex items-center space-x-1 font-medium text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded-md">
+                        <span>{item.referenceRateType}{item.referenceRate ? ` (${item.referenceRate}%)` : ''}</span>
+                      </span>
+                    )}
+                    {item.insuranceMonthly && (
+                      <span className="flex items-center space-x-1 font-medium text-slate-600">
+                        <ShieldCheck className="w-3 h-3 text-slate-400" />
+                        <span>Ubezp: {item.insuranceMonthly} zł/msc</span>
+                      </span>
+                    )}
+                    {item.rateType && (
+                      <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md">
+                        {item.rateType === 'decreasing' ? 'Raty malejące' : 'Raty równe'}
                       </span>
                     )}
                   </div>
@@ -951,10 +1140,33 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
 
               {/* Parametry bankowe jeśli kredyt bankowy */}
               {formCategory === 'kredyt_bankowy' && (
-                <div className="p-4 rounded-2xl bg-indigo-50/70 border border-indigo-200 space-y-3">
+                <div className="p-4 rounded-2xl bg-indigo-50/70 border border-indigo-200 space-y-3.5">
                   <div className="flex items-center space-x-2 text-indigo-900 font-bold text-xs">
-                    <Landmark className="w-4 h-4" />
-                    <span>Parametry kredytu bankowego</span>
+                    <Landmark className="w-4 h-4 text-indigo-600" />
+                    <span>Zaawansowane parametry kredytu hipotecznego / bankowego</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-700">Nazwa banku:</label>
+                      <input
+                        type="text"
+                        placeholder="np. PKO BP, mBank, Santander, ING"
+                        value={formBankName}
+                        onChange={(e) => setFormBankName(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-700">Numer konta do spłaty raty:</label>
+                      <input
+                        type="text"
+                        placeholder="np. 00 1020 0000 0000..."
+                        value={formLoanAccountNumber}
+                        onChange={(e) => setFormLoanAccountNumber(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -963,14 +1175,38 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                       <input
                         type="number"
                         step="0.01"
-                        placeholder="np. 2800"
+                        placeholder="np. 2850.00"
                         value={formMonthlyPayment}
                         onChange={(e) => setFormMonthlyPayment(e.target.value)}
                         className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none"
                       />
                     </div>
                     <div>
-                      <label className="text-[11px] font-semibold text-slate-700">Oprocentowanie (%):</label>
+                      <label className="text-[11px] font-semibold text-slate-700">Typ rat:</label>
+                      <select
+                        value={formRateType}
+                        onChange={(e) => setFormRateType(e.target.value as 'equal' | 'decreasing')}
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none cursor-pointer"
+                      >
+                        <option value="equal">Równe (annuitetowe)</option>
+                        <option value="decreasing">Malejące</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-700">Okres (lata):</label>
+                      <input
+                        type="number"
+                        placeholder="np. 25"
+                        value={formLoanTermYears}
+                        onChange={(e) => setFormLoanTermYears(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-700">Oprocentowanie całk. (%):</label>
                       <input
                         type="number"
                         step="0.01"
@@ -981,12 +1217,88 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                       />
                     </div>
                     <div>
-                      <label className="text-[11px] font-semibold text-slate-700">Okres (lata):</label>
+                      <label className="text-[11px] font-semibold text-slate-700">Marża banku (%):</label>
                       <input
                         type="number"
-                        placeholder="np. 25"
-                        value={formLoanTermYears}
-                        onChange={(e) => setFormLoanTermYears(e.target.value)}
+                        step="0.01"
+                        placeholder="np. 1.85"
+                        value={formMarginRate}
+                        onChange={(e) => setFormMarginRate(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-700">Wskaźnik bazowy:</label>
+                      <select
+                        value={formReferenceRateType}
+                        onChange={(e) => setFormReferenceRateType(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none cursor-pointer"
+                      >
+                        <option value="WIBOR 3M">WIBOR 3M</option>
+                        <option value="WIBOR 6M">WIBOR 6M</option>
+                        <option value="WIRON">WIRON</option>
+                        <option value="Stała stopa">Stała stopa</option>
+                        <option value="Inne">Inne</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-700">Dzień spłaty w msc:</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="31"
+                        placeholder="np. 10"
+                        value={formPaymentDayOfMonth}
+                        onChange={(e) => setFormPaymentDayOfMonth(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-700">Ubezpieczenia (zł/msc):</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="np. 120.00"
+                        value={formInsuranceMonthly}
+                        onChange={(e) => setFormInsuranceMonthly(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-700">Karencja (miesięcy):</label>
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder="0"
+                        value={formGracePeriodMonths}
+                        onChange={(e) => setFormGracePeriodMonths(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-700">Prowizja za nadpłatę (%):</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="np. 2.0 (jeśli obowiązuje)"
+                        value={formOverpaymentCommission}
+                        onChange={(e) => setFormOverpaymentCommission(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-700">Przez ile pierwszych lat prowizja:</label>
+                      <input
+                        type="number"
+                        placeholder="np. 3 lata"
+                        value={formOverpaymentCommissionYears}
+                        onChange={(e) => setFormOverpaymentCommissionYears(e.target.value)}
                         className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none"
                       />
                     </div>
@@ -1006,25 +1318,20 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                 />
               </div>
 
-              {/* Checkbox: Dodaj od razu transakcję do budżetu */}
-              <label className="flex items-center space-x-3 p-3 rounded-2xl bg-slate-50 border border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors">
-                <input
-                  type="checkbox"
-                  checked={formCreateTransaction}
-                  onChange={(e) => setFormCreateTransaction(e.target.checked)}
-                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300"
-                />
-                <div className="text-xs">
-                  <span className="font-bold text-slate-800">
-                    Zarejestruj od razu transakcję początkową w budżecie
-                  </span>
-                  <p className="text-[11px] text-slate-500">
+              {/* Automatyczna rejestracja transakcji (zamiast checkboxa) */}
+              <div className="flex items-center space-x-3 p-3.5 rounded-2xl bg-indigo-50/70 border border-indigo-200/70">
+                <div className="p-2 bg-indigo-100 text-indigo-700 rounded-xl shrink-0">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div className="text-xs text-indigo-950">
+                  <span className="font-bold">Automatyczna rejestracja transakcji:</span>
+                  <p className="text-[11px] text-indigo-800/80 mt-0.5">
                     {formType === 'borrowed'
-                      ? 'Doda Wpływ (Przychód) z pożyczki do Twojego salda gotówki.'
-                      : 'Doda Wydatek (pożyczenie komuś) pomniejszający Twoje saldo gotówki.'}
+                      ? 'Wpływ środków z zaciągnięcia długu zostanie automatycznie dodany do budżetu w kategorii "Zobowiązania i pożyczki".'
+                      : 'Wydatek środków pożyczonych komuś zostanie automatycznie odnotowany w budżecie w kategorii "Zobowiązania i pożyczki".'}
                   </p>
                 </div>
-              </label>
+              </div>
 
               {/* Modal buttons */}
               <div className="pt-2 flex items-center justify-end space-x-3">
@@ -1246,7 +1553,97 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
               )}
             </div>
 
-            <div className="pt-2 flex justify-end">
+            {/* Mortgage & Bank Loan extra details if present */}
+            {selectedDebtForDetails.isBankLoan && (
+              <div className="p-3.5 bg-indigo-50/70 rounded-2xl border border-indigo-100 space-y-2 text-xs">
+                <div className="flex items-center space-x-1.5 font-bold text-indigo-900">
+                  <Landmark className="w-4 h-4 text-indigo-600" />
+                  <span>Parametry kredytu bankowego</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  {selectedDebtForDetails.bankName && (
+                    <div>
+                      <span className="text-slate-400">Bank:</span>{' '}
+                      <span className="font-semibold text-slate-800">{selectedDebtForDetails.bankName}</span>
+                    </div>
+                  )}
+                  {selectedDebtForDetails.loanAccountNumber && (
+                    <div className="col-span-2">
+                      <span className="text-slate-400">Nr rachunku spłaty:</span>{' '}
+                      <span className="font-mono text-slate-700 select-all">{selectedDebtForDetails.loanAccountNumber}</span>
+                    </div>
+                  )}
+                  {selectedDebtForDetails.monthlyPayment && (
+                    <div>
+                      <span className="text-slate-400">Rata miesięczna:</span>{' '}
+                      <span className="font-semibold text-slate-800">{selectedDebtForDetails.monthlyPayment} zł</span>
+                    </div>
+                  )}
+                  {selectedDebtForDetails.rateType && (
+                    <div>
+                      <span className="text-slate-400">Typ rat:</span>{' '}
+                      <span className="font-semibold text-slate-800">{selectedDebtForDetails.rateType === 'decreasing' ? 'Malejące' : 'Równe'}</span>
+                    </div>
+                  )}
+                  {selectedDebtForDetails.interestRate && (
+                    <div>
+                      <span className="text-slate-400">Oprocentowanie:</span>{' '}
+                      <span className="font-semibold text-slate-800">{selectedDebtForDetails.interestRate}%</span>
+                    </div>
+                  )}
+                  {selectedDebtForDetails.marginRate && (
+                    <div>
+                      <span className="text-slate-400">Marża banku:</span>{' '}
+                      <span className="font-semibold text-slate-800">{selectedDebtForDetails.marginRate}%</span>
+                    </div>
+                  )}
+                  {selectedDebtForDetails.referenceRateType && (
+                    <div>
+                      <span className="text-slate-400">Stawka bazowa:</span>{' '}
+                      <span className="font-semibold text-slate-800">{selectedDebtForDetails.referenceRateType}{selectedDebtForDetails.referenceRate ? ` (${selectedDebtForDetails.referenceRate}%)` : ''}</span>
+                    </div>
+                  )}
+                  {selectedDebtForDetails.insuranceMonthly && (
+                    <div>
+                      <span className="text-slate-400">Ubezpieczenia:</span>{' '}
+                      <span className="font-semibold text-slate-800">{selectedDebtForDetails.insuranceMonthly} zł/msc</span>
+                    </div>
+                  )}
+                  {selectedDebtForDetails.loanTermYears && (
+                    <div>
+                      <span className="text-slate-400">Okres kredytu:</span>{' '}
+                      <span className="font-semibold text-slate-800">{selectedDebtForDetails.loanTermYears} lat</span>
+                    </div>
+                  )}
+                  {selectedDebtForDetails.paymentDayOfMonth && (
+                    <div>
+                      <span className="text-slate-400">Dzień spłaty:</span>{' '}
+                      <span className="font-semibold text-slate-800">{selectedDebtForDetails.paymentDayOfMonth}. dzień msc</span>
+                    </div>
+                  )}
+                  {selectedDebtForDetails.overpaymentCommission !== undefined && (
+                    <div className="col-span-2">
+                      <span className="text-slate-400">Prowizja za nadpłatę:</span>{' '}
+                      <span className="font-semibold text-slate-800">{selectedDebtForDetails.overpaymentCommission}% {selectedDebtForDetails.overpaymentCommissionYears ? `(pierwsze ${selectedDebtForDetails.overpaymentCommissionYears} lat)` : ''}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="pt-2 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => {
+                  const debt = selectedDebtForDetails;
+                  setSelectedDebtForDetails(null);
+                  handleOpenEditModal(debt);
+                }}
+                className="px-4 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-xl font-bold text-xs flex items-center space-x-1.5 transition-colors"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                <span>Edytuj parametry</span>
+              </button>
               <button
                 onClick={() => setSelectedDebtForDetails(null)}
                 className="px-5 py-2 bg-slate-900 text-white rounded-xl font-bold text-xs"
@@ -1363,6 +1760,399 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                 Usuń zadłużenie
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 6: EDYCJA ZOBOWIĄZANIA */}
+      {selectedDebtForEdit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+          <div className="bg-white w-full max-w-xl rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6 my-8 border border-slate-100 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl">
+                  <Pencil className="w-6 h-6" />
+                </div>
+                <div>
+                  <h2 className="text-lg sm:text-xl font-black text-slate-900">
+                    Edycja zadłużenia / pożyczki
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Zmień kwoty, warunki spłaty lub zaawansowane parametry kredytu
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedDebtForEdit(null)}
+                className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditDebt} className="space-y-4">
+              {/* Kierunek */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">Kierunek zobowiązania:</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setEditType('borrowed')}
+                    className={`p-3 rounded-2xl border-2 text-left transition-all ${
+                      editType === 'borrowed'
+                        ? 'border-rose-500 bg-rose-50/50 text-rose-950 shadow-xs'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-2 mb-1">
+                      <TrendingDown className={`w-4 h-4 ${editType === 'borrowed' ? 'text-rose-600' : 'text-slate-400'}`} />
+                      <span className="font-bold text-xs">Muszę oddać</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">Mój dług / kredyt</p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setEditType('lent')}
+                    className={`p-3 rounded-2xl border-2 text-left transition-all ${
+                      editType === 'lent'
+                        ? 'border-emerald-500 bg-emerald-50/50 text-emerald-950 shadow-xs'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-2 mb-1">
+                      <TrendingUp className={`w-4 h-4 ${editType === 'lent' ? 'text-emerald-600' : 'text-slate-400'}`} />
+                      <span className="font-bold text-xs">Ktoś musi mi oddać</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">Pożyczyłem komuś</p>
+                  </button>
+                </div>
+              </div>
+
+              {/* Kategoria i Status */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">Kategoria:</label>
+                  <select
+                    value={editCategory}
+                    onChange={(e) => setEditCategory(e.target.value as DebtCategory)}
+                    className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                  >
+                    <option value="kredyt_bankowy">Kredyt bankowy / hipoteczny</option>
+                    <option value="pozyczka_prywatna">Pożyczka prywatna (znajomy)</option>
+                    <option value="pozyczka_rodzina">Pożyczka od/dla rodziny</option>
+                    <option value="chwilowka">Pożyczka pozabankowa / ratalna</option>
+                    <option value="inne">Inne zobowiązanie</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">Status zobowiązania:</label>
+                  <select
+                    value={editStatus}
+                    onChange={(e) => setEditStatus(e.target.value as 'active' | 'settled')}
+                    className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer font-bold"
+                  >
+                    <option value="active">W trakcie spłaty (Aktywne)</option>
+                    <option value="settled">Rozliczone w 100% (Zamknięte)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Nazwa i Druga Strona */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">Nazwa / cel zobowiązania:</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="np. Kredyt na mieszkanie, Pożyczka na auto"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">
+                    {editType === 'borrowed' ? 'Wierzyciel (Bank / Osoba):' : 'Dłużnik (Kto pożyczył):'}
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="np. PKO BP lub Marek"
+                    value={editCounterparty}
+                    onChange={(e) => setEditCounterparty(e.target.value)}
+                    className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {/* Kwoty */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">Całkowita kwota początkowa (zł):</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    required
+                    value={editInitialAmount}
+                    onChange={(e) => setEditInitialAmount(e.target.value)}
+                    className="w-full px-3.5 py-2 text-sm font-bold bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">Spłacono dotychczas łącznie (zł):</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={editPaidAmount}
+                    onChange={(e) => setEditPaidAmount(e.target.value)}
+                    className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {/* Podgląd pozostałej kwoty */}
+              {(() => {
+                const init = parseFloat(editInitialAmount.replace(',', '.')) || 0;
+                const paid = parseFloat(editPaidAmount.replace(',', '.')) || 0;
+                const rem = Math.max(0, init - paid);
+                return (
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
+                    <span className="text-slate-500 font-medium">Obliczone saldo do spłaty:</span>
+                    <span className={`font-black text-sm ${editType === 'borrowed' ? 'text-rose-600' : 'text-emerald-600'}`}>
+                      {rem.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł
+                    </span>
+                  </div>
+                );
+              })()}
+
+              {/* Daty */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">Data rozpoczęcia:</label>
+                  <input
+                    type="date"
+                    required
+                    value={editStartDate}
+                    onChange={(e) => setEditStartDate(e.target.value)}
+                    className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">Termin całkowitego zwrotu:</label>
+                  <input
+                    type="date"
+                    value={editDueDate}
+                    onChange={(e) => setEditDueDate(e.target.value)}
+                    className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {/* Parametry bankowe jeśli kredyt bankowy */}
+              {editCategory === 'kredyt_bankowy' && (
+                <div className="p-4 rounded-2xl bg-indigo-50/70 border border-indigo-200 space-y-3.5">
+                  <div className="flex items-center space-x-2 text-indigo-900 font-bold text-xs">
+                    <Landmark className="w-4 h-4 text-indigo-600" />
+                    <span>Zaawansowane parametry kredytu hipotecznego / bankowego</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-700">Nazwa banku:</label>
+                      <input
+                        type="text"
+                        placeholder="np. PKO BP, mBank"
+                        value={editBankName}
+                        onChange={(e) => setEditBankName(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-700">Numer konta do spłaty raty:</label>
+                      <input
+                        type="text"
+                        placeholder="np. 00 1020 0000 0000..."
+                        value={editLoanAccountNumber}
+                        onChange={(e) => setEditLoanAccountNumber(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-700">Rata miesięczna (zł):</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="np. 2850.00"
+                        value={editMonthlyPayment}
+                        onChange={(e) => setEditMonthlyPayment(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-700">Typ rat:</label>
+                      <select
+                        value={editRateType}
+                        onChange={(e) => setEditRateType(e.target.value as 'equal' | 'decreasing')}
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none cursor-pointer"
+                      >
+                        <option value="equal">Równe (annuitetowe)</option>
+                        <option value="decreasing">Malejące</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-700">Okres (lata):</label>
+                      <input
+                        type="number"
+                        placeholder="np. 25"
+                        value={editLoanTermYears}
+                        onChange={(e) => setEditLoanTermYears(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-700">Oprocentowanie całk. (%):</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="np. 7.45"
+                        value={editInterestRate}
+                        onChange={(e) => setEditInterestRate(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-700">Marża banku (%):</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="np. 1.85"
+                        value={editMarginRate}
+                        onChange={(e) => setEditMarginRate(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-700">Wskaźnik bazowy:</label>
+                      <select
+                        value={editReferenceRateType}
+                        onChange={(e) => setEditReferenceRateType(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none cursor-pointer"
+                      >
+                        <option value="WIBOR 3M">WIBOR 3M</option>
+                        <option value="WIBOR 6M">WIBOR 6M</option>
+                        <option value="WIRON">WIRON</option>
+                        <option value="Stała stopa">Stała stopa</option>
+                        <option value="Inne">Inne</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-700">Dzień spłaty w msc:</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="31"
+                        placeholder="np. 10"
+                        value={editPaymentDayOfMonth}
+                        onChange={(e) => setEditPaymentDayOfMonth(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-700">Ubezpieczenia (zł/msc):</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="np. 120.00"
+                        value={editInsuranceMonthly}
+                        onChange={(e) => setEditInsuranceMonthly(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-700">Karencja (miesięcy):</label>
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder="0"
+                        value={editGracePeriodMonths}
+                        onChange={(e) => setEditGracePeriodMonths(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-700">Prowizja za nadpłatę (%):</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="np. 2.0"
+                        value={editOverpaymentCommission}
+                        onChange={(e) => setEditOverpaymentCommission(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-700">Przez ile pierwszych lat prowizja:</label>
+                      <input
+                        type="number"
+                        placeholder="np. 3 lata"
+                        value={editOverpaymentCommissionYears}
+                        onChange={(e) => setEditOverpaymentCommissionYears(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Notatki */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">Notatki / ustalenia:</label>
+                <textarea
+                  rows={2}
+                  placeholder="np. Ustalono spłatę w 2 transzach, bez odsetek..."
+                  value={editNotes}
+                  onChange={(e) => setEditNotes(e.target.value)}
+                  className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                />
+              </div>
+
+              {/* Modal buttons */}
+              <div className="pt-2 flex items-center justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setSelectedDebtForEdit(null)}
+                  className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+                >
+                  Anuluj
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 rounded-xl shadow-lg shadow-indigo-600/25 transition-all flex items-center space-x-1.5"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Zapisz zmiany</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

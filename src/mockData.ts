@@ -25,7 +25,6 @@ export const INITIAL_INCOME_CATEGORIES = [
   'Premia / Bonus',
   'Gotówka',
   'Zobowiązania i pożyczki',
-  'Pożyczka / Kredyt',
   'Zwrot (zakupy, podatki)',
   'Freelance / Zlecenia',
   'Świadczenia / 800+',

@@ -22,8 +22,9 @@ import {
   ShoppingCart,
   CheckCircle2,
   Package,
+  Landmark,
 } from 'lucide-react';
-import { Transaction, TransactionType, ShoppingItem, ShoppingList } from '../types';
+import { Transaction, TransactionType, ShoppingItem, ShoppingList, DebtItem } from '../types';
 import { INITIAL_CATEGORIES, INITIAL_INCOME_CATEGORIES } from '../mockData';
 import {
   getSmartShoppingSuggestions,
@@ -44,6 +45,7 @@ interface QuickAddModalProps {
   transactions?: Transaction[];
   shoppingLists?: ShoppingList[];
   shoppingItems?: ShoppingItem[];
+  debts?: DebtItem[];
   onOpenScanner: () => void;
   onSuccessFeedback?: (
     title: string,
@@ -120,6 +122,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
   transactions = [],
   shoppingLists = [],
   shoppingItems = [],
+  debts = [],
   onOpenScanner,
   onSuccessFeedback,
 }) => {
@@ -133,6 +136,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
   const [category, setCategory] = useState<string>('Jedzenie i artykuły spożywcze');
   const [date, setDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [comment, setComment] = useState<string>('');
+  const [debtId, setDebtId] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
 
   // Shopping form state (simplified: only title/description & category)
@@ -159,6 +163,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
     if (isOpen) {
       setError(null);
       setShoppingSuccessBadge(null);
+      setDebtId('');
       const timer = setTimeout(() => {
         if (activeTabMode === 'transaction') {
           amountInputRef.current?.focus();
@@ -223,6 +228,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
       category,
       date: date || new Date().toISOString().split('T')[0],
       comment: comment.trim() || undefined,
+      debtId: debtId || undefined,
     };
 
     onAddTransaction(newTxData);
@@ -524,6 +530,72 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
                 </div>
               </div>
             </div>
+
+            {/* Debt Link Selector in QuickAdd */}
+            {debts.length > 0 && (
+              <div className={`p-3 rounded-xl border space-y-1.5 transition-all ${
+                category === 'Zobowiązania i pożyczki'
+                  ? 'bg-indigo-50/80 border-indigo-300 ring-2 ring-indigo-200/50'
+                  : 'bg-slate-50/80 border-slate-200'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold text-slate-900 flex items-center gap-1.5">
+                    <Landmark className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Powiąż ze zobowiązaniem / pożyczką</span>
+                    {category === 'Zobowiązania i pożyczki' && (
+                      <span className="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.2 rounded">Zalecane</span>
+                    )}
+                  </label>
+                  {debtId && (
+                    <button
+                      type="button"
+                      onClick={() => setDebtId('')}
+                      className="text-[10px] text-indigo-600 hover:text-indigo-800 underline font-medium cursor-pointer"
+                    >
+                      Odłącz
+                    </button>
+                  )}
+                </div>
+                <select
+                  value={debtId}
+                  onChange={(e) => {
+                    const dId = e.target.value;
+                    setDebtId(dId);
+                    if (dId) {
+                      const targetDebt = debts.find((d) => d.id === dId);
+                      if (targetDebt) {
+                        if (!title) {
+                          setTitle(type === 'expense' ? `Spłata: ${targetDebt.name}` : `Zwrot: ${targetDebt.name}`);
+                        }
+                        if (!amount) {
+                          if (targetDebt.monthlyPayment) {
+                            setAmount(String(targetDebt.monthlyPayment));
+                          } else if (targetDebt.currentRemaining) {
+                            setAmount(String(targetDebt.currentRemaining));
+                          }
+                        }
+                        if (type === 'expense') {
+                          setCategory('Zobowiązania i pożyczki');
+                        }
+                      }
+                    }
+                  }}
+                  className="w-full px-3 py-2 text-xs font-semibold bg-white border border-slate-200 rounded-lg text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden cursor-pointer"
+                >
+                  <option value="">-- Bez powiązania (opcjonalnie) --</option>
+                  {debts.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.type === 'borrowed' ? '🏦 Kredyt' : '🤝 Pożyczka'}: {d.name} ({d.counterparty}) — do spłaty: {d.currentRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł
+                    </option>
+                  ))}
+                </select>
+                {debtId && (
+                  <p className="text-[10px] text-indigo-800 font-medium">
+                    💡 Zapisanie transakcji automatycznie <strong>pomniejszy saldo zadłużenia</strong> w sekcji <em>Zadłużenia</em>.
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Dynamic Smart Transaction Suggestions - now placed right after Title & Category */}
             <div>

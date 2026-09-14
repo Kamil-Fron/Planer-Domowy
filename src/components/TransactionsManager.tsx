@@ -14,8 +14,9 @@ import {
   ListFilter,
   Check,
   Sparkles,
+  Landmark,
 } from 'lucide-react';
-import { Transaction, TransactionType } from '../types';
+import { Transaction, TransactionType, DebtItem } from '../types';
 import { INITIAL_CATEGORIES, INITIAL_INCOME_CATEGORIES } from '../mockData';
 import { MonthRolloverControl } from './MonthRolloverControl';
 import { useMonthSwipe } from '../hooks/useMonthSwipe';
@@ -36,6 +37,7 @@ interface TransactionsManagerProps {
   initialSearchQuery?: string;
   initialSelectedTransactionId?: string | null;
   onClearInitialState?: () => void;
+  debts?: DebtItem[];
 }
 
 export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
@@ -49,6 +51,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
   initialSearchQuery,
   initialSelectedTransactionId,
   onClearInitialState,
+  debts = [],
 }) => {
   const [filterType, setFilterType] = useState<'all' | 'expense' | 'income'>(
     initialFilterType || 'all'
@@ -103,6 +106,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
   const [editComment, setEditComment] = useState('');
   const [editRecurring, setEditRecurring] = useState(false);
   const [editStoreName, setEditStoreName] = useState('');
+  const [editDebtId, setEditDebtId] = useState<string>('');
 
   // Form State (Add)
   const [formType, setFormType] = useState<TransactionType>('income');
@@ -112,6 +116,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
   const [formDate, setFormDate] = useState(new Date().toISOString().split('T')[0]);
   const [formComment, setFormComment] = useState('');
   const [formRecurring, setFormRecurring] = useState(false);
+  const [formDebtId, setFormDebtId] = useState<string>('');
 
   // Mobile swipe gesture for month switching
   const { touchHandlers, swipeFeedback } = useMonthSwipe({
@@ -147,6 +152,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
 
   const handleOpenAddModal = (type: TransactionType) => {
     setFormType(type);
+    setFormDebtId('');
     if (type === 'income') {
       setFormCategory(INITIAL_INCOME_CATEGORIES[0]);
     } else {
@@ -165,6 +171,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
     setEditDate(t.date);
     setEditRecurring(!!t.isRecurring);
     setEditStoreName(t.receiptStoreName || '');
+    setEditDebtId(t.debtId || '');
   };
 
   const handleSaveEdit = (e: React.FormEvent) => {
@@ -184,6 +191,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
         comment: undefined,
         isRecurring: editRecurring,
         receiptStoreName: editStoreName.trim() || undefined,
+        debtId: editDebtId || undefined,
       });
     }
 
@@ -205,6 +213,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
       date: formDate,
       comment: undefined,
       isRecurring: formRecurring,
+      debtId: formDebtId || undefined,
     });
 
     recordTransactionUsage(formTitle.trim(), formCategory, formType, parsedAmount);
@@ -213,6 +222,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
     setFormAmount('');
     setFormComment('');
     setFormRecurring(false);
+    setFormDebtId('');
     setShowAddModal(false);
   };
 
@@ -450,6 +460,18 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                           <span>Przeniesienie bilansu</span>
                         </span>
                       )}
+                      {item.debtId && (() => {
+                        const linkedDebt = debts.find((d) => d.id === item.debtId);
+                        return (
+                          <span
+                            className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center space-x-1 shrink-0"
+                            title={linkedDebt ? `Spłata dla: ${linkedDebt.name}` : 'Powiązano ze zobowiązaniem'}
+                          >
+                            <Landmark className="w-3 h-3 text-indigo-600" />
+                            <span>{linkedDebt ? `Zobowiązanie: ${linkedDebt.name}` : 'Zobowiązanie'}</span>
+                          </span>
+                        );
+                      })()}
                       {item.isRecurring && (
                         <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100 flex items-center space-x-0.5 shrink-0" title="Cykliczny">
                           <Repeat className="w-3 h-3" />
@@ -637,6 +659,44 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                 </select>
               </div>
 
+              {/* Debt Link Selector in Edit Modal */}
+              {debts.length > 0 && (
+                <div className="p-3 bg-indigo-50/70 border border-indigo-200/80 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                      <Landmark className="w-4 h-4 text-indigo-600" />
+                      <span>Powiązanie ze zobowiązaniem / pożyczką</span>
+                    </label>
+                    {editDebtId && (
+                      <button
+                        type="button"
+                        onClick={() => setEditDebtId('')}
+                        className="text-[11px] text-indigo-600 hover:text-indigo-800 underline font-medium cursor-pointer"
+                      >
+                        Odłącz
+                      </button>
+                    )}
+                  </div>
+                  <select
+                    value={editDebtId}
+                    onChange={(e) => setEditDebtId(e.target.value)}
+                    className="w-full px-3 py-2 text-xs font-semibold bg-white border border-indigo-200 rounded-lg text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden cursor-pointer"
+                  >
+                    <option value="">-- Brak powiązania ze zobowiązaniem --</option>
+                    {debts.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.type === 'borrowed' ? '🏦 Kredyt / Zobowiązanie' : '🤝 Pożyczka'}: {d.name} ({d.counterparty}) — do spłaty: {d.currentRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł
+                      </option>
+                    ))}
+                  </select>
+                  {editDebtId && (
+                    <p className="text-[11px] text-indigo-800 leading-relaxed">
+                      💡 Zapisanie zmian zaktualizuje historię spłat i saldo tego zobowiązania.
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Store Name (if expense) */}
               {editType === 'expense' && (
                 <div>
@@ -822,6 +882,80 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                       ))}
                 </select>
               </div>
+
+              {/* Debt Link Selector in Add Modal */}
+              {debts.length > 0 && (
+                <div className={`p-3 rounded-xl border space-y-2 transition-all ${
+                  formCategory === 'Zobowiązania i pożyczki'
+                    ? 'bg-indigo-50/80 border-indigo-300 ring-2 ring-indigo-200/50'
+                    : 'bg-slate-50/80 border-slate-200'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                      <Landmark className="w-4 h-4 text-indigo-600" />
+                      <span>Powiąż ze zobowiązaniem / pożyczką</span>
+                      {formCategory === 'Zobowiązania i pożyczki' && (
+                        <span className="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.5 rounded">Zalecane</span>
+                      )}
+                    </label>
+                    {formDebtId && (
+                      <button
+                        type="button"
+                        onClick={() => setFormDebtId('')}
+                        className="text-[11px] text-indigo-600 hover:text-indigo-800 underline font-medium cursor-pointer"
+                      >
+                        Odłącz
+                      </button>
+                    )}
+                  </div>
+                  <select
+                    value={formDebtId}
+                    onChange={(e) => {
+                      const dId = e.target.value;
+                      setFormDebtId(dId);
+                      if (dId) {
+                        const targetDebt = debts.find((d) => d.id === dId);
+                        if (targetDebt) {
+                          if (!formTitle || formTitle === 'Nowy wydatek' || formTitle === 'Nowa wpłata') {
+                            if (formType === 'expense') {
+                              setFormTitle(`Spłata: ${targetDebt.name}`);
+                            } else {
+                              setFormTitle(`Zwrot pożyczki: ${targetDebt.name}`);
+                            }
+                          }
+                          if (!formAmount) {
+                            if (targetDebt.monthlyPayment) {
+                              setFormAmount(String(targetDebt.monthlyPayment));
+                            } else if (targetDebt.currentRemaining) {
+                              setFormAmount(String(targetDebt.currentRemaining));
+                            }
+                          }
+                          if (formType === 'expense') {
+                            setFormCategory('Zobowiązania i pożyczki');
+                          }
+                        }
+                      }
+                    }}
+                    className="w-full px-3 py-2 text-xs font-semibold bg-white border border-slate-200 rounded-lg text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden cursor-pointer"
+                  >
+                    <option value="">-- Wybierz zobowiązanie do rozliczenia (opcjonalnie) --</option>
+                    {debts.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.type === 'borrowed' ? '🏦 Kredyt / Zobowiązanie' : '🤝 Pożyczka'}: {d.name} ({d.counterparty}) — do spłaty: {d.currentRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł
+                      </option>
+                    ))}
+                  </select>
+                  {formDebtId ? (
+                    <p className="text-[11px] text-indigo-800 leading-relaxed font-medium">
+                      💡 Dodanie tej transakcji automatycznie <strong>pomniejszy saldo zadłużenia</strong> i utworzy wpis w historii spłat zobowiązania.
+                    </p>
+                  ) : formCategory === 'Zobowiązania i pożyczki' ? (
+                    <p className="text-[11px] text-amber-700 leading-relaxed">
+                      ⚠️ Wybierz powyżej pozycję z listy zobowiązań, aby transakcja automatycznie rozliczyła i pomniejszyła saldo długu/pożyczki.
+                    </p>
+                  ) : null}
+                </div>
+              )}
 
               {/* Dynamic Smart Suggestions - placed right after description & category */}
               {dynamicAddSuggestions.length > 0 && (

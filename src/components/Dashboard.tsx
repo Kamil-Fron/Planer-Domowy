@@ -24,6 +24,7 @@ import {
   ArrowLeftRight,
   Landmark,
   CreditCard,
+  HandCoins,
 } from 'lucide-react';
 import {
   Transaction,
@@ -33,6 +34,7 @@ import {
   ShoppingItem,
   TabType,
   MortgageLoan,
+  DebtItem,
 } from '../types';
 import { INITIAL_CATEGORIES } from '../mockData';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip } from 'recharts';
@@ -57,6 +59,7 @@ interface DashboardProps {
   shoppingLists: ShoppingList[];
   shoppingItems: ShoppingItem[];
   mortgages?: MortgageLoan[];
+  debts?: DebtItem[];
   selectedMonth: string;
   onNavigate: (tab: TabType, options?: DashboardNavigationOptions) => void;
   onQuickAddTransaction: (type: 'income' | 'expense') => void;
@@ -81,6 +84,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   shoppingLists,
   shoppingItems,
   mortgages = [],
+  debts = [],
   selectedMonth,
   onNavigate,
   onQuickAddTransaction,
@@ -188,6 +192,26 @@ export const Dashboard: React.FC<DashboardProps> = ({
       })()
     ) : false)
   ) : false;
+
+  // Podsumowanie Zobowiązań & Pożyczek (debts + mortgages)
+  const borrowedDebts = debts.filter((d) => d.type === 'borrowed');
+  const lentDebts = debts.filter((d) => d.type === 'lent');
+
+  // Kwoty do oddania (moje długi i kredyty)
+  const totalBorrowedInitial = borrowedDebts.reduce((s, d) => s + (d.initialAmount || d.totalAmount || 0), 0) + (borrowedDebts.length === 0 && primaryLoan ? loanTotalAmount : 0);
+  const totalBorrowedRemaining = borrowedDebts.reduce((s, d) => s + (d.currentRemaining ?? 0), 0) + (borrowedDebts.length === 0 && primaryLoan ? loanRemainingPrincipal : 0);
+  const totalBorrowedPaid = borrowedDebts.reduce((s, d) => s + (d.paidAmount || 0), 0) + (borrowedDebts.length === 0 && primaryLoan ? loanTotalPaid : 0);
+  const borrowedPaidPercent = totalBorrowedInitial > 0 ? (totalBorrowedPaid / totalBorrowedInitial) * 100 : 0;
+
+  // Kwoty do odzyskania (pożyczone komuś)
+  const totalLentInitial = lentDebts.reduce((s, d) => s + (d.initialAmount || d.totalAmount || 0), 0);
+  const totalLentRemaining = lentDebts.reduce((s, d) => s + (d.currentRemaining ?? 0), 0);
+  const totalLentRecovered = lentDebts.reduce((s, d) => s + (d.paidAmount || 0), 0);
+  const lentRecoveredPercent = totalLentInitial > 0 ? (totalLentRecovered / totalLentInitial) * 100 : 0;
+
+  // Miesięczne raty stałe (kredyty bankowe i pożyczki)
+  const totalMonthlyInstallments = borrowedDebts.reduce((s, d) => s + (d.monthlyPayment || 0), 0) || (primaryLoan ? primaryLoan.monthlyPayment : 0);
+  const primaryBankDebt = debts.find((d) => d.isBankLoan || d.category === 'kredyt_bankowy');
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
@@ -550,138 +574,158 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
-      {/* 4. Sekcja Podsumowania Kredytu Hipotecznego (Poniżej ostatnich transakcji, a przed limitami wydatków) */}
-      {primaryLoan ? (
-        <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200 shadow-xs space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
-            <div className="flex items-center space-x-3">
-              <div className="p-2.5 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-700">
-                <Landmark className="w-5 h-5" />
-              </div>
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="font-bold text-sm sm:text-base text-slate-900">Podsumowanie Kredytu Hipotecznego</h3>
+      {/* 4. Sekcja Podsumowania Zobowiązań (Poniżej ostatnich transakcji, a przed limitami wydatków) */}
+      <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+          <div className="flex items-center space-x-3">
+            <div className="p-2.5 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-700">
+              <HandCoins className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-bold text-sm sm:text-base text-slate-900">Podsumowanie Zobowiązań</h3>
+                {primaryBankDebt?.bankName && (
+                  <span className="text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-100 px-2 py-0.5 rounded-md">
+                    {primaryBankDebt.bankName}
+                  </span>
+                )}
+                {primaryLoan && !primaryBankDebt && (
                   <span className="text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-100 px-2 py-0.5 rounded-md">
                     {primaryLoan.bankName}
                   </span>
-                  {isLoanInGrace && (
-                    <span className="text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-md">
-                      Karencja aktywna
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {primaryLoan.name} • Spłata raty: każdego <strong className="text-slate-700">{primaryLoan.paymentDayOfMonth}.</strong> dnia miesiąca
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => onNavigate('debts')}
-              className="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50/70 hover:bg-indigo-100/70 px-3.5 py-2 rounded-xl border border-indigo-100 transition-colors flex items-center space-x-1 self-start sm:self-auto cursor-pointer"
-            >
-              <span>Zadłużenia & Spłaty</span>
-              <span>→</span>
-            </button>
-          </div>
-
-          {/* 3 Metric Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-            <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-2">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                Pozostały kapitał do spłaty
-              </span>
-              <div className="flex items-baseline space-x-1.5">
-                <span className="text-xl font-black text-rose-600">
-                  {loanRemainingPrincipal.toLocaleString('pl-PL')} zł
-                </span>
-                <span className="text-[11px] text-slate-400">/ {loanTotalAmount.toLocaleString('pl-PL')} zł</span>
-              </div>
-              <div>
-                <div className="flex justify-between text-[10px] text-slate-500 mb-1">
-                  <span>Spłacono: {loanTotalPaid.toLocaleString('pl-PL')} zł</span>
-                  <span className="font-bold text-emerald-600">{loanPaidPercent.toFixed(1)}%</span>
-                </div>
-                <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-                  <div
-                    className="h-2 bg-gradient-to-r from-emerald-500 to-indigo-500 rounded-full"
-                    style={{ width: `${Math.min(100, Math.max(1, loanPaidPercent))}%` }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-2">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                Bieżąca rata miesięczna
-              </span>
-              <div className="flex items-baseline space-x-1.5">
-                <span className="text-xl font-black text-slate-900">
-                  {primaryLoan.monthlyPayment.toFixed(2)} zł
-                </span>
-                <span className="text-[11px] text-slate-500">/ mies.</span>
-              </div>
-              <div className="text-[11px] text-slate-600 space-y-0.5 pt-0.5">
-                {isLoanInGrace ? (
-                  <div className="text-amber-800 font-bold bg-amber-100/60 px-2 py-0.5 rounded-md border border-amber-200">
-                    Okres karencji: 100% odsetki ({primaryLoan.monthlyPayment.toFixed(2)} zł)
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between">
-                    <span className="text-emerald-700 font-bold">Kapitał: ~{loanPrincipalAmt.toFixed(0)} zł</span>
-                    <span className="text-slate-400">•</span>
-                    <span className="text-rose-700 font-bold">Odsetki: ~{loanInterestAmt.toFixed(0)} zł</span>
-                  </div>
+                )}
+                {isLoanInGrace && (
+                  <span className="text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-md">
+                    Karencja aktywna
+                  </span>
                 )}
               </div>
-            </div>
-
-            <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-2 flex flex-col justify-between">
-              <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                  Oprocentowanie & Spłaty
-                </span>
-                <div className="flex items-baseline space-x-1.5 mt-1">
-                  <span className="text-xl font-black text-amber-600">
-                    {primaryLoan.interestRate}%
-                  </span>
-                  <span className="text-[11px] text-slate-500">w skali roku ({primaryLoan.loanTermYears} lat)</span>
-                </div>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Zarejestrowane wpłaty: <strong className="text-slate-800">{primaryLoan.paymentsHistory.length}</strong>
-                </p>
-              </div>
-              <button
-                onClick={() => onNavigate('mortgage')}
-                className="text-xs font-bold text-indigo-700 hover:text-indigo-900 flex items-center space-x-1 mt-2 group cursor-pointer"
-              >
-                <span>Przejdź do kalkulatora nadpłat i historii</span>
-                <span className="group-hover:translate-x-0.5 transition-transform">→</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-start space-x-3.5">
-            <div className="p-3 rounded-2xl bg-indigo-50 text-indigo-600 border border-indigo-100 shrink-0">
-              <Landmark className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="font-bold text-sm sm:text-base text-slate-900">Kredyt Hipoteczny</h3>
-              <p className="text-xs text-slate-500 mt-0.5 max-w-xl">
-                Monitoruj spłatę kapitału, strukturę rat (kapitał vs odsetki), okres karencji oraz kalkuluj oszczędności z nadpłat kredytu.
+              <p className="text-xs text-slate-500 mt-0.5">
+                {borrowedDebts.length > 0 || primaryLoan
+                  ? `${borrowedDebts.length || 1} zobowiązań do spłaty • ${lentDebts.length} do odzyskania`
+                  : 'Kredyty, pożyczki prywatne oraz środki pożyczone innym'}
+                {primaryBankDebt?.paymentDayOfMonth && (
+                  <> • Rata bankowa: każdego <strong className="text-slate-700">{primaryBankDebt.paymentDayOfMonth}.</strong> dnia miesiąca</>
+                )}
               </p>
             </div>
           </div>
           <button
-            onClick={() => onNavigate('mortgage')}
-            className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors flex items-center space-x-1.5 shrink-0 cursor-pointer"
+            onClick={() => onNavigate('debts')}
+            className="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50/70 hover:bg-indigo-100/70 px-3.5 py-2 rounded-xl border border-indigo-100 transition-colors flex items-center space-x-1 self-start sm:self-auto cursor-pointer"
           >
-            <Plus className="w-4 h-4" />
-            <span>Skonfiguruj kredyt hipoteczny</span>
+            <span>Zadłużenia & Spłaty</span>
+            <span>→</span>
           </button>
         </div>
-      )}
+
+        {/* 3 Metric Cards: Ile muszę oddać | Ile ktoś musi mi oddać | Miesięczne raty */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+          {/* Card 1: Ile muszę oddać */}
+          <div
+            onClick={() => onNavigate('debts')}
+            className="p-4 rounded-xl bg-slate-50 hover:bg-rose-50/40 border border-slate-100 hover:border-rose-200 transition-all cursor-pointer space-y-2 group"
+            title="Kliknij, aby otworzyć listę zobowiązań do spłaty"
+          >
+            <span className="text-[10px] font-bold uppercase tracking-wider text-rose-600 flex items-center justify-between">
+              <span className="group-hover:translate-x-0.5 transition-transform flex items-center gap-1">
+                <span>Ile muszę oddać</span>
+                <span className="text-slate-400">→</span>
+              </span>
+              <span className="text-slate-500 font-medium">({borrowedDebts.length || (primaryLoan ? 1 : 0)} poz.)</span>
+            </span>
+            <div className="flex items-baseline space-x-1.5">
+              <span className="text-xl font-black text-rose-600">
+                {totalBorrowedRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} zł
+              </span>
+              <span className="text-[11px] text-slate-400">
+                / {totalBorrowedInitial.toLocaleString('pl-PL', { maximumFractionDigits: 0 })} zł
+              </span>
+            </div>
+            <div>
+              <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+                <span>Spłacono: {totalBorrowedPaid.toLocaleString('pl-PL', { maximumFractionDigits: 0 })} zł</span>
+                <span className="font-bold text-rose-600">{borrowedPaidPercent.toFixed(1)}%</span>
+              </div>
+              <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                <div
+                  className="h-2 bg-gradient-to-r from-rose-500 to-amber-500 rounded-full"
+                  style={{ width: `${Math.min(100, Math.max(totalBorrowedPaid > 0 ? 1 : 0, borrowedPaidPercent))}%` }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Card 2: Ile ktoś musi mi oddać */}
+          <div
+            onClick={() => onNavigate('debts')}
+            className="p-4 rounded-xl bg-slate-50 hover:bg-emerald-50/40 border border-slate-100 hover:border-emerald-200 transition-all cursor-pointer space-y-2 group"
+            title="Kliknij, aby otworzyć listę pożyczek udzielonych innym"
+          >
+            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 flex items-center justify-between">
+              <span className="group-hover:translate-x-0.5 transition-transform flex items-center gap-1">
+                <span>Ile ktoś musi mi oddać</span>
+                <span className="text-slate-400">→</span>
+              </span>
+              <span className="text-slate-500 font-medium">({lentDebts.length} poz.)</span>
+            </span>
+            <div className="flex items-baseline space-x-1.5">
+              <span className="text-xl font-black text-emerald-600">
+                {totalLentRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} zł
+              </span>
+              <span className="text-[11px] text-slate-400">
+                / {totalLentInitial.toLocaleString('pl-PL', { maximumFractionDigits: 0 })} zł
+              </span>
+            </div>
+            <div>
+              <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+                <span>Odzyskano: {totalLentRecovered.toLocaleString('pl-PL', { maximumFractionDigits: 0 })} zł</span>
+                <span className="font-bold text-emerald-600">{lentRecoveredPercent.toFixed(1)}%</span>
+              </div>
+              <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                <div
+                  className="h-2 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full"
+                  style={{ width: `${Math.min(100, Math.max(totalLentRecovered > 0 ? 1 : 0, lentRecoveredPercent))}%` }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Card 3: Miesięczne raty / Oprocentowanie */}
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-2 flex flex-col justify-between">
+            <div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                Miesięczne raty kredytów
+              </span>
+              <div className="flex items-baseline space-x-1.5 mt-0.5">
+                <span className="text-xl font-black text-slate-900">
+                  {totalMonthlyInstallments.toFixed(2)} zł
+                </span>
+                <span className="text-[11px] text-slate-500">/ mies.</span>
+              </div>
+              <div className="text-[11px] text-slate-600 space-y-0.5 pt-1">
+                {primaryBankDebt?.interestRate || primaryLoan?.interestRate ? (
+                  <p className="text-[11px] text-slate-500">
+                    Oprocentowanie: <strong className="text-amber-600">{primaryBankDebt?.interestRate || primaryLoan?.interestRate}%</strong>
+                    {(primaryBankDebt?.loanTermYears || primaryLoan?.loanTermYears) && (
+                      <span> ({primaryBankDebt?.loanTermYears || primaryLoan?.loanTermYears} lat)</span>
+                    )}
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-slate-400">Stałe raty z harmonogramów</p>
+                )}
+              </div>
+            </div>
+            <button
+              onClick={() => onNavigate('debts')}
+              className="text-xs font-bold text-indigo-700 hover:text-indigo-900 flex items-center space-x-1 mt-2 group cursor-pointer"
+            >
+              <span>Szczegóły, kalkulator & historia</span>
+              <span className="group-hover:translate-x-0.5 transition-transform">→</span>
+            </button>
+          </div>
+        </div>
+      </div>
 
       {/* 5. Sekcja Limitów Wydatków (Pomiędzy kredytem a asystentem AI) */}
       <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200 shadow-xs space-y-4">

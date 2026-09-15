@@ -345,7 +345,7 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
   }, [categoriesWithItems]);
 
   const completedCategories = useMemo(() => {
-    return categoriesWithItems.filter((c) => c.allCompleted && c.completedCount > 0);
+    return categoriesWithItems.filter((c) => c.completedCount > 0);
   }, [categoriesWithItems]);
 
   // Available filter pills for current tab:

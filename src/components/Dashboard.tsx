@@ -213,9 +213,20 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const totalLentRecovered = lentDebts.reduce((s, d) => s + (d.paidAmount || 0), 0);
   const lentRecoveredPercent = totalLentInitial > 0 ? (totalLentRecovered / totalLentInitial) * 100 : 0;
 
-  // Miesięczne raty stałe (kredyty bankowe i pożyczki)
-  const totalMonthlyInstallments = borrowedDebts.reduce((s, d) => s + (d.monthlyPayment || 0), 0) + (useLegacyLoan && primaryLoan ? (primaryLoan.monthlyPayment || 0) : 0);
-  const primaryBankDebt = debts.find((d) => d.isBankLoan || d.category === 'kredyt_bankowy');
+  // Miesięczne raty stałe (kredyty bankowe i pożyczki) - TYLKO dla aktywnych, niespłaconych zobowiązań
+  const activeBorrowedDebts = borrowedDebts.filter((d) => (d.currentRemaining ?? 0) > 0 && d.status !== 'paid' && d.status !== 'settled');
+  const activeLentDebts = lentDebts.filter((d) => (d.currentRemaining ?? 0) > 0 && d.status !== 'paid' && d.status !== 'settled');
+  
+  const totalMonthlyInstallments = activeBorrowedDebts.reduce((s, d) => {
+    const remaining = d.currentRemaining ?? 0;
+    const payment = d.monthlyPayment || 0;
+    if (payment <= 0) return s;
+    const effectivePayment = payment <= remaining ? payment : remaining;
+    return s + effectivePayment;
+  }, 0) + (useLegacyLoan && primaryLoan && loanRemainingPrincipal > 0 ? (primaryLoan.monthlyPayment || 0) : 0);
+
+  const activeBankDebt = debts.find((d) => (d.isBankLoan || d.category === 'kredyt_bankowy') && (d.currentRemaining ?? 0) > 0);
+  const primaryBankDebt = activeBankDebt || debts.find((d) => d.isBankLoan || d.category === 'kredyt_bankowy');
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
@@ -606,12 +617,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
                 {borrowedDebts.length > 0 || (useLegacyLoan && primaryLoan)
-                  ? `${borrowedDebts.length || (useLegacyLoan && primaryLoan ? 1 : 0)} zobowiązań do spłaty • ${lentDebts.length} do odzyskania`
+                  ? `${activeBorrowedDebts.length} aktywnych do spłaty (${borrowedDebts.length} ogółem) • ${activeLentDebts.length} do odzyskania`
                   : 'Kredyty, pożyczki prywatne oraz środki pożyczone innym'}
-                {primaryBankDebt?.paymentDayOfMonth && (
-                  <> • Rata bankowa: każdego <strong className="text-slate-700">{primaryBankDebt.paymentDayOfMonth}.</strong> dnia miesiąca</>
+                {activeBankDebt?.paymentDayOfMonth && (
+                  <> • Rata bankowa: każdego <strong className="text-slate-700">{activeBankDebt.paymentDayOfMonth}.</strong> dnia miesiąca</>
                 )}
-                {!primaryBankDebt && useLegacyLoan && primaryLoan?.paymentDayOfMonth && (
+                {!activeBankDebt && useLegacyLoan && primaryLoan?.paymentDayOfMonth && loanRemainingPrincipal > 0 && (
                   <> • Rata bankowa: każdego <strong className="text-slate-700">{primaryLoan.paymentDayOfMonth}.</strong> dnia miesiąca</>
                 )}
               </p>
@@ -705,21 +716,27 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 Miesięczne raty kredytów
               </span>
               <div className="flex items-baseline space-x-1.5 mt-0.5">
-                <span className="text-xl font-black text-slate-900">
-                  {totalMonthlyInstallments.toFixed(2)} zł
+                <span className={`text-xl font-black ${totalMonthlyInstallments > 0 ? 'text-slate-900' : 'text-emerald-600'}`}>
+                  {totalMonthlyInstallments.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} zł
                 </span>
                 <span className="text-[11px] text-slate-500">/ mies.</span>
               </div>
               <div className="text-[11px] text-slate-600 space-y-0.5 pt-1">
-                {primaryBankDebt?.interestRate || (useLegacyLoan && primaryLoan?.interestRate) ? (
+                {totalMonthlyInstallments <= 0 && totalBorrowedRemaining <= 0 && totalBorrowedInitial > 0 ? (
+                  <p className="text-[11px] font-bold text-emerald-600 flex items-center gap-1">
+                    <span>Wszystkie raty spłacone</span>
+                  </p>
+                ) : activeBankDebt?.interestRate || (useLegacyLoan && primaryLoan && loanRemainingPrincipal > 0 && primaryLoan?.interestRate) ? (
                   <p className="text-[11px] text-slate-500">
-                    Oprocentowanie: <strong className="text-amber-600">{primaryBankDebt?.interestRate || primaryLoan?.interestRate}%</strong>
-                    {(primaryBankDebt?.loanTermYears || (useLegacyLoan && primaryLoan?.loanTermYears)) && (
-                      <span> ({primaryBankDebt?.loanTermYears || primaryLoan?.loanTermYears} lat)</span>
+                    Oprocentowanie: <strong className="text-amber-600">{activeBankDebt?.interestRate || primaryLoan?.interestRate}%</strong>
+                    {(activeBankDebt?.loanTermYears || (useLegacyLoan && primaryLoan?.loanTermYears)) && (
+                      <span> ({activeBankDebt?.loanTermYears || primaryLoan?.loanTermYears} lat)</span>
                     )}
                   </p>
                 ) : (
-                  <p className="text-[11px] text-slate-400">Stałe raty z harmonogramów</p>
+                  <p className="text-[11px] text-slate-400">
+                    {totalMonthlyInstallments > 0 ? 'Stałe raty z harmonogramów' : 'Brak aktywnych rat'}
+                  </p>
                 )}
               </div>
             </div>

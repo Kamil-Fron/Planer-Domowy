@@ -65,24 +65,24 @@ export const SwipeableShoppingItemRow: React.FC<SwipeableShoppingItemRowProps> =
       }`}
     >
       {/* Background Actions Revealed ONLY on Swipe */}
-      {/* Swipe Right -> EDIT (Green / Emerald) */}
+      {/* Swipe Right -> EDIT (Emerald Green with Pencil icon and label) */}
       <div
         className={`absolute inset-y-0 left-0 bg-emerald-600 flex items-center justify-start pl-5 space-x-2 text-white z-0 pointer-events-none transition-opacity duration-150 ${
           swipeDirection === 'left' ? 'opacity-0' : 'opacity-100'
         } ${swipeDirection === 'right' ? 'w-full' : 'w-1/2'}`}
       >
-        <Pencil className="w-5 h-5 text-white" />
-        <span className="text-xs font-bold uppercase tracking-wider">Edytuj</span>
+        <Pencil className="w-5 h-5 text-white stroke-[2.5]" />
+        <span className="text-xs font-bold uppercase tracking-wider text-white">Edytuj</span>
       </div>
 
-      {/* Swipe Left -> DELETE (Rose / Red) */}
+      {/* Swipe Left -> DELETE (Rose Red with Trash icon and label) */}
       <div
         className={`absolute inset-y-0 right-0 bg-rose-600 flex items-center justify-end pr-5 space-x-2 text-white z-0 pointer-events-none transition-opacity duration-150 ${
           swipeDirection === 'right' ? 'opacity-0' : 'opacity-100'
         } ${swipeDirection === 'left' ? 'w-full' : 'w-1/2'}`}
       >
-        <span className="text-xs font-bold uppercase tracking-wider">Usuń</span>
-        <Trash2 className="w-5 h-5 text-white" />
+        <span className="text-xs font-bold uppercase tracking-wider text-white">Usuń</span>
+        <Trash2 className="w-5 h-5 text-white stroke-[2.5]" />
       </div>
 
       {/* Foreground Draggable Card (Opaque background prevents any bleed-through) */}

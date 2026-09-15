@@ -12,6 +12,7 @@ import {
   DollarSign,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Pencil,
   Trash2,
   ChevronDown,
@@ -26,8 +27,16 @@ import {
   Check,
   X,
   Sparkles,
+  Receipt,
+  CreditCard,
 } from 'lucide-react';
-import { DebtItem, DebtPaymentRecord, DebtType, DebtCategory, Transaction } from '../types';
+import { DebtItem, DebtPaymentRecord, DebtType, DebtCategory, Transaction, Bill } from '../types';
+import {
+  calculateSuggestedLoanSplit,
+  isInterestBearingDebt,
+  getLoanEffectiveInterestRate,
+  isDebtInGracePeriod,
+} from '../utils/loanCalculation';
 
 interface DebtManagerProps {
   debts: DebtItem[];
@@ -36,6 +45,7 @@ interface DebtManagerProps {
   onDeleteDebt: (debtId: string) => void;
   onAddTransaction: (tx: Omit<Transaction, 'id' | 'createdAt'> & { id?: string }) => void;
   onDeleteTransaction?: (txId: string) => void;
+  onAddBill?: (bill: Omit<Bill, 'id' | 'createdAt'> & { id?: string }) => void;
   transactions?: Transaction[];
   onSuccessFeedback?: (
     title: string,
@@ -52,6 +62,7 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
   onUpdateDebt,
   onDeleteDebt,
   onAddTransaction,
+  onAddBill,
   transactions = [],
   onSuccessFeedback,
 }) => {
@@ -85,7 +96,15 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
   const [formStartDate, setFormStartDate] = useState(new Date().toISOString().split('T')[0]);
   const [formDueDate, setFormDueDate] = useState('');
   const [formNotes, setFormNotes] = useState('');
-  const [formCreateTransaction, setFormCreateTransaction] = useState(false);
+  const [formCreateTransaction, setFormCreateTransaction] = useState(true);
+
+  // Bill creation form state for debts
+  const [formCreateBill, setFormCreateBill] = useState(false);
+  const [formBillName, setFormBillName] = useState('');
+  const [formBillAmount, setFormBillAmount] = useState('');
+  const [formBillDueDate, setFormBillDueDate] = useState('');
+  const [formBillBillingCycle, setFormBillBillingCycle] = useState<'miesięcznie' | 'co 2 miesiące' | 'kwartalnie' | 'rocznie' | 'jednorazowo'>('miesięcznie');
+  const [formBillProvider, setFormBillProvider] = useState('');
 
   // Bank loan extra fields (expanded mortgage settings)
   const [formBankName, setFormBankName] = useState('');
@@ -200,9 +219,10 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
   }, [debts]);
 
   // Reset Add Form
-  const resetForm = () => {
+  const resetForm = (targetCategory?: DebtCategory) => {
+    const cat = targetCategory || 'pozyczka_prywatna';
     setFormType('borrowed');
-    setFormCategory('pozyczka_prywatna');
+    setFormCategory(cat);
     setFormName('');
     setFormCounterparty('');
     setFormInitialAmount('');
@@ -210,7 +230,15 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
     setFormStartDate(new Date().toISOString().split('T')[0]);
     setFormDueDate('');
     setFormNotes('');
-    setFormCreateTransaction(false);
+    // Kredyty bankowe/hipoteczne domyślnie bez transakcji przychodu (wypłata bezpośrednia do zbywcy), inne domyślnie z transakcją
+    setFormCreateTransaction(cat !== 'kredyt_bankowy');
+    // Kredyty bankowe domyślnie z utworzeniem rachunku raty
+    setFormCreateBill(cat === 'kredyt_bankowy');
+    setFormBillName('');
+    setFormBillAmount('');
+    setFormBillDueDate('');
+    setFormBillBillingCycle('miesięcznie');
+    setFormBillProvider('');
     setFormBankName('');
     setFormLoanAccountNumber('');
     setFormMonthlyPayment('');
@@ -378,8 +406,8 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
 
     onAddDebt(newDebt);
 
-    // Automatyczna rejestracja początkowej transakcji w budżecie (zgodnie z życzeniem użytkownika)
-    if (initAmount > 0) {
+    // Opcjonalna rejestracja początkowej transakcji w budżecie (z możliwością wyłączenia, np. dla kredytów hipotecznych)
+    if (formCreateTransaction && initAmount > 0) {
       if (formType === 'borrowed') {
         // Wpływ gotówki z zaciągnięcia długu do budżetu
         onAddTransaction({
@@ -409,13 +437,46 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
       }
     }
 
+    // Opcjonalne utworzenie powiązanego rachunku w sekcji Rachunki
+    if (formCreateBill && onAddBill) {
+      const parsedBillAmount =
+        parseFloat((formBillAmount || '').replace(',', '.')) ||
+        (newDebt.monthlyPayment || newDebt.initialAmount);
+
+      if (parsedBillAmount > 0) {
+        const calculatedDueDate =
+          formBillDueDate ||
+          formDueDate ||
+          newDebt.startDate ||
+          new Date().toISOString().split('T')[0];
+
+        onAddBill({
+          name: formBillName.trim() || (isBank ? `Rata: ${newDebt.name}` : `Rachunek: ${newDebt.name}`),
+          serviceType: isBank ? 'kredyt' : 'inne',
+          provider: formBillProvider.trim() || newDebt.counterparty || (isBank ? 'Bank' : 'Wierzyciel'),
+          amount: parsedBillAmount,
+          dueDate: calculatedDueDate,
+          billingCycle: formBillBillingCycle,
+          pricingType: 'fixed',
+          status: 'pending',
+          debtId: newDebt.id, // Powiązanie rachunku z utworzonym zadłużeniem!
+          notes: `Rachunek powiązany ze zobowiązaniem: ${newDebt.name}`,
+        });
+      }
+    }
+
     if (onSuccessFeedback) {
+      const notesArr: string[] = [];
+      if (formCreateBill) notesArr.push('utworzono powiązany rachunek');
+      if (formCreateTransaction) notesArr.push('zaksięgowano w transakcjach');
+      else notesArr.push('bez wpisu w transakcjach');
+
       onSuccessFeedback(
         newDebt.name,
         initAmount,
         formType === 'borrowed' ? 'income' : 'expense',
         undefined,
-        `Zapisano zadłużenie (${formType === 'borrowed' ? 'Muszę oddać' : 'Do odzyskania'})`
+        `Zapisano zadłużenie (${notesArr.join(', ')})`
       );
     }
 
@@ -426,12 +487,31 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
   // Open Quick Payment Modal
   const handleOpenPayment = (debt: DebtItem) => {
     setSelectedDebtForPayment(debt);
-    setPaymentAmount(debt.monthlyPayment ? debt.monthlyPayment.toString() : '');
-    setPaymentDate(new Date().toISOString().split('T')[0]);
+    const defAmt = debt.monthlyPayment && debt.monthlyPayment <= debt.currentRemaining
+      ? debt.monthlyPayment
+      : debt.currentRemaining;
+    const defAmtStr = defAmt > 0 ? defAmt.toFixed(2) : '';
+    const today = new Date().toISOString().split('T')[0];
+    const hasInterest = isInterestBearingDebt(debt);
+
+    setPaymentAmount(defAmtStr);
+    setPaymentDate(today);
     setPaymentNotes('');
-    setPaymentType(debt.isBankLoan ? 'regular' : 'settlement');
-    setPaymentPrincipal('');
-    setPaymentInterest('');
+    setPaymentType(hasInterest ? 'regular' : 'settlement');
+
+    if (hasInterest && defAmt > 0) {
+      const split = calculateSuggestedLoanSplit({
+        debt,
+        paymentAmount: defAmt,
+        paymentDate: today,
+        paymentType: 'regular',
+      });
+      setPaymentPrincipal(split.suggestedPrincipal.toFixed(2));
+      setPaymentInterest(split.suggestedInterest.toFixed(2));
+    } else {
+      setPaymentPrincipal(defAmtStr);
+      setPaymentInterest('0.00');
+    }
   };
 
   // Submit Quick Payment
@@ -448,12 +528,19 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
     let principal = amount;
     let interest: number | undefined = undefined;
 
-    if (selectedDebtForPayment.isBankLoan && paymentPrincipal) {
+    const hasInterest = isInterestBearingDebt(selectedDebtForPayment);
+    if (hasInterest && paymentPrincipal !== '') {
       const p = parseFloat(paymentPrincipal.replace(',', '.'));
       if (!isNaN(p) && p >= 0) {
         principal = p;
-        interest = Math.max(0, amount - p);
+        interest = Math.max(0, Math.round((amount - p) * 100) / 100);
       }
+    }
+
+    if (principal > selectedDebtForPayment.currentRemaining + 0.009) {
+      const overpaid = principal - selectedDebtForPayment.currentRemaining;
+      alert(`Kwota spłaty kapitału (${principal.toFixed(2)} zł) przekracza pozostałe saldo zadłużenia (${selectedDebtForPayment.currentRemaining.toFixed(2)} zł) o ${overpaid.toFixed(2)} zł. Skoryguj kwotę przed zatwierdzeniem.`);
+      return;
     }
 
     const newRemaining = Math.max(0, selectedDebtForPayment.currentRemaining - principal);
@@ -487,6 +574,8 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
       debtAction: isRepayMyDebt ? 'repay_borrowed' : 'receive_lent',
       debtCounterparty: selectedDebtForPayment.counterparty,
       comment: paymentNotes.trim() || `Rozliczenie w sekcji Zadłużenia`,
+      principalAmount: principal,
+      interestAmount: interest,
     });
 
     const updatedDebt: DebtItem = {
@@ -753,6 +842,7 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
           {filteredDebts.map((item) => {
             const isBorrowed = item.type === 'borrowed';
+            const isPaid = item.status === 'settled' || item.status === 'paid' || item.currentRemaining <= 0;
             const progress = item.initialAmount > 0
               ? Math.min(100, Math.round((item.paidAmount / item.initialAmount) * 100))
               : 0;
@@ -792,7 +882,7 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                       </span>
                     )}
 
-                    {item.status === 'settled' && (
+                    {isPaid && (
                       <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200">
                         <Check className="w-3 h-3" />
                         <span>Spłacone</span>
@@ -886,9 +976,9 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                       </span>
                     )}
                     {item.monthlyPayment && (
-                      <span className="flex items-center space-x-1 font-semibold text-slate-700">
+                      <span className={`flex items-center space-x-1 font-semibold ${isPaid ? 'text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-md' : 'text-slate-700'}`}>
                         <DollarSign className="w-3 h-3 text-slate-400" />
-                        <span>Rata: {item.monthlyPayment.toLocaleString('pl-PL')} zł/msc</span>
+                        <span>{isPaid ? 'Rata: Rozliczona (0 zł)' : `Rata: ${item.monthlyPayment.toLocaleString('pl-PL')} zł/msc`}</span>
                       </span>
                     )}
                     {item.interestRate && (
@@ -1042,8 +1132,18 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                 <label className="text-xs font-bold text-slate-700">Kategoria:</label>
                 <select
                   value={formCategory}
-                  onChange={(e) => setFormCategory(e.target.value as DebtCategory)}
-                  className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                  onChange={(e) => {
+                    const newCat = e.target.value as DebtCategory;
+                    setFormCategory(newCat);
+                    if (newCat === 'kredyt_bankowy') {
+                      setFormCreateTransaction(false);
+                      setFormCreateBill(true);
+                      setFormBillBillingCycle('miesięcznie');
+                    } else {
+                      setFormCreateTransaction(true);
+                    }
+                  }}
+                  className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium cursor-pointer"
                 >
                   {formType === 'borrowed' && (
                     <option value="kredyt_bankowy">Kredyt bankowy / hipoteczny</option>
@@ -1318,19 +1418,211 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                 />
               </div>
 
-              {/* Automatyczna rejestracja transakcji (zamiast checkboxa) */}
-              <div className="flex items-center space-x-3 p-3.5 rounded-2xl bg-indigo-50/70 border border-indigo-200/70">
-                <div className="p-2 bg-indigo-100 text-indigo-700 rounded-xl shrink-0">
-                  <Sparkles className="w-4 h-4" />
+              {/* Opcja 1: Rejestracja początkowego wpisu w transakcjach (Budżecie) */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2.5 transition-all">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start space-x-3">
+                    <div
+                      className={`p-2 rounded-xl shrink-0 mt-0.5 ${
+                        formCreateTransaction
+                          ? formType === 'borrowed'
+                            ? 'bg-rose-100 text-rose-700'
+                            : 'bg-emerald-100 text-emerald-700'
+                          : 'bg-slate-200 text-slate-500'
+                      }`}
+                    >
+                      <Receipt className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="formCreateTransactionCheckbox"
+                        className="font-bold text-xs text-slate-900 cursor-pointer block select-none"
+                      >
+                        {formType === 'borrowed'
+                          ? 'Zarejestruj wpływ środków w transakcjach (przychód w budżecie)'
+                          : 'Zarejestruj pożyczenie środków w transakcjach (wydatek w budżecie)'}
+                      </label>
+                      <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                        {formCategory === 'kredyt_bankowy'
+                          ? 'Wypłata kredytu hipotecznego/bankowego zazwyczaj trafia bezpośrednio do zbywcy lub dewelopera. Możesz wyłączyć tę opcję, aby nie zawyżać sztucznie przychodów w miesięcznym budżecie.'
+                          : formType === 'borrowed'
+                          ? 'Dodaje transakcję wpływu środków do kategorii „Zobowiązania i pożyczki” z datą zaciągnięcia długu.'
+                          : 'Dodaje transakcję wyjściową pożyczonych środków w kategorii „Zobowiązania i pożyczki”.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
+                    <input
+                      id="formCreateTransactionCheckbox"
+                      type="checkbox"
+                      checked={formCreateTransaction}
+                      onChange={(e) => setFormCreateTransaction(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                  </label>
                 </div>
-                <div className="text-xs text-indigo-950">
-                  <span className="font-bold">Automatyczna rejestracja transakcji:</span>
-                  <p className="text-[11px] text-indigo-800/80 mt-0.5">
-                    {formType === 'borrowed'
-                      ? 'Wpływ środków z zaciągnięcia długu zostanie automatycznie dodany do budżetu w kategorii "Zobowiązania i pożyczki".'
-                      : 'Wydatek środków pożyczonych komuś zostanie automatycznie odnotowany w budżecie w kategorii "Zobowiązania i pożyczki".'}
-                  </p>
+
+                {formCreateTransaction && (
+                  <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between text-[11px] font-medium text-slate-600">
+                    <span>Kwota rejestrowana w budżecie:</span>
+                    <span className="font-bold text-slate-900">
+                      {(parseFloat(formInitialAmount.replace(',', '.')) || 0).toLocaleString('pl-PL', {
+                        minimumFractionDigits: 2,
+                      })}{' '}
+                      zł
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Opcja 2: Utworzenie powiązanego rachunku w sekcji Rachunki */}
+              <div
+                className={`p-4 rounded-2xl border transition-all ${
+                  formCreateBill
+                    ? 'bg-indigo-50/70 border-indigo-200'
+                    : 'bg-slate-50 border-slate-200'
+                } space-y-3`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start space-x-3">
+                    <div
+                      className={`p-2 rounded-xl shrink-0 mt-0.5 ${
+                        formCreateBill ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-500'
+                      }`}
+                    >
+                      <FileText className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="formCreateBillCheckbox"
+                        className="font-bold text-xs text-indigo-950 cursor-pointer block select-none"
+                      >
+                        Utwórz powiązany rachunek w sekcji Rachunki
+                      </label>
+                      <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                        Automatycznie utworzy cykliczny rachunek (np. ratę kredytu). Każde opłacenie tego rachunku w sekcji „Rachunki” automatycznie zmniejszy kapitał i saldo tego zobowiązania!
+                      </p>
+                    </div>
+                  </div>
+
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
+                    <input
+                      id="formCreateBillCheckbox"
+                      type="checkbox"
+                      checked={formCreateBill}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setFormCreateBill(checked);
+                        if (checked) {
+                          if (!formBillName) {
+                            setFormBillName(formName ? `Rata: ${formName}` : 'Rata zobowiązania');
+                          }
+                          if (!formBillAmount) {
+                            setFormBillAmount(formMonthlyPayment || formInitialAmount || '');
+                          }
+                          if (!formBillDueDate) {
+                            setFormBillDueDate(formDueDate || formStartDate || new Date().toISOString().split('T')[0]);
+                          }
+                          if (!formBillProvider) {
+                            setFormBillProvider(formBankName || formCounterparty || '');
+                          }
+                        }
+                      }}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                  </label>
                 </div>
+
+                {formCreateBill && (
+                  <div className="pt-3 border-t border-indigo-200/80 space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-indigo-950 mb-1">
+                          Nazwa rachunku:
+                        </label>
+                        <input
+                          type="text"
+                          placeholder={formName ? `Rata: ${formName}` : 'np. Rata kredytu hipotecznego'}
+                          value={formBillName}
+                          onChange={(e) => setFormBillName(e.target.value)}
+                          className="w-full px-3 py-1.5 text-xs bg-white border border-indigo-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-indigo-950 mb-1">
+                          Kwota płatności rachunku (zł):
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder={formMonthlyPayment || formInitialAmount || '0.00'}
+                          value={formBillAmount}
+                          onChange={(e) => setFormBillAmount(e.target.value)}
+                          className="w-full px-3 py-1.5 text-xs font-bold bg-white border border-indigo-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-indigo-950 mb-1">
+                          Cykl płatności:
+                        </label>
+                        <select
+                          value={formBillBillingCycle}
+                          onChange={(e) =>
+                            setFormBillBillingCycle(
+                              e.target.value as 'miesięcznie' | 'co 2 miesiące' | 'kwartalnie' | 'rocznie' | 'jednorazowo'
+                            )
+                          }
+                          className="w-full px-3 py-1.5 text-xs bg-white border border-indigo-200 rounded-xl focus:outline-none cursor-pointer"
+                        >
+                          <option value="miesięcznie">Miesięcznie</option>
+                          <option value="co 2 miesiące">Co 2 miesiące</option>
+                          <option value="kwartalnie">Kwartalnie</option>
+                          <option value="rocznie">Rocznie</option>
+                          <option value="jednorazowo">Jednorazowo</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-indigo-950 mb-1">
+                          Pierwszy termin płatności:
+                        </label>
+                        <input
+                          type="date"
+                          value={formBillDueDate}
+                          onChange={(e) => setFormBillDueDate(e.target.value)}
+                          className="w-full px-3 py-1.5 text-xs bg-white border border-indigo-200 rounded-xl focus:outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-indigo-950 mb-1">
+                          Odbiorca / Wierzyciel:
+                        </label>
+                        <input
+                          type="text"
+                          placeholder={formBankName || formCounterparty || 'np. PKO BP'}
+                          value={formBillProvider}
+                          onChange={(e) => setFormBillProvider(e.target.value)}
+                          className="w-full px-3 py-1.5 text-xs bg-white border border-indigo-200 rounded-xl focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 rounded-xl bg-indigo-100/70 text-[11px] text-indigo-900 flex items-center space-x-2">
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                      <span>
+                        Rachunek pojawi się w widoku <strong>Rachunki</strong> ze statusem „Do zapłaty” i bezpośrednim powiązaniem z tym zobowiązaniem.
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Modal buttons */}
@@ -1375,101 +1667,301 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
               </button>
             </div>
 
-            <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
-              <span className="text-slate-500">Pozostało do rozliczenia:</span>
-              <span className="font-black text-slate-900 text-sm">
-                {selectedDebtForPayment.currentRemaining.toLocaleString('pl-PL')} zł
-              </span>
-            </div>
+            {(() => {
+              const parsedAmt = parseFloat(paymentAmount.replace(',', '.')) || 0;
+              const parsedPrinc = (selectedDebtForPayment.isBankLoan && paymentPrincipal)
+                ? (parseFloat(paymentPrincipal.replace(',', '.')) || 0)
+                : parsedAmt;
+              const remainingDebt = selectedDebtForPayment.currentRemaining;
+              const isOverpaid = remainingDebt > 0 && parsedPrinc > remainingDebt + 0.009;
+              const overpaidAmount = isOverpaid ? parsedPrinc - remainingDebt : 0;
+              const isFinalInstallment = remainingDebt > 0 && remainingDebt <= (selectedDebtForPayment.monthlyPayment || remainingDebt);
 
-            <form onSubmit={handleSubmitPayment} className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-700">Kwota wpłaty (zł):</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  required
-                  autoFocus
-                  placeholder="0.00"
-                  value={paymentAmount}
-                  onChange={(e) => setPaymentAmount(e.target.value)}
-                  className="w-full px-4 py-2.5 text-base font-black bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-700">Data wpłaty:</label>
-                <input
-                  type="date"
-                  required
-                  value={paymentDate}
-                  onChange={(e) => setPaymentDate(e.target.value)}
-                  className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              {selectedDebtForPayment.isBankLoan && (
-                <div className="grid grid-cols-2 gap-3 p-3 rounded-2xl bg-indigo-50/50 border border-indigo-100">
-                  <div>
-                    <label className="text-[11px] font-semibold text-slate-700">Część kapitałowa (zł):</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="zmniejsza dług"
-                      value={paymentPrincipal}
-                      onChange={(e) => setPaymentPrincipal(e.target.value)}
-                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl"
-                    />
+              return (
+                <>
+                  <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
+                    <span className="text-slate-500">Pozostało do rozliczenia:</span>
+                    <span className="font-black text-slate-900 text-sm">
+                      {selectedDebtForPayment.currentRemaining.toLocaleString('pl-PL')} zł
+                    </span>
                   </div>
-                  <div>
-                    <label className="text-[11px] font-semibold text-slate-700">Typ wpłaty:</label>
-                    <select
-                      value={paymentType}
-                      onChange={(e) => setPaymentType(e.target.value as any)}
-                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl"
-                    >
-                      <option value="regular">Rata standardowa</option>
-                      <option value="overpayment">Nadpłata kredytu</option>
-                    </select>
-                  </div>
-                </div>
-              )}
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-700">Notatka / komentarz:</label>
-                <input
-                  type="text"
-                  placeholder="np. Rata za bieżący miesiąc lub przelew BLIK"
-                  value={paymentNotes}
-                  onChange={(e) => setPaymentNotes(e.target.value)}
-                  className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
+                  {/* Overpayment Warning Banner */}
+                  {isOverpaid && (
+                    <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl space-y-2 text-rose-950 animate-in fade-in shadow-2xs">
+                      <div className="flex items-start space-x-2.5">
+                        <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                        <div className="space-y-0.5">
+                          <h4 className="font-bold text-xs text-rose-900">
+                            Kwota przewyższa pozostałe saldo zadłużenia!
+                          </h4>
+                          <p className="text-[11px] text-rose-700 leading-relaxed">
+                            Do spłaty pozostało <strong>{remainingDebt.toFixed(2)} zł</strong>. Zadeklarowana kwota ({parsedPrinc.toFixed(2)} zł) jest za duża o <strong>{overpaidAmount.toFixed(2)} zł</strong>.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="pt-1 flex items-center justify-between">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPaymentAmount(remainingDebt.toFixed(2));
+                            if (selectedDebtForPayment.isBankLoan) {
+                              setPaymentPrincipal(remainingDebt.toFixed(2));
+                            }
+                          }}
+                          className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white rounded-xl font-bold text-[11px] shadow-2xs transition-colors flex items-center space-x-1.5 cursor-pointer"
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
+                          <span>Ustaw dokładną kwotę spłaty ({remainingDebt.toFixed(2)} zł)</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
-              <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-100 text-[11px] text-emerald-800 flex items-center space-x-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>
-                  Wpis automatycznie utworzy powiązaną transakcję w kategorii "Zobowiązania i pożyczki".
-                </span>
-              </div>
+                  {/* Final Installment Banner */}
+                  {!isOverpaid && isFinalInstallment && (
+                    <div className="p-3.5 bg-emerald-50/90 border border-emerald-300 rounded-2xl space-y-1.5 text-emerald-950 animate-in fade-in shadow-2xs">
+                      <div className="flex items-start space-x-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                        <div>
+                          <h4 className="font-extrabold text-xs text-emerald-900">
+                            🏁 Ostatnia rata / pełne rozliczenie
+                          </h4>
+                          <p className="text-[11px] text-emerald-800">
+                            Ta wpłata całkowicie zamknie i rozliczy pozycję w sekcji Zadłużenia. Pozostało dokładnie <strong>{remainingDebt.toFixed(2)} zł</strong>.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
-              <div className="flex items-center justify-end space-x-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setSelectedDebtForPayment(null)}
-                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl"
-                >
-                  Anuluj
-                </button>
-                <button
-                  type="submit"
-                  className="px-6 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-md transition-all"
-                >
-                  Zapisz spłatę
-                </button>
-              </div>
-            </form>
+                  <form onSubmit={handleSubmitPayment} className="space-y-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-700">Kwota wpłaty (zł):</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        required
+                        autoFocus
+                        placeholder="0.00"
+                        value={paymentAmount}
+                        onChange={(e) => setPaymentAmount(e.target.value)}
+                        className={`w-full px-4 py-2.5 text-base font-black bg-slate-50 border rounded-xl focus:ring-2 focus:ring-indigo-500 ${
+                          isOverpaid ? 'border-rose-400 bg-rose-50/40 text-rose-900' : 'border-slate-200'
+                        }`}
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-700">Data wpłaty:</label>
+                      <input
+                        type="date"
+                        required
+                        value={paymentDate}
+                        onChange={(e) => setPaymentDate(e.target.value)}
+                        className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+
+                    {isInterestBearingDebt(selectedDebtForPayment) && (() => {
+                      const parsedTotal = parseFloat(paymentAmount.replace(',', '.')) || 0;
+                      const splitSuggestion = calculateSuggestedLoanSplit({
+                        debt: selectedDebtForPayment,
+                        paymentAmount: parsedTotal,
+                        paymentDate,
+                        paymentType,
+                      });
+
+                      return (
+                        <div className="p-3.5 rounded-2xl bg-gradient-to-br from-indigo-50/90 via-indigo-50/50 to-white border border-indigo-200 space-y-3 shadow-2xs">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                            <div className="flex items-center gap-2">
+                              <div className="p-1.5 rounded-lg bg-indigo-600 text-white shrink-0">
+                                <Landmark className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <span className="text-xs font-black text-indigo-950 block leading-tight">
+                                  Podział raty kredytu
+                                </span>
+                                <span className="text-[11px] text-slate-500 font-medium">
+                                  Saldo: <strong>{remainingDebt.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł</strong>
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-1">
+                              {splitSuggestion.isInGracePeriod ? (
+                                <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold flex items-center gap-1">
+                                  <Clock className="w-3 h-3 text-amber-700" />
+                                  <span>Karencja do {splitSuggestion.graceEndDate || 'końca'}</span>
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-900 border border-indigo-200 text-[10px] font-bold flex items-center gap-1">
+                                  <Percent className="w-3 h-3 text-indigo-700" />
+                                  <span>Oprocentowanie: {splitSuggestion.effectiveAnnualRate}%</span>
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Baner sugestii */}
+                          <div className={`p-2.5 rounded-xl border text-[11px] leading-relaxed flex items-start gap-2 ${
+                            splitSuggestion.isInGracePeriod
+                              ? 'bg-amber-50/80 border-amber-200 text-amber-900'
+                              : 'bg-blue-50/70 border-blue-200 text-blue-950'
+                          }`}>
+                            <Sparkles className={`w-4 h-4 shrink-0 mt-0.5 ${splitSuggestion.isInGracePeriod ? 'text-amber-600' : 'text-blue-600'}`} />
+                            <div className="space-y-0.5">
+                              <span className="font-bold block">
+                                {splitSuggestion.isInGracePeriod ? '🟡 Okres karencji w spłacie kapitału' : '📐 Kalkulacja bankowa:'}
+                              </span>
+                              <span>{splitSuggestion.explanation}</span>
+                            </div>
+                          </div>
+
+                          {/* Szybkie przyciski sugestii */}
+                          <div className="flex flex-wrap gap-1.5 pt-0.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPaymentType('regular');
+                                setPaymentPrincipal(splitSuggestion.suggestedPrincipal.toFixed(2));
+                                setPaymentInterest(splitSuggestion.suggestedInterest.toFixed(2));
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] transition-all flex items-center gap-1 shadow-2xs cursor-pointer"
+                            >
+                              <Sparkles className="w-3 h-3" />
+                              <span>Sugestia bankowa ({splitSuggestion.suggestedPrincipal.toFixed(2)} zł / {splitSuggestion.suggestedInterest.toFixed(2)} zł)</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPaymentType('overpayment');
+                                setPaymentPrincipal(parsedTotal.toFixed(2));
+                                setPaymentInterest('0.00');
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-semibold text-[11px] transition-colors cursor-pointer"
+                            >
+                              100% kapitał (nadpłata)
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPaymentType('regular');
+                                setPaymentPrincipal('0.00');
+                                setPaymentInterest(parsedTotal.toFixed(2));
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-semibold text-[11px] transition-colors cursor-pointer"
+                            >
+                              100% odsetki (karencja)
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1 border-t border-indigo-100">
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">
+                                Spłata kapitału (zł):
+                              </label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                placeholder="0.00"
+                                value={paymentPrincipal}
+                                onChange={(e) => {
+                                  const pVal = e.target.value;
+                                  setPaymentPrincipal(pVal);
+                                  const pNum = parseFloat(pVal) || 0;
+                                  setPaymentInterest(Math.max(0, parsedTotal - pNum).toFixed(2));
+                                }}
+                                className="w-full px-3 py-1.5 text-xs font-bold text-slate-900 bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">
+                                Koszt odsetek (zł):
+                              </label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                placeholder="0.00"
+                                value={paymentInterest}
+                                onChange={(e) => {
+                                  const iVal = e.target.value;
+                                  setPaymentInterest(iVal);
+                                  const iNum = parseFloat(iVal) || 0;
+                                  setPaymentPrincipal(Math.max(0, parsedTotal - iNum).toFixed(2));
+                                }}
+                                className="w-full px-3 py-1.5 text-xs font-bold text-slate-900 bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">
+                                Typ wpłaty:
+                              </label>
+                              <select
+                                value={paymentType}
+                                onChange={(e) => {
+                                  const newType = e.target.value as any;
+                                  setPaymentType(newType);
+                                  if (newType === 'overpayment') {
+                                    setPaymentPrincipal(parsedTotal.toFixed(2));
+                                    setPaymentInterest('0.00');
+                                  }
+                                }}
+                                className="w-full px-3 py-1.5 text-xs font-semibold bg-white border border-indigo-200 rounded-xl"
+                              >
+                                <option value="regular">Rata standardowa</option>
+                                <option value="overpayment">Nadpłata kapitału</option>
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-700">Notatka / komentarz:</label>
+                      <input
+                        type="text"
+                        placeholder="np. Rata za bieżący miesiąc lub przelew BLIK"
+                        value={paymentNotes}
+                        onChange={(e) => setPaymentNotes(e.target.value)}
+                        className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+
+                    <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-100 text-[11px] text-emerald-800 flex items-center space-x-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>
+                        Wpis automatycznie utworzy powiązaną transakcję w kategorii "Zobowiązania i pożyczki".
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-end space-x-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDebtForPayment(null)}
+                        className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl"
+                      >
+                        Anuluj
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isOverpaid || isNaN(parsedAmt) || parsedAmt <= 0}
+                        className="px-6 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl shadow-md transition-all cursor-pointer"
+                      >
+                        {isOverpaid ? 'Kwota przekracza saldo spłaty' : 'Zapisz spłatę'}
+                      </button>
+                    </div>
+                  </form>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -1743,7 +2235,7 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                 Usunąć wpis zadłużenia?
               </h3>
               <p className="text-xs text-slate-500">
-                Czy na pewno chcesz usunąć "{debtToDelete.name}"? Spowoduje to usunięcie z rejestru zadłużeń. Transakcje powiązane z tym wpisem pozostaną nienaruszone.
+                Czy na pewno chcesz usunąć "{debtToDelete.name}"? Spowoduje to usunięcie z rejestru zadłużeń, powiązanego rachunku, historii wpłat oraz wszystkich powiązanych transakcji w budżecie.
               </p>
             </div>
             <div className="flex items-center justify-center space-x-3 pt-2">
@@ -1757,7 +2249,7 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                 onClick={handleConfirmDelete}
                 className="px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-md shadow-rose-600/20"
               >
-                Usuń zadłużenie
+                Usuń zadłużenie i powiązania
               </button>
             </div>
           </div>

@@ -34,6 +34,7 @@ import {
   AlertCircle,
   Landmark,
   Link2,
+  Percent,
 } from 'lucide-react';
 import { Bill, UtilityServiceType, Transaction, BillPricingType, BillPaymentHistoryItem, DebtItem } from '../types';
 import {
@@ -43,6 +44,12 @@ import {
   getMultipleBillingPeriods,
 } from '../utils/billCycle';
 import { canNavigateToMonth } from '../utils/rollover';
+import {
+  calculateSuggestedLoanSplit,
+  isInterestBearingDebt,
+  getLoanEffectiveInterestRate,
+  isDebtInGracePeriod,
+} from '../utils/loanCalculation';
 
 interface BillsManagerProps {
   bills: Bill[];
@@ -122,6 +129,9 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
     () => new Date().toISOString().split('T')[0]
   );
   const [payModalAmount, setPayModalAmount] = useState<string>('');
+  const [payModalPrincipal, setPayModalPrincipal] = useState<string>('');
+  const [payModalInterest, setPayModalInterest] = useState<string>('');
+  const [payModalSplitMode, setPayModalSplitMode] = useState<boolean>(false);
   const [payModalMeterCurr, setPayModalMeterCurr] = useState<string>('');
   const [payModalCycles, setPayModalCycles] = useState<number>(1); // Liczba opłacanych cykli (1 = bieżący, 2 = 2 z góry, etc.)
 
@@ -538,11 +548,43 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
       initialMeterCurr = bill.meterReading.current ? bill.meterReading.current.toString() : '';
     }
 
+    // Sprawdzenie powiązanego zadłużenia - jeśli to ostatnia rata i kwota zadłużenia jest mniejsza niż stała rata
+    const linkedDebt = bill.debtId ? debts.find((d) => d.id === bill.debtId) : undefined;
+    if (linkedDebt && linkedDebt.currentRemaining > 0) {
+      const parsedInitial = parseFloat(initialAmount) || bill.amount;
+      if (parsedInitial > linkedDebt.currentRemaining) {
+        // Automatyczne dopasowanie do pozostałej kwoty do spłaty, aby nie nadpłacać
+        initialAmount = linkedDebt.currentRemaining.toFixed(2);
+      }
+    }
+
+    const payDate = new Date().toISOString().split('T')[0];
     setPayModalBill(bill);
     setPayModalAmount(initialAmount);
     setPayModalMeterCurr(initialMeterCurr);
-    setPayModalDate(new Date().toISOString().split('T')[0]);
+    setPayModalDate(payDate);
     setPayModalCycles(1);
+
+    // Initial split for debt-linked bills: tylko jeśli dług ma oprocentowanie (np. kredyt bankowy/hipoteczny)
+    if (linkedDebt && isInterestBearingDebt(linkedDebt)) {
+      setPayModalSplitMode(true);
+      const split = calculateSuggestedLoanSplit({
+        debt: linkedDebt,
+        paymentAmount: parseFloat(initialAmount) || bill.amount,
+        paymentDate: payDate,
+        paymentType: 'regular',
+      });
+      setPayModalPrincipal(split.suggestedPrincipal.toFixed(2));
+      setPayModalInterest(split.suggestedInterest.toFixed(2));
+    } else if (bill.debtId) {
+      setPayModalSplitMode(false);
+      setPayModalPrincipal(initialAmount);
+      setPayModalInterest('0.00');
+    } else {
+      setPayModalSplitMode(false);
+      setPayModalPrincipal('');
+      setPayModalInterest('');
+    }
   };
 
   // Automatyczne otwarcie okna opłacenia rachunku po kliknięciu ze skrótu (np. z Pulpitu)
@@ -674,6 +716,40 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
     const txId = `tx-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const historyId = `hist-${Date.now()}-${bill.id}`;
 
+    // Obliczenie kapitału i odsetek dla powiązanego zadłużenia
+    let principalNum = payModalSplitMode && payModalPrincipal
+      ? parseFloat(payModalPrincipal.replace(',', '.'))
+      : (bill.debtId ? parsedAmount : undefined);
+    const interestNum = payModalSplitMode && payModalInterest
+      ? parseFloat(payModalInterest.replace(',', '.'))
+      : undefined;
+
+    // Zabezpieczenie przed nadpłatą zobowiązania przy zatwierdzaniu
+    if (bill.debtId) {
+      const linkedDebt = debts.find((d) => d.id === bill.debtId);
+      if (linkedDebt && linkedDebt.currentRemaining > 0) {
+        const effectivePrincipal = principalNum !== undefined ? principalNum : parsedAmount;
+        if (effectivePrincipal > linkedDebt.currentRemaining + 0.009) {
+          const overpaidDiff = effectivePrincipal - linkedDebt.currentRemaining;
+          const shouldAutoFix = window.confirm(
+            `Zadeklarowana kwota spłaty kapitału (${effectivePrincipal.toFixed(2)} PLN) przekracza pozostałe saldo zadłużenia (${linkedDebt.currentRemaining.toFixed(2)} PLN) o ${overpaidDiff.toFixed(2)} PLN.\n\nCzy chcesz skorygować kwotę do dokładnej kwoty pozostałej (${linkedDebt.currentRemaining.toFixed(2)} PLN), aby uniknąć nadpłaty?`
+          );
+          if (shouldAutoFix) {
+            if (payModalSplitMode) {
+              setPayModalPrincipal(linkedDebt.currentRemaining.toFixed(2));
+              const interestVal = interestNum || 0;
+              setPayModalAmount((linkedDebt.currentRemaining + interestVal).toFixed(2));
+            } else {
+              setPayModalAmount(linkedDebt.currentRemaining.toFixed(2));
+            }
+            return;
+          } else {
+            return;
+          }
+        }
+      }
+    }
+
     // 1. Zapisz transakcję w wydatkach powiązaną z rachunkiem (billId, billPaymentHistoryId, billPeriodDueDate, debtId)
     onAddTransaction({
       id: txId,
@@ -686,16 +762,20 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         cycles > 1
           ? `Opłacono za ${cycles} okresy rozliczeniowe z góry (${periodName}): ${parsedAmount.toFixed(2)} PLN.${
               updatedMeter ? ` Stan licznika: ${updatedMeter.current} ${updatedMeter.unit}.` : ''
-            }`
+            }${principalNum && interestNum ? ` (Kapitał: ${principalNum.toFixed(2)} zł, Odsetki: ${interestNum.toFixed(2)} zł)` : ''}`
           : isVariable
           ? `Opłacono rachunek zmienny (${bill.provider}) za okres ${periodName}: ${parsedAmount.toFixed(2)} PLN.${
               updatedMeter ? ` Stan licznika: ${updatedMeter.current} ${updatedMeter.unit}.` : ''
             }`
-          : `Opłacono opłatę stałą (${bill.provider}) za okres ${periodName}: ${parsedAmount.toFixed(2)} PLN.`,
+          : `Opłacono opłatę stałą (${bill.provider}) za okres ${periodName}: ${parsedAmount.toFixed(2)} PLN.${
+              principalNum && interestNum ? ` (Kapitał: ${principalNum.toFixed(2)} zł, Odsetki: ${interestNum.toFixed(2)} zł)` : ''
+            }`,
       billId: bill.id,
       billPaymentHistoryId: historyId,
       billPeriodDueDate: bill.dueDate,
       debtId: bill.debtId,
+      principalAmount: !isNaN(principalNum as number) ? principalNum : undefined,
+      interestAmount: !isNaN(interestNum as number) ? interestNum : undefined,
     });
 
     const newHistoryItem: BillPaymentHistoryItem = {
@@ -776,7 +856,17 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   const handleOpenBatchPayModal = () => {
     const initialAmounts: Record<string, string> = {};
     nearPendingBills.forEach((b) => {
-      initialAmounts[b.id] = variableEdits[b.id]?.amount || b.amount.toString();
+      let initialAmt = variableEdits[b.id]?.amount || b.amount.toString();
+      if (b.debtId) {
+        const linked = debts.find((d) => d.id === b.debtId);
+        if (linked && linked.currentRemaining > 0) {
+          const parsed = parseFloat(initialAmt) || b.amount;
+          if (parsed > linked.currentRemaining) {
+            initialAmt = linked.currentRemaining.toFixed(2);
+          }
+        }
+      }
+      initialAmounts[b.id] = initialAmt;
     });
     setBatchCustomAmounts(initialAmounts);
     setSelectedBatchBills(nearPendingBills.map((b) => b.id));
@@ -1091,6 +1181,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                 <p className="text-xs text-slate-500 mt-0.5">{bill.provider}</p>
                 {bill.debtId && (() => {
                   const linkedDebt = debts.find((d) => d.id === bill.debtId);
+                  const isFinalInstallment = linkedDebt && linkedDebt.currentRemaining > 0 && linkedDebt.currentRemaining < bill.amount;
                   return (
                     <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
@@ -1102,6 +1193,11 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                           </span>
                         )}
                       </span>
+                      {isFinalInstallment && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                          🏁 Ostatnia rata: {linkedDebt.currentRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} zł
+                        </span>
+                      )}
                     </div>
                   );
                 })()}
@@ -1388,11 +1484,17 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
           })()}
 
           {/* Notes */}
-          {bill.notes && (
-            <p className="text-[11px] text-slate-500 mb-3 italic bg-slate-50 p-2 rounded-lg">
-              {bill.notes}
-            </p>
-          )}
+          {(() => {
+            const cleanedNotes = (bill.notes || '')
+              .replace(/\[Zobowiązanie spłacone - rachunek zakończony\]/gi, '')
+              .trim();
+            if (!cleanedNotes) return null;
+            return (
+              <p className="text-[11px] text-slate-500 mb-3 italic bg-slate-50 p-2 rounded-lg">
+                {cleanedNotes}
+              </p>
+            );
+          })()}
 
           {/* Payment History Expandable */}
           {isHistoryOpen && bill.paymentHistory && (
@@ -1467,14 +1569,22 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
 
               {isFixed ? (
                 /* FIXED BILL: Otwarcie okna wyboru daty i opłacenia */
-                <button
-                  onClick={() => handleOpenPayModal(bill)}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 shadow-xs shrink-0"
-                  title="Wybierz datę i opłać rachunek"
-                >
-                  <Check className="w-4 h-4" />
-                  <span>Opłać {bill.amount.toFixed(2)} PLN</span>
-                </button>
+                (() => {
+                  const linkedDebt = bill.debtId ? debts.find((d) => d.id === bill.debtId) : undefined;
+                  const effectiveAmt = linkedDebt && linkedDebt.currentRemaining > 0 && linkedDebt.currentRemaining < bill.amount
+                    ? linkedDebt.currentRemaining
+                    : bill.amount;
+                  return (
+                    <button
+                      onClick={() => handleOpenPayModal(bill)}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 shadow-xs shrink-0"
+                      title="Wybierz datę i opłać rachunek"
+                    >
+                      <Check className="w-4 h-4" />
+                      <span>Opłać {effectiveAmt.toFixed(2)} PLN</span>
+                    </button>
+                  );
+                })()
               ) : (
                 /* VARIABLE BILL: Otwarcie okna wyboru daty i opłacenia */
                 <button
@@ -2357,6 +2467,15 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
             ? [getBillingPeriodName(bill.dueDate)]
             : getMultipleBillingPeriods(bill.dueDate, bill.billingCycle, payModalCycles);
 
+        const linkedDebt = bill.debtId ? debts.find((d) => d.id === bill.debtId) : undefined;
+        const remainingDebt = linkedDebt ? linkedDebt.currentRemaining : 0;
+        const principalNum = payModalSplitMode && payModalPrincipal
+          ? (parseFloat(payModalPrincipal.replace(',', '.')) || 0)
+          : (parseFloat(payModalAmount.replace(',', '.')) || 0);
+        const isOverpaid = !!linkedDebt && remainingDebt > 0 && principalNum > remainingDebt + 0.009;
+        const overpaidAmount = isOverpaid ? principalNum - remainingDebt : 0;
+        const isFinalInstallment = !!linkedDebt && remainingDebt > 0 && remainingDebt <= bill.amount;
+
         return (
           <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl max-w-lg w-full p-6 border border-slate-200 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
@@ -2545,14 +2664,22 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-800">
-                    Kwota do zapłaty (PLN):
+                    Kwota całkowita raty/rachunku (PLN):
                   </label>
                   <div className="relative">
                     <input
                       type="number"
                       step="0.01"
                       value={payModalAmount}
-                      onChange={(e) => setPayModalAmount(e.target.value)}
+                      onChange={(e) => {
+                        const newAmt = e.target.value;
+                        setPayModalAmount(newAmt);
+                        if (bill.debtId && payModalSplitMode) {
+                          const parsed = parseFloat(newAmt) || 0;
+                          const interest = parseFloat(payModalInterest) || 0;
+                          setPayModalPrincipal(Math.max(0, parsed - interest).toFixed(2));
+                        }
+                      }}
                       className="w-full px-3 py-2 text-sm font-black text-slate-900 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
                       placeholder="0.00"
                     />
@@ -2580,6 +2707,260 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                 )}
               </div>
 
+              {/* Rozbicie raty na kapitał i odsetki dla rachunku powiązanego ze zobowiązaniem/kredytem */}
+              {linkedDebt && (() => {
+                const isInterestLoan = isInterestBearingDebt(linkedDebt);
+                const splitSuggestion = calculateSuggestedLoanSplit({
+                  debt: linkedDebt,
+                  paymentAmount: parseFloat(payModalAmount) || 0,
+                  paymentDate: payModalDate,
+                  paymentType: 'regular',
+                });
+
+                if (!isInterestLoan) {
+                  return (
+                    <div className="p-3.5 rounded-xl border border-indigo-200 bg-indigo-50/70 space-y-1.5 text-xs text-indigo-950">
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <Landmark className="w-4 h-4 text-indigo-600 shrink-0" />
+                        <span>Powiązanie ze zobowiązaniem (0% bez odsetek): {linkedDebt.name}</span>
+                      </div>
+                      <p className="text-[11px] text-indigo-800 leading-relaxed">
+                        To zobowiązanie nie posiada naliczanego oprocentowania. Cała kwota wpłaty (<strong>{payModalAmount || '0.00'} PLN</strong>) pomniejszy pozostałe saldo kapitału (do spłaty: {remainingDebt.toFixed(2)} PLN).
+                      </p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="p-3.5 rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50/90 via-indigo-50/50 to-white space-y-3 shadow-2xs">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                      <div className="flex items-center gap-2">
+                        <div className="p-1.5 rounded-lg bg-indigo-600 text-white shrink-0">
+                          <Landmark className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <span className="text-xs font-black text-indigo-950 block leading-tight">
+                            Podział raty: Kapitał vs Odsetki
+                          </span>
+                          <span className="text-[11px] text-slate-500 font-medium">
+                            Kredyt: <strong className="text-slate-800">{linkedDebt.name}</strong> • Saldo kapitału: <strong>{remainingDebt.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł</strong>
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-1 self-start sm:self-auto">
+                        {splitSuggestion.isInGracePeriod ? (
+                          <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold flex items-center gap-1">
+                            <Clock className="w-3 h-3 text-amber-700" />
+                            <span>Karencja do {splitSuggestion.graceEndDate || 'końca'}</span>
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-900 border border-indigo-200 text-[10px] font-bold flex items-center gap-1">
+                            <Percent className="w-3 h-3 text-indigo-700" />
+                            <span>Oprocentowanie: {splitSuggestion.effectiveAnnualRate}%</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Inteligentny baner sugestii wyliczenia */}
+                    <div className={`p-2.5 rounded-xl border text-[11px] leading-relaxed flex items-start gap-2 ${
+                      splitSuggestion.isInGracePeriod
+                        ? 'bg-amber-50/80 border-amber-200 text-amber-900'
+                        : 'bg-blue-50/70 border-blue-200 text-blue-950'
+                    }`}>
+                      <Sparkles className={`w-4 h-4 shrink-0 mt-0.5 ${splitSuggestion.isInGracePeriod ? 'text-amber-600' : 'text-blue-600'}`} />
+                      <div className="space-y-1">
+                        <span className="font-bold block">
+                          {splitSuggestion.isInGracePeriod
+                            ? '🟡 Wykryto aktywny okres karencji kredytu'
+                            : '📐 Automatyczna kalkulacja bankowa raty:'}
+                        </span>
+                        <span>{splitSuggestion.explanation}</span>
+                      </div>
+                    </div>
+
+                    {/* Szybkie przyciski sugestii podziału */}
+                    <div className="flex flex-wrap gap-1.5 pt-0.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPayModalSplitMode(true);
+                          setPayModalPrincipal(splitSuggestion.suggestedPrincipal.toFixed(2));
+                          setPayModalInterest(splitSuggestion.suggestedInterest.toFixed(2));
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] transition-all flex items-center gap-1 shadow-2xs cursor-pointer"
+                        title="Zastosuj wyliczenie oparte o oprocentowanie i karencję"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        <span>Sugestia bankowa ({splitSuggestion.suggestedPrincipal.toFixed(2)} zł / {splitSuggestion.suggestedInterest.toFixed(2)} zł)</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const total = parseFloat(payModalAmount) || 0;
+                          setPayModalSplitMode(true);
+                          setPayModalPrincipal(total.toFixed(2));
+                          setPayModalInterest('0.00');
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-semibold text-[11px] transition-colors cursor-pointer"
+                        title="100% kwoty przeznaczone na spłatę kapitału"
+                      >
+                        100% kapitał (nadpłata)
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const total = parseFloat(payModalAmount) || 0;
+                          setPayModalSplitMode(true);
+                          setPayModalPrincipal('0.00');
+                          setPayModalInterest(total.toFixed(2));
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-semibold text-[11px] transition-colors cursor-pointer"
+                        title="100% kwoty przeznaczone na koszt odsetkowy"
+                      >
+                        100% odsetki (karencja)
+                      </button>
+                    </div>
+
+                    {/* Edytowalne pola kapitału i odsetek */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1 border-t border-indigo-100">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1 flex items-center justify-between">
+                          <span>Spłata kapitału (zmniejsza dług):</span>
+                          <span className="text-indigo-600 font-bold">Kapitał</span>
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={payModalPrincipal}
+                            onChange={(e) => {
+                              const pVal = e.target.value;
+                              setPayModalPrincipal(pVal);
+                              const total = parseFloat(payModalAmount) || 0;
+                              const pNum = parseFloat(pVal) || 0;
+                              setPayModalInterest(Math.max(0, total - pNum).toFixed(2));
+                            }}
+                            className="w-full px-3 py-2 text-xs font-bold text-slate-900 bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                            placeholder="0.00"
+                          />
+                          <span className="absolute right-3 top-2 text-[11px] font-bold text-slate-400">PLN</span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1 flex items-center justify-between">
+                          <span>Część odsetkowa (koszt bankowy):</span>
+                          <span className="text-amber-600 font-bold">Odsetki</span>
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={payModalInterest}
+                            onChange={(e) => {
+                              const iVal = e.target.value;
+                              setPayModalInterest(iVal);
+                              const total = parseFloat(payModalAmount) || 0;
+                              const iNum = parseFloat(iVal) || 0;
+                              setPayModalPrincipal(Math.max(0, total - iNum).toFixed(2));
+                            }}
+                            className="w-full px-3 py-2 text-xs font-bold text-slate-900 bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                            placeholder="0.00"
+                          />
+                          <span className="absolute right-3 top-2 text-[11px] font-bold text-slate-400">PLN</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <p className="text-[10px] text-indigo-800 leading-relaxed font-medium">
+                      💡 Tylko zadeklarowana część kapitałowa (<strong>{payModalPrincipal || '0.00'} zł</strong>) pomniejszy saldo zadłużenia. W historii transakcji zaksięgowany zostanie pełny wydatek raty (<strong>{payModalAmount || '0.00'} zł</strong>).
+                    </p>
+                  </div>
+                );
+              })()}
+
+              {/* Ostrzeżenie przed nadpłatą / przekroczeniem wartości do spłaty */}
+              {linkedDebt && isOverpaid && (
+                <div className="p-3.5 bg-rose-50/95 border-2 border-rose-300 rounded-2xl space-y-2.5 text-rose-950 animate-in fade-in shadow-xs">
+                  <div className="flex items-start space-x-2.5">
+                    <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <h4 className="font-extrabold text-xs text-rose-900 leading-tight flex items-center gap-1.5">
+                        <span>Kwota przekracza wartość do spłaty!</span>
+                        <span className="px-1.5 py-0.5 rounded bg-rose-200 text-rose-800 text-[10px] font-bold">
+                          Nadpłata: +{overpaidAmount.toFixed(2)} PLN
+                        </span>
+                      </h4>
+                      <p className="text-[11px] text-rose-800 leading-relaxed font-medium">
+                        Zadeklarowano spłatę kapitału: <strong>{principalNum.toFixed(2)} PLN</strong>. Do całkowitego zamknięcia zobowiązania <em>„{linkedDebt.name}”</em> należy zapłacić dokładnie <strong>{remainingDebt.toFixed(2)} PLN</strong>.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="pt-0.5 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const interestVal = parseFloat(payModalInterest.replace(',', '.')) || 0;
+                        if (payModalSplitMode) {
+                          setPayModalPrincipal(remainingDebt.toFixed(2));
+                          setPayModalAmount((remainingDebt + interestVal).toFixed(2));
+                        } else {
+                          setPayModalAmount(remainingDebt.toFixed(2));
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white rounded-xl font-bold text-xs shadow-xs transition-all cursor-pointer"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Ustaw dokładną kwotę do spłaty ({remainingDebt.toFixed(2)} PLN)</span>
+                    </button>
+                    <span className="text-[10px] text-rose-700 font-semibold">
+                      (zapobiega nadpłacie długu)
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Informacja o ostatniej racie gdy kwota nie jest przekroczona */}
+              {linkedDebt && remainingDebt > 0 && !isOverpaid && isFinalInstallment && (
+                <div className="p-3.5 bg-emerald-50/90 border border-emerald-300/90 rounded-2xl space-y-2 text-emerald-950 animate-in fade-in shadow-2xs">
+                  <div className="flex items-start space-x-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <div className="space-y-0.5">
+                      <h4 className="font-extrabold text-xs text-emerald-900 flex items-center gap-1.5">
+                        <span>🏁 Ostatnia rata zobowiązania: {linkedDebt.name}</span>
+                      </h4>
+                      <p className="text-[11px] text-emerald-800 leading-relaxed">
+                        Do pełnego zamknięcia zobowiązania pozostało dokładnie <strong>{remainingDebt.toFixed(2)} PLN</strong>{remainingDebt < bill.amount ? ` (mniej niż pierwotna rata ${bill.amount.toFixed(2)} PLN)` : ''}.
+                      </p>
+                    </div>
+                  </div>
+                  {Math.abs(principalNum - remainingDebt) > 0.009 && (
+                    <div className="pt-0.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const interestVal = parseFloat(payModalInterest.replace(',', '.')) || 0;
+                          if (payModalSplitMode) {
+                            setPayModalPrincipal(remainingDebt.toFixed(2));
+                            setPayModalAmount((remainingDebt + interestVal).toFixed(2));
+                          } else {
+                            setPayModalAmount(remainingDebt.toFixed(2));
+                          }
+                        }}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px] shadow-2xs transition-colors cursor-pointer"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        <span>Dopasuj do pełnej spłaty ({remainingDebt.toFixed(2)} PLN)</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Podsumowanie skutków opłacenia */}
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 text-xs text-slate-600 space-y-1.5">
                 <div className="flex items-center justify-between">
@@ -2596,15 +2977,26 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                 </div>
                 {bill.debtId && (() => {
                   const linkedDebt = debts.find((d) => d.id === bill.debtId);
+                  const remAfter = linkedDebt ? Math.max(0, linkedDebt.currentRemaining - principalNum) : 0;
                   return (
-                    <div className="flex items-center justify-between text-indigo-700 bg-indigo-50/80 p-2 rounded-lg border border-indigo-200">
-                      <span className="flex items-center gap-1.5 font-semibold">
-                        <Landmark className="w-3.5 h-3.5 text-indigo-600" />
-                        Spłata zobowiązania:
-                      </span>
-                      <span className="font-bold">
-                        {linkedDebt ? linkedDebt.name : 'Zobowiązanie'} (pomniejszy saldo)
-                      </span>
+                    <div className="space-y-1 text-indigo-700 bg-indigo-50/80 p-2 rounded-lg border border-indigo-200">
+                      <div className="flex items-center justify-between">
+                        <span className="flex items-center gap-1.5 font-semibold">
+                          <Landmark className="w-3.5 h-3.5 text-indigo-600" />
+                          Spłata zobowiązania:
+                        </span>
+                        <span className="font-bold">
+                          {linkedDebt ? linkedDebt.name : 'Zobowiązanie'}
+                        </span>
+                      </div>
+                      {linkedDebt && (
+                        <div className="flex items-center justify-between text-[11px] text-indigo-900 pt-0.5 border-t border-indigo-200/60">
+                          <span>Pozostałość po tej wpłacie:</span>
+                          <span className={`font-bold ${remAfter <= 0.01 ? 'text-emerald-700' : 'text-indigo-800'}`}>
+                            {remAfter <= 0.01 ? '0.00 PLN (Całkowicie spłacone 🎉)' : `${remAfter.toFixed(2)} PLN`}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
@@ -2654,13 +3046,15 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                 </button>
                 <button
                   type="button"
-                  disabled={!isValidAmount || !payModalDate}
+                  disabled={!isValidAmount || !payModalDate || isOverpaid}
                   onClick={handleConfirmPayment}
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl flex items-center space-x-2 transition-all shadow-xs"
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl flex items-center space-x-2 transition-all shadow-xs cursor-pointer"
                 >
                   <Check className="w-4 h-4" />
                   <span>
-                    Zatwierdź opłatę ({isValidAmount ? numAmount.toFixed(2) : '0.00'} PLN)
+                    {isOverpaid
+                      ? 'Kwota przekracza saldo spłaty'
+                      : `Zatwierdź opłatę (${isValidAmount ? numAmount.toFixed(2) : '0.00'} PLN)`}
                   </span>
                 </button>
               </div>
@@ -2917,7 +3311,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
 
             <form onSubmit={handleSubmitBill} className="space-y-3.5">
               {/* Debt Link Section */}
-              {debts && debts.length > 0 && (
+              {debts && debts.filter((d) => d.status !== 'settled' && d.currentRemaining > 0).length > 0 && (
                 <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-xl space-y-2">
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
@@ -2969,7 +3363,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                     className="w-full px-3 py-2 text-xs font-semibold bg-white border border-indigo-200 rounded-lg text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                   >
                     <option value="">-- Zwykły rachunek domowy (bez powiązania) --</option>
-                    {debts.map((d) => (
+                    {debts.filter((d) => d.status !== 'settled' && d.currentRemaining > 0).map((d) => (
                       <option key={d.id} value={d.id}>
                         {d.type === 'borrowed' ? '🏦 Kredyt / Zobowiązanie' : '🤝 Pożyczka'}: {d.name} ({d.counterparty}) — do spłaty: {d.currentRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł
                       </option>
@@ -3295,7 +3689,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
 
             <form onSubmit={handleSaveEditBill} className="space-y-4">
               {/* Debt Link Section in Edit */}
-              {debts && debts.length > 0 && (
+              {debts && debts.filter((d) => d.id === editSelectedDebtId || (d.status !== 'settled' && d.currentRemaining > 0)).length > 0 && (
                 <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-xl space-y-2">
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
@@ -3318,11 +3712,13 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                     className="w-full px-3 py-2 text-xs font-semibold bg-white border border-indigo-200 rounded-lg text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                   >
                     <option value="">-- Brak powiązania (zwykły rachunek) --</option>
-                    {debts.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.type === 'borrowed' ? '🏦 Kredyt / Zobowiązanie' : '🤝 Pożyczka'}: {d.name} ({d.counterparty}) — do spłaty: {d.currentRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł
-                      </option>
-                    ))}
+                    {debts
+                      .filter((d) => d.id === editSelectedDebtId || (d.status !== 'settled' && d.currentRemaining > 0))
+                      .map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.type === 'borrowed' ? '🏦 Kredyt / Zobowiązanie' : '🤝 Pożyczka'}: {d.name} ({d.counterparty}) — do spłaty: {d.currentRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł
+                        </option>
+                      ))}
                   </select>
                 </div>
               )}

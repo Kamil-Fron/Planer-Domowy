@@ -23,8 +23,12 @@ import {
   CheckCircle2,
   Package,
   Landmark,
+  Building2,
+  Users,
+  User,
+  Percent,
 } from 'lucide-react';
-import { Transaction, TransactionType, ShoppingItem, ShoppingList, DebtItem } from '../types';
+import { Transaction, TransactionType, ShoppingItem, ShoppingList, DebtItem, DebtType, DebtCategory } from '../types';
 import { INITIAL_CATEGORIES, INITIAL_INCOME_CATEGORIES } from '../mockData';
 import {
   getSmartShoppingSuggestions,
@@ -36,12 +40,18 @@ import {
   recordTransactionUsage,
   SmartTransactionSuggestion,
 } from '../utils/frequentTransactions';
+import {
+  calculateSuggestedLoanSplit,
+  isInterestBearingDebt,
+  isDebtInGracePeriod,
+} from '../utils/loanCalculation';
 
 interface QuickAddModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAddTransaction: (transaction: Omit<Transaction, 'id' | 'createdAt'>) => void;
   onAddShoppingItem?: (item: Omit<ShoppingItem, 'id' | 'createdAt'>) => void;
+  onAddDebt?: (debt: DebtItem) => void;
   transactions?: Transaction[];
   shoppingLists?: ShoppingList[];
   shoppingItems?: ShoppingItem[];
@@ -119,6 +129,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
   onClose,
   onAddTransaction,
   onAddShoppingItem,
+  onAddDebt,
   transactions = [],
   shoppingLists = [],
   shoppingItems = [],
@@ -137,7 +148,17 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
   const [date, setDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [comment, setComment] = useState<string>('');
   const [debtId, setDebtId] = useState<string>('');
+  const [debtPrincipal, setDebtPrincipal] = useState<string>('');
+  const [debtInterest, setDebtInterest] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
+
+  // New Debt creation sub-form state when category === 'Zobowiązania i pożyczki'
+  const [debtActionType, setDebtActionType] = useState<'link' | 'create_new'>('link');
+  const [newDebtCounterparty, setNewDebtCounterparty] = useState<string>('');
+  const [newDebtDueDate, setNewDebtDueDate] = useState<string>('');
+  const [newDebtCategory, setNewDebtCategory] = useState<DebtCategory>('inne');
+  const [newDebtMonthlyPayment, setNewDebtMonthlyPayment] = useState<string>('');
+  const [newDebtNotes, setNewDebtNotes] = useState<string>('');
 
   // Shopping form state (simplified: only title/description & category)
   const [shoppingItemName, setShoppingItemName] = useState<string>('');
@@ -219,6 +240,75 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
       return;
     }
 
+    const isDebtCategory = category === 'Zobowiązania i pożyczki';
+    let assignedDebtId = debtId || undefined;
+    let debtAction: 'borrow' | 'repay_borrowed' | 'lend' | 'receive_lent' | undefined = undefined;
+
+    let principalAmt: number | undefined = undefined;
+    let interestAmt: number | undefined = undefined;
+
+    // If user is adding a NEW debt/loan directly in QuickAdd
+    if (isDebtCategory && debtActionType === 'create_new' && onAddDebt) {
+      const counterparty = newDebtCounterparty.trim() || (type === 'income' ? 'Bank / Wierzyciel' : 'Dłużnik');
+      const debtName = title.trim() || (type === 'income' ? `Zobowiązanie: ${counterparty}` : `Pożyczka dla: ${counterparty}`);
+      const monthlyPmt = parseFloat(newDebtMonthlyPayment.replace(',', '.')) || undefined;
+      const createdDebtId = `debt-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const debtType: DebtType = type === 'income' ? 'borrowed' : 'lent';
+
+      const newDebtItem: DebtItem = {
+        id: createdDebtId,
+        type: debtType,
+        category: newDebtCategory,
+        name: debtName,
+        counterparty: counterparty,
+        initialAmount: cleanAmount,
+        totalAmount: cleanAmount,
+        currentRemaining: cleanAmount,
+        paidAmount: 0,
+        startDate: date || new Date().toISOString().split('T')[0],
+        dueDate: newDebtDueDate || undefined,
+        monthlyPayment: monthlyPmt,
+        status: 'active',
+        notes: newDebtNotes.trim() || undefined,
+        paymentsHistory: [],
+        createdAt: new Date().toISOString(),
+      };
+
+      onAddDebt(newDebtItem);
+      assignedDebtId = createdDebtId;
+      debtAction = debtType === 'borrowed' ? 'borrow' : 'lend';
+    } else if (isDebtCategory && assignedDebtId) {
+      const targetDebt = debts.find((d) => d.id === assignedDebtId);
+      if (targetDebt) {
+        if (targetDebt.currentRemaining > 0 && cleanAmount > targetDebt.currentRemaining + 0.009) {
+          const over = cleanAmount - targetDebt.currentRemaining;
+          setError(`Kwota (${cleanAmount.toFixed(2)} zł) przekracza pozostałe saldo zobowiązania (${targetDebt.currentRemaining.toFixed(2)} zł) o ${over.toFixed(2)} zł.`);
+          return;
+        }
+
+        if (isInterestBearingDebt(targetDebt)) {
+          if (debtPrincipal) {
+            const p = parseFloat(debtPrincipal.replace(',', '.'));
+            if (!isNaN(p) && p >= 0) {
+              principalAmt = p;
+              interestAmt = Math.max(0, Math.round((cleanAmount - p) * 100) / 100);
+            }
+          }
+          if (principalAmt === undefined) {
+            const split = calculateSuggestedLoanSplit({
+              debt: targetDebt,
+              paymentAmount: cleanAmount,
+              paymentDate: date,
+              paymentType: 'regular',
+            });
+            principalAmt = split.suggestedPrincipal;
+            interestAmt = split.suggestedInterest;
+          }
+        }
+      }
+      debtAction = type === 'expense' ? 'repay_borrowed' : 'receive_lent';
+    }
+
     const finalTitle = title.trim() || (type === 'expense' ? `Wydatek: ${category}` : `Wpływ: ${category}`);
 
     const newTxData = {
@@ -228,7 +318,11 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
       category,
       date: date || new Date().toISOString().split('T')[0],
       comment: comment.trim() || undefined,
-      debtId: debtId || undefined,
+      debtId: isDebtCategory ? assignedDebtId : undefined,
+      debtAction: isDebtCategory ? debtAction : undefined,
+      debtCounterparty: isDebtCategory && debtActionType === 'create_new' ? newDebtCounterparty.trim() : undefined,
+      principalAmount: principalAmt,
+      interestAmount: interestAmt,
     };
 
     onAddTransaction(newTxData);
@@ -531,71 +625,397 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
               </div>
             </div>
 
-            {/* Debt Link Selector in QuickAdd */}
-            {debts.length > 0 && (
-              <div className={`p-3 rounded-xl border space-y-1.5 transition-all ${
-                category === 'Zobowiązania i pożyczki'
-                  ? 'bg-indigo-50/80 border-indigo-300 ring-2 ring-indigo-200/50'
-                  : 'bg-slate-50/80 border-slate-200'
-              }`}>
-                <div className="flex items-center justify-between">
-                  <label className="text-[11px] font-bold text-slate-900 flex items-center gap-1.5">
-                    <Landmark className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>Powiąż ze zobowiązaniem / pożyczką</span>
-                    {category === 'Zobowiązania i pożyczki' && (
-                      <span className="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.2 rounded">Zalecane</span>
-                    )}
-                  </label>
-                  {debtId && (
+            {/* Debt Link or Create New Debt Selector in QuickAdd (Strictly shown only when category === 'Zobowiązania i pożyczki') */}
+            {category === 'Zobowiązania i pożyczki' && (() => {
+              const matchingDebts = debts.filter(
+                (d) =>
+                  (type === 'expense' ? d.type === 'borrowed' : d.type === 'lent') &&
+                  d.status !== 'settled' &&
+                  d.currentRemaining > 0
+              );
+
+              return (
+                <div className="p-3.5 rounded-xl border border-indigo-200 bg-indigo-50/70 space-y-3 transition-all animate-in fade-in">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Landmark className="w-4 h-4 text-indigo-600 shrink-0" />
+                      <span className="text-xs font-bold text-indigo-950">
+                        {debtActionType === 'create_new'
+                          ? type === 'income'
+                            ? 'Nowe zobowiązanie (Wpływ pożyczki / kredytu od wierzyciela)'
+                            : 'Nowa udzielona pożyczka (Wydatek na pożyczkę dla dłużnika)'
+                          : type === 'expense'
+                          ? 'Spłata zobowiązania (Wydatek na rzecz wierzyciela)'
+                          : 'Zwrot pożyczki (Wpływ od dłużnika)'}
+                      </span>
+                    </div>
+                    <span className="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.5 rounded">
+                      Zobowiązania
+                    </span>
+                  </div>
+
+                  {/* Mode switcher: Powiąż z istniejącym vs Utwórz nowe zobowiązanie */}
+                  <div className="flex rounded-lg bg-indigo-100/70 p-0.5 text-xs font-semibold">
                     <button
                       type="button"
-                      onClick={() => setDebtId('')}
-                      className="text-[10px] text-indigo-600 hover:text-indigo-800 underline font-medium cursor-pointer"
+                      onClick={() => setDebtActionType('link')}
+                      className={`flex-1 py-1 px-2 rounded-md transition-all ${
+                        debtActionType === 'link'
+                          ? 'bg-white text-indigo-900 shadow-2xs font-bold'
+                          : 'text-indigo-700 hover:text-indigo-900'
+                      }`}
                     >
-                      Odłącz
+                      Powiąż z istniejącym ({matchingDebts.length})
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDebtActionType('create_new');
+                        setDebtId('');
+                      }}
+                      className={`flex-1 py-1 px-2 rounded-md transition-all ${
+                        debtActionType === 'create_new'
+                          ? 'bg-white text-indigo-900 shadow-2xs font-bold'
+                          : 'text-indigo-700 hover:text-indigo-900'
+                      }`}
+                    >
+                      + Utwórz nowe w sekcji Zadłużenia
+                    </button>
+                  </div>
+
+                  {debtActionType === 'link' ? (
+                    matchingDebts.length > 0 ? (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[11px] font-semibold text-slate-700">
+                            {type === 'expense' ? 'Wybierz zobowiązanie do spłaty:' : 'Wybierz pożyczkę do rozliczenia (zwrot od dłużnika):'}
+                          </label>
+                          {debtId && (
+                            <button
+                              type="button"
+                              onClick={() => setDebtId('')}
+                              className="text-[10px] text-indigo-600 hover:text-indigo-800 underline font-medium cursor-pointer"
+                            >
+                              Odłącz
+                            </button>
+                          )}
+                        </div>
+                        <select
+                          value={debtId}
+                          onChange={(e) => {
+                            const dId = e.target.value;
+                            setDebtId(dId);
+                            if (dId) {
+                              const targetDebt = debts.find((d) => d.id === dId);
+                              if (targetDebt) {
+                                if (!title) {
+                                  setTitle(type === 'expense' ? `Spłata: ${targetDebt.name}` : `Zwrot pożyczki: ${targetDebt.name}`);
+                                }
+                                let amountToUse = amount;
+                                if (!amount) {
+                                  if (targetDebt.monthlyPayment && targetDebt.monthlyPayment <= targetDebt.currentRemaining) {
+                                    amountToUse = String(targetDebt.monthlyPayment);
+                                    setAmount(amountToUse);
+                                  } else if (targetDebt.currentRemaining) {
+                                    amountToUse = targetDebt.currentRemaining.toFixed(2);
+                                    setAmount(amountToUse);
+                                  }
+                                }
+                                const parsedAmt = parseFloat(amountToUse.replace(',', '.')) || 0;
+                                if (isInterestBearingDebt(targetDebt) && parsedAmt > 0) {
+                                  const split = calculateSuggestedLoanSplit({
+                                    debt: targetDebt,
+                                    paymentAmount: parsedAmt,
+                                    paymentDate: date || new Date().toISOString().split('T')[0],
+                                    paymentType: 'regular',
+                                  });
+                                  setDebtPrincipal(split.suggestedPrincipal.toFixed(2));
+                                  setDebtInterest(split.suggestedInterest.toFixed(2));
+                                } else {
+                                  setDebtPrincipal(amountToUse);
+                                  setDebtInterest('0.00');
+                                }
+                              }
+                            } else {
+                              setDebtPrincipal('');
+                              setDebtInterest('');
+                            }
+                          }}
+                          className="w-full px-3 py-2 text-xs font-semibold bg-white border border-indigo-200 rounded-lg text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden cursor-pointer"
+                        >
+                          <option value="">-- Wybierz pozycję (lub brak powiązania) --</option>
+                          {matchingDebts.map((d) => (
+                            <option key={d.id} value={d.id}>
+                              {d.type === 'borrowed' ? '🏦 Kredyt / Zobowiązanie' : '🤝 Udzielona pożyczka'}: {d.name} ({d.counterparty}) — {d.type === 'borrowed' ? 'do spłaty' : 'do odzyskania'}: {d.currentRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł
+                            </option>
+                          ))}
+                        </select>
+                        {debtId && (() => {
+                          const targetDebt = debts.find((d) => d.id === debtId);
+                          const parsedNum = parseFloat(amount.replace(',', '.')) || 0;
+                          const isOver = targetDebt && targetDebt.currentRemaining > 0 && parsedNum > targetDebt.currentRemaining + 0.009;
+                          const hasInterest = targetDebt && isInterestBearingDebt(targetDebt);
+
+                          const splitSuggestion = targetDebt && hasInterest
+                            ? calculateSuggestedLoanSplit({
+                                debt: targetDebt,
+                                paymentAmount: parsedNum,
+                                paymentDate: date || new Date().toISOString().split('T')[0],
+                                paymentType: 'regular',
+                              })
+                            : null;
+
+                          return (
+                            <div className="space-y-2.5">
+                              {isOver && (
+                                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-300 text-xs text-rose-950 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                  <div>
+                                    <span className="font-bold block text-rose-900">
+                                      ⚠️ Kwota ({parsedNum.toFixed(2)} zł) przekracza pozostałe saldo ({targetDebt.currentRemaining.toFixed(2)} zł)!
+                                    </span>
+                                    <span className="text-[10px] text-rose-800">
+                                      Do całkowitego rozliczenia należy zapłacić {targetDebt.currentRemaining.toFixed(2)} zł.
+                                    </span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setAmount(targetDebt.currentRemaining.toFixed(2));
+                                      if (hasInterest) {
+                                        const split = calculateSuggestedLoanSplit({
+                                          debt: targetDebt,
+                                          paymentAmount: targetDebt.currentRemaining,
+                                          paymentDate: date || new Date().toISOString().split('T')[0],
+                                          paymentType: 'regular',
+                                        });
+                                        setDebtPrincipal(split.suggestedPrincipal.toFixed(2));
+                                        setDebtInterest(split.suggestedInterest.toFixed(2));
+                                      }
+                                    }}
+                                    className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-md font-bold text-[11px] shrink-0 transition-colors cursor-pointer"
+                                  >
+                                    Ustaw {targetDebt.currentRemaining.toFixed(2)} zł
+                                  </button>
+                                </div>
+                              )}
+
+                              {hasInterest && splitSuggestion && (
+                                <div className="p-3 rounded-xl bg-white border border-indigo-200 space-y-2 shadow-2xs">
+                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                                    <span className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                                      <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                                      <span>Automatyczny podział raty (kapitał / odsetki)</span>
+                                    </span>
+                                    <div className="flex items-center gap-1">
+                                      {splitSuggestion.isInGracePeriod ? (
+                                        <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold">
+                                          Karencja do {splitSuggestion.graceEndDate || 'końca'}
+                                        </span>
+                                      ) : (
+                                        <span className="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-900 border border-indigo-200 text-[10px] font-bold">
+                                          Oproc.: {splitSuggestion.effectiveAnnualRate}%
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <p className="text-[11px] text-slate-600 leading-snug">
+                                    {splitSuggestion.explanation}
+                                  </p>
+
+                                  <div className="flex flex-wrap gap-1 pt-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setDebtPrincipal(splitSuggestion.suggestedPrincipal.toFixed(2));
+                                        setDebtInterest(splitSuggestion.suggestedInterest.toFixed(2));
+                                      }}
+                                      className="px-2 py-0.5 rounded bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold transition-colors cursor-pointer"
+                                    >
+                                      Sugestia bankowa ({splitSuggestion.suggestedPrincipal.toFixed(2)} zł / {splitSuggestion.suggestedInterest.toFixed(2)} zł)
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setDebtPrincipal(parsedNum.toFixed(2));
+                                        setDebtInterest('0.00');
+                                      }}
+                                      className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 text-[10px] font-semibold transition-colors cursor-pointer"
+                                    >
+                                      100% kapitał
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setDebtPrincipal('0.00');
+                                        setDebtInterest(parsedNum.toFixed(2));
+                                      }}
+                                      className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 text-[10px] font-semibold transition-colors cursor-pointer"
+                                    >
+                                      100% odsetki
+                                    </button>
+                                  </div>
+
+                                  <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-100">
+                                    <div>
+                                      <label className="block text-[10px] font-bold text-slate-600 uppercase mb-0.5">
+                                        Kapitał (zł):
+                                      </label>
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        placeholder="0.00"
+                                        value={debtPrincipal}
+                                        onChange={(e) => {
+                                          const p = e.target.value;
+                                          setDebtPrincipal(p);
+                                          const pNum = parseFloat(p) || 0;
+                                          setDebtInterest(Math.max(0, Math.round((parsedNum - pNum) * 100) / 100).toFixed(2));
+                                        }}
+                                        className="w-full px-2.5 py-1 text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[10px] font-bold text-slate-600 uppercase mb-0.5">
+                                        Odsetki (zł):
+                                      </label>
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        placeholder="0.00"
+                                        value={debtInterest}
+                                        onChange={(e) => {
+                                          const i = e.target.value;
+                                          setDebtInterest(i);
+                                          const iNum = parseFloat(i) || 0;
+                                          setDebtPrincipal(Math.max(0, Math.round((parsedNum - iNum) * 100) / 100).toFixed(2));
+                                        }}
+                                        className="w-full px-2.5 py-1 text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+
+                              <p className="text-[10px] text-indigo-800 font-medium">
+                                {type === 'expense'
+                                  ? (hasInterest
+                                      ? '💡 Spłata kapitału pomniejszy saldo kredytu. Część odsetkowa zostanie zarejestrowana jako koszt obsługi długu.'
+                                      : '💡 Zapisanie wydatku automatycznie pomniejszy saldo Twojego zadłużenia wobec wierzyciela i doda wpis w historii spłat.')
+                                  : '💡 Zapisanie wpływu automatycznie pomniejszy kwotę do zwrotu od dłużnika i doda wpis w historii spłat.'}
+                              </p>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    ) : (
+                      <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900 space-y-1">
+                        <p className="font-semibold">
+                          Brak aktywnych pozycji ({type === 'expense' ? 'zobowiązań/kredytów do spłaty' : 'pożyczek udzielonych innym do odzyskania'}).
+                        </p>
+                        <p className="text-[11px] text-amber-800">
+                          Możesz przełączyć na zakładkę <strong>„+ Utwórz nowe”</strong> powyżej, aby dodać nową pozycję w sekcji Zadłużenia.
+                        </p>
+                      </div>
+                    )
+                  ) : (
+                    /* Create New Debt Sub-form in QuickAdd */
+                    <div className="p-3 bg-white rounded-xl border border-indigo-200 space-y-2.5">
+                      <div className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                        <User className="w-3.5 h-3.5 text-indigo-600" />
+                        <span>
+                          {type === 'income'
+                            ? 'Parametry nowego zobowiązania (Wierzyciel / Kredytodawca):'
+                            : 'Parametry nowej pożyczki (Dłużnik / Komu pożyczasz):'}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                            {type === 'income' ? 'Wierzyciel / Bank / Osoba od której pożyczasz *' : 'Dłużnik / Osoba której pożyczasz *'}
+                          </label>
+                          <input
+                            type="text"
+                            placeholder={type === 'income' ? 'np. PKO BP, Santander, Tomek' : 'np. Marek, Kasia, Znajomy'}
+                            value={newDebtCounterparty}
+                            onChange={(e) => setNewDebtCounterparty(e.target.value)}
+                            className="w-full px-2.5 py-1.5 text-xs font-medium bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                            Kategoria długu
+                          </label>
+                          <select
+                            value={newDebtCategory}
+                            onChange={(e) => setNewDebtCategory(e.target.value as DebtCategory)}
+                            className="w-full px-2.5 py-1.5 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                          >
+                            <option value="inne">Inne</option>
+                            <option value="kredyt_gotowkowy">Kredyt gotówkowy</option>
+                            <option value="kredyt_hipoteczny">Kredyt hipoteczny</option>
+                            <option value="pozyczka_znajomy">Pożyczka prywatna / znajomi</option>
+                            <option value="karta_kredytowa">Karta kredytowa / debet</option>
+                            <option value="chwilowka">Chwilówka / pożyczka pozabankowa</option>
+                            <option value="leasing_auto">Leasing / Auto</option>
+                            <option value="zakupy_raty">Zakupy na raty</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                            Termin całkowitego zwrotu (opcjonalnie)
+                          </label>
+                          <input
+                            type="date"
+                            value={newDebtDueDate}
+                            onChange={(e) => setNewDebtDueDate(e.target.value)}
+                            className="w-full px-2.5 py-1.5 text-xs font-medium bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                            Rata miesięczna (PLN, opcjonalnie)
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            placeholder="np. 450.00"
+                            value={newDebtMonthlyPayment}
+                            onChange={(e) => setNewDebtMonthlyPayment(e.target.value)}
+                            className="w-full px-2.5 py-1.5 text-xs font-medium bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                          Notatka / Opis zobowiązania (opcjonalnie)
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="np. Pożyczka na naprawę samochodu"
+                          value={newDebtNotes}
+                          onChange={(e) => setNewDebtNotes(e.target.value)}
+                          className="w-full px-2.5 py-1.5 text-xs font-medium bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                        />
+                      </div>
+
+                      <p className="text-[10px] text-emerald-800 font-medium bg-emerald-50 p-2 rounded-lg border border-emerald-200">
+                        {type === 'income'
+                          ? `✨ Rejestrujesz wpływ (np. kredyt/pożyczka). W sekcji Zadłużenia utworzy się zobowiązanie wobec wierzyciela ze stanem do spłaty: ${amount || '0.00'} PLN.`
+                          : `✨ Rejestrujesz wydatek (pożyczasz komuś). W sekcji Zadłużenia utworzy się należność od dłużnika ze stanem do zwrotu: ${amount || '0.00'} PLN.`}
+                      </p>
+                    </div>
                   )}
                 </div>
-                <select
-                  value={debtId}
-                  onChange={(e) => {
-                    const dId = e.target.value;
-                    setDebtId(dId);
-                    if (dId) {
-                      const targetDebt = debts.find((d) => d.id === dId);
-                      if (targetDebt) {
-                        if (!title) {
-                          setTitle(type === 'expense' ? `Spłata: ${targetDebt.name}` : `Zwrot: ${targetDebt.name}`);
-                        }
-                        if (!amount) {
-                          if (targetDebt.monthlyPayment) {
-                            setAmount(String(targetDebt.monthlyPayment));
-                          } else if (targetDebt.currentRemaining) {
-                            setAmount(String(targetDebt.currentRemaining));
-                          }
-                        }
-                        if (type === 'expense') {
-                          setCategory('Zobowiązania i pożyczki');
-                        }
-                      }
-                    }
-                  }}
-                  className="w-full px-3 py-2 text-xs font-semibold bg-white border border-slate-200 rounded-lg text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden cursor-pointer"
-                >
-                  <option value="">-- Bez powiązania (opcjonalnie) --</option>
-                  {debts.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.type === 'borrowed' ? '🏦 Kredyt' : '🤝 Pożyczka'}: {d.name} ({d.counterparty}) — do spłaty: {d.currentRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł
-                    </option>
-                  ))}
-                </select>
-                {debtId && (
-                  <p className="text-[10px] text-indigo-800 font-medium">
-                    💡 Zapisanie transakcji automatycznie <strong>pomniejszy saldo zadłużenia</strong> w sekcji <em>Zadłużenia</em>.
-                  </p>
-                )}
-              </div>
-            )}
+              );
+            })()}
 
             {/* Dynamic Smart Transaction Suggestions - now placed right after Title & Category */}
             <div>
@@ -685,18 +1105,30 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
               >
                 Anuluj
               </button>
-              <button
-                type="submit"
-                id="quick-add-submit-btn"
-                className={`flex-1 flex items-center justify-center space-x-2 py-3 px-4 rounded-2xl text-xs font-bold text-white shadow-md transition-all active:scale-98 ${
-                  type === 'expense'
-                    ? 'bg-rose-600 hover:bg-rose-700 shadow-rose-200'
-                    : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200'
-                }`}
-              >
-                <Check className="w-4 h-4" />
-                <span>Zapisz transakcję</span>
-              </button>
+              {(() => {
+                const isDebtCategory = category === 'Zobowiązania i pożyczki';
+                const linkedDebtTarget = isDebtCategory && debtActionType === 'link' && debtId
+                  ? debts.find((d) => d.id === debtId)
+                  : undefined;
+                const parsedAmt = parseFloat(amount.replace(',', '.')) || 0;
+                const isDebtOverpaid = !!linkedDebtTarget && linkedDebtTarget.currentRemaining > 0 && parsedAmt > linkedDebtTarget.currentRemaining + 0.009;
+
+                return (
+                  <button
+                    type="submit"
+                    id="quick-add-submit-btn"
+                    disabled={isDebtOverpaid}
+                    className={`flex-1 flex items-center justify-center space-x-2 py-3 px-4 rounded-2xl text-xs font-bold text-white shadow-md transition-all active:scale-98 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
+                      type === 'expense'
+                        ? 'bg-rose-600 hover:bg-rose-700 shadow-rose-200'
+                        : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200'
+                    }`}
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>{isDebtOverpaid ? 'Kwota przekracza saldo spłaty' : 'Zapisz transakcję'}</span>
+                  </button>
+                );
+              })()}
             </div>
           </form>
         )}

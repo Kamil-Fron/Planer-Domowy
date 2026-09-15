@@ -89,6 +89,7 @@ import {
   isPushSupported,
 } from './utils/pushManager';
 import { calculatePreviousDueDate } from './utils/billCycle';
+import { calculateSuggestedLoanSplit, isInterestBearingDebt } from './utils/loanCalculation';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
@@ -351,7 +352,7 @@ export default function App() {
   // Comprehensive Activity & Notification Recording Handler
   const recordActivity = (options: {
     action: 'create' | 'update' | 'delete' | 'restore';
-    entityType: 'transaction' | 'shopping_item' | 'bill' | 'budget_limit' | 'shopping_list' | 'household' | 'system';
+    entityType: 'transaction' | 'shopping_item' | 'bill' | 'budget_limit' | 'shopping_list' | 'debt' | 'household' | 'system';
     entityId: string;
     title: string;
     description: string;
@@ -432,6 +433,8 @@ export default function App() {
           ? 'shopping'
           : options.entityType === 'budget_limit'
           ? 'limits'
+          : options.entityType === 'debt'
+          ? 'debts'
           : 'dashboard');
 
       const notif: AppNotification = {
@@ -595,6 +598,47 @@ export default function App() {
         description: `Miesięczny limit ${limit.monthlyLimit.toFixed(2)} PLN`,
         targetTab: 'limits',
         snapshot: limit,
+      });
+    } else if (entry.entityType === 'debt') {
+      const debt = payloadData as DebtItem;
+      setDebts((prev) => {
+        if (prev.some((d) => d.id === debt.id)) return prev;
+        const updated = [debt, ...prev];
+        saveDebts(updated);
+        return updated;
+      });
+      if (debt.isBankLoan) {
+        setMortgages((prev) => {
+          if (prev.some((m) => m.id === debt.id)) return prev;
+          const restoredMortgage: MortgageLoan = {
+            id: debt.id,
+            name: debt.name,
+            bankName: debt.bankName || debt.counterparty,
+            totalLoanAmount: debt.initialAmount,
+            remainingPrincipal: debt.currentRemaining,
+            initialPaidPrincipal: debt.paidAmount,
+            monthlyPayment: debt.monthlyPayment || 0,
+            interestRate: debt.interestRate || 0,
+            loanTermYears: debt.loanTermYears || 25,
+            startDate: debt.startDate,
+            paymentDayOfMonth: debt.paymentDayOfMonth || 10,
+            rateType: debt.rateType || 'equal',
+            paymentsHistory: [],
+            createdAt: debt.createdAt || new Date().toISOString(),
+          };
+          const next = [restoredMortgage, ...prev];
+          saveMortgages(next);
+          return next;
+        });
+      }
+      recordActivity({
+        action: 'restore',
+        entityType: 'debt',
+        entityId: debt.id,
+        title: `Przywrócono zobowiązanie: ${debt.name}`,
+        description: `Kwota ${(debt.initialAmount || 0).toFixed(2)} PLN (${debt.type === 'borrowed' ? 'Do spłaty' : 'Do odzyskania'})`,
+        targetTab: 'debts',
+        snapshot: debt,
       });
     }
 
@@ -1040,9 +1084,33 @@ export default function App() {
   const handleAddTransaction = (
     transactionData: Omit<Transaction, 'id' | 'createdAt'> & { id?: string }
   ) => {
+    let finalPrincipalAmount = transactionData.principalAmount;
+    let finalInterestAmount = transactionData.interestAmount;
+
+    // Automatyczne wyliczenie części kapitałowej i odsetkowej jeśli transakcja jest powiązana ze zobowiązaniem z oprocentowaniem
+    if (transactionData.debtId) {
+      const foundDebt = debts.find((d) => d.id === transactionData.debtId);
+      if (foundDebt && isInterestBearingDebt(foundDebt)) {
+        if (finalPrincipalAmount === undefined) {
+          const split = calculateSuggestedLoanSplit({
+            debt: foundDebt,
+            paymentAmount: transactionData.amount,
+            paymentDate: transactionData.date,
+            paymentType: 'regular',
+          });
+          finalPrincipalAmount = split.suggestedPrincipal;
+          if (finalInterestAmount === undefined) {
+            finalInterestAmount = split.suggestedInterest;
+          }
+        }
+      }
+    }
+
     const newTx: Transaction = {
       ...transactionData,
       id: transactionData.id || `tx-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      principalAmount: finalPrincipalAmount,
+      interestAmount: finalInterestAmount,
       createdAt: new Date().toISOString(),
     };
     lastLocalMutationTime.current = Date.now();
@@ -1079,24 +1147,51 @@ export default function App() {
         const found = prevDebts.find((d) => d.id === newTx.debtId);
         if (!found) return prevDebts;
 
+        // Jeśli to jest transakcja utworzenia/zaciągnięcia długu ('borrow' lub 'lend'), nie pomniejszamy salda
+        if (newTx.debtAction === 'borrow' || newTx.debtAction === 'lend') {
+          return prevDebts;
+        }
+
         const isRepayment =
           (found.type === 'borrowed' && newTx.type === 'expense') ||
-          (found.type === 'lent' && newTx.type === 'income');
+          (found.type === 'lent' && newTx.type === 'income') ||
+          newTx.debtAction === 'repay_borrowed' ||
+          newTx.debtAction === 'receive_lent';
 
         if (isRepayment) {
-          const newPaid = found.paidAmount + newTx.amount;
-          const newRemaining = Math.max(0, found.initialAmount - newPaid);
+          // Jeśli podano dedykowaną kwotę spłaty kapitału (np. z rachunku ze split-em kapitał/odsetki lub auto kalkulacji), używamy jej
+          let principalRepaid: number;
+          if (typeof newTx.principalAmount === 'number') {
+            principalRepaid = newTx.principalAmount;
+          } else if (isInterestBearingDebt(found)) {
+            const split = calculateSuggestedLoanSplit({
+              debt: found,
+              paymentAmount: newTx.amount,
+              paymentDate: newTx.date,
+              paymentType: 'regular',
+            });
+            principalRepaid = split.suggestedPrincipal;
+          } else {
+            principalRepaid = newTx.amount;
+          }
+
+          const newPaid = Math.round((found.paidAmount + principalRepaid) * 100) / 100;
+          const newRemaining = Math.max(0, Math.round((found.initialAmount - newPaid) * 100) / 100);
+          const isNowSettled = newRemaining <= 0.01;
+
           const updatedDebt: DebtItem = {
             ...found,
             paidAmount: newPaid,
             currentRemaining: newRemaining,
-            status: newRemaining <= 0.01 ? 'settled' : 'active',
+            status: isNowSettled ? 'settled' : 'active',
             paymentsHistory: [
               ...(found.paymentsHistory || []),
               {
                 id: `payment-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
                 date: newTx.date,
                 amount: newTx.amount,
+                principalAmount: principalRepaid,
+                interestAmount: newTx.interestAmount !== undefined ? newTx.interestAmount : Math.max(0, Math.round((newTx.amount - principalRepaid) * 100) / 100),
                 type: 'regular',
                 remainingAfter: newRemaining,
                 notes: newTx.comment || newTx.title,
@@ -1104,6 +1199,24 @@ export default function App() {
               },
             ],
           };
+
+          // Jeśli zobowiązanie zostało w całości spłacone, a istnieje powiązany cykliczny rachunek, oznaczamy rachunek jako zakończony / opłacony
+          if (isNowSettled) {
+            setBills((prevBills) => {
+              const updatedBills = prevBills.map((b) => {
+                if (b.debtId === found.id) {
+                  return {
+                    ...b,
+                    status: 'paid' as const,
+                  };
+                }
+                return b;
+              });
+              saveBills(updatedBills);
+              return updatedBills;
+            });
+          }
+
           const next = prevDebts.map((d) => (d.id === found.id ? updatedDebt : d));
           saveDebts(next);
           return next;
@@ -1250,8 +1363,19 @@ export default function App() {
           if (!found) return prevDebts;
 
           const remainingHistory = found.paymentsHistory.filter((p) => p.transactionId !== deletedTx.id);
-          const newPaid = Math.max(0, found.paidAmount - deletedTx.amount);
-          const newRemaining = Math.max(0, found.initialAmount - newPaid);
+          const principalToRevert = typeof deletedTx.principalAmount === 'number'
+            ? deletedTx.principalAmount
+            : (isInterestBearingDebt(found)
+                ? calculateSuggestedLoanSplit({
+                    debt: found,
+                    paymentAmount: deletedTx.amount,
+                    paymentDate: deletedTx.date,
+                    paymentType: 'regular',
+                  }).suggestedPrincipal
+                : deletedTx.amount);
+
+          const newPaid = Math.max(0, Math.round((found.paidAmount - principalToRevert) * 100) / 100);
+          const newRemaining = Math.max(0, Math.round((found.initialAmount - newPaid) * 100) / 100);
 
           const updatedDebt: DebtItem = {
             ...found,
@@ -1824,24 +1948,86 @@ export default function App() {
     const debtToDelete = debts.find((d) => d.id === id);
     lastLocalMutationTime.current = Date.now();
     hasUnsavedLocalChanges.current = true;
+
+    // 1. Znajdź powiązane rachunki do usunięcia
+    const billsToDelete = bills.filter((b) => b.debtId === id || b.id === id);
+    const deletedBillIds = new Set(billsToDelete.map((b) => b.id));
+
+    // Zgromadź ID wszystkich transakcji powiązanych z tym zadłużeniem oraz jego wpisami spłat/rachunkami
+    const linkedTxIds = new Set<string>();
+    if (debtToDelete?.paymentsHistory) {
+      debtToDelete.paymentsHistory.forEach((p) => {
+        if (p.transactionId) linkedTxIds.add(p.transactionId);
+      });
+    }
+    billsToDelete.forEach((b) => {
+      if (b.autoExpenseId) linkedTxIds.add(b.autoExpenseId);
+      if (b.paymentHistory) {
+        b.paymentHistory.forEach((p) => {
+          if (p.transactionId) linkedTxIds.add(p.transactionId);
+        });
+      }
+    });
+
+    // 2. Usuń zadłużenie z rejestru debts
     setDebts((prev) => {
       const updated = prev.filter((d) => d.id !== id);
       saveDebts(updated);
       return updated;
     });
-    // Usuń również z mortgages jeśli to powiązany kredyt
+
+    // 3. Usuń powiązany kredyt z mortgages
     setMortgages((prev) => {
       const updated = prev.filter((m) => m.id !== id);
       saveMortgages(updated);
       return updated;
     });
+
+    // 4. Usuń powiązane rachunki z rejestru bills
+    setBills((prev) => {
+      const updated = prev.filter((b) => b.debtId !== id && b.id !== id);
+      if (updated.length !== prev.length) {
+        saveBills(updated);
+      }
+      return updated;
+    });
+
+    // 5. Usuń powiązane transakcje i wpisy płatności w budżecie
+    setTransactions((prev) => {
+      const updated = prev.filter((t) => {
+        if (t.debtId === id) return false;
+        if (t.billId && deletedBillIds.has(t.billId)) return false;
+        if (linkedTxIds.has(t.id)) return false;
+        return true;
+      });
+      if (updated.length !== prev.length) {
+        saveTransactions(updated);
+      }
+      return updated;
+    });
+
+    // 6. Usuń powiadomienia powiązane z tym zadłużeniem lub usuniętymi rachunkami
+    setNotifications((prev) => {
+      const updated = prev.filter((n) => {
+        if (n.relatedId === id) return false;
+        if (n.relatedId && deletedBillIds.has(n.relatedId)) return false;
+        if (n.relatedId && linkedTxIds.has(n.relatedId)) return false;
+        return true;
+      });
+      if (updated.length !== prev.length) {
+        saveNotifications(updated);
+      }
+      return updated;
+    });
+
     if (debtToDelete) {
       recordActivity({
         action: 'delete',
-        entityType: 'debt' as any,
+        entityType: 'debt',
         entityId: debtToDelete.id,
         title: `Usunięto zobowiązanie: ${debtToDelete.name}`,
-        description: `Kwota ${(debtToDelete.initialAmount || 0).toFixed(2)} PLN`,
+        description: `Usunięto zadłużenie (${(debtToDelete.initialAmount || 0).toFixed(2)} PLN), powiązany rachunek oraz historię płatności.`,
+        snapshot: debtToDelete,
         targetTab: 'debts',
       });
     }
@@ -2745,6 +2931,7 @@ export default function App() {
             onAddTransaction={handleAddTransaction}
             onDeleteTransaction={handleDeleteTransaction}
             onUpdateTransaction={handleUpdateTransaction}
+            onAddDebt={handleAddDebt}
             selectedMonth={selectedMonth}
             onMonthChange={setSelectedMonth}
             initialFilterType={navTxFilter}
@@ -2837,6 +3024,7 @@ export default function App() {
             onDeleteDebt={handleDeleteDebt}
             onAddTransaction={handleAddTransaction}
             onDeleteTransaction={handleDeleteTransaction}
+            onAddBill={handleAddBill}
             transactions={transactions}
             onSuccessFeedback={(title, amount, type, onUndo, subtitle) => {
               setToastFeedback({
@@ -2876,6 +3064,7 @@ export default function App() {
         onClose={() => setIsQuickAddOpen(false)}
         onAddTransaction={handleQuickAddTransaction}
         onAddShoppingItem={handleAddShoppingItem}
+        onAddDebt={handleAddDebt}
         transactions={transactions}
         shoppingLists={shoppingLists}
         shoppingItems={shoppingItems}

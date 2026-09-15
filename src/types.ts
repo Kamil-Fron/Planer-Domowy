@@ -200,7 +200,7 @@ export interface AppNotification {
 export interface ActivityLogEntry {
   id: string;
   action: 'create' | 'update' | 'delete' | 'restore' | 'sync' | 'household';
-  entityType: 'transaction' | 'shopping_item' | 'bill' | 'budget_limit' | 'shopping_list' | 'household' | 'system';
+  entityType: 'transaction' | 'shopping_item' | 'bill' | 'budget_limit' | 'shopping_list' | 'debt' | 'household' | 'system';
   title: string;
   description: string;
   authorName: string;
@@ -210,7 +210,7 @@ export interface ActivityLogEntry {
   entityId?: string;
   snapshot?: any;
   deletedPayload?: {
-    type: 'transaction' | 'shopping_item' | 'bill' | 'budget_limit' | 'shopping_list';
+    type: 'transaction' | 'shopping_item' | 'bill' | 'budget_limit' | 'shopping_list' | 'debt';
     data: any;
   };
   restored?: boolean;

@@ -617,20 +617,56 @@ app.post("/api/send-push-notification", async (req, res) => {
 // Test push directly to requesting device
 app.post("/api/test-push-notification", async (req, res) => {
   try {
-    const { subscription, title, body, userId, householdId } = req.body;
+    const { subscription, title, body, userId, householdId, extraSubscriptions } = req.body;
 
-    let targetSubs: any[] = [];
+    // Auto-upsert subscription if provided directly from requesting client
     if (subscription && subscription.endpoint) {
-      targetSubs.push(subscription);
-    } else if (userId || householdId) {
-      targetSubs = pushSubscriptions
-        .filter((s) => (!userId || s.userId === userId) && (!householdId || s.householdId === householdId))
-        .map((s) => s.subscription);
+      const existingIdx = pushSubscriptions.findIndex(
+        (s) => s.subscription && s.subscription.endpoint === subscription.endpoint
+      );
+      const record: StoredPushSubscription = {
+        subscription,
+        householdId: householdId || "default",
+        userId: userId || "",
+        userName: "Domownik (test)",
+        updatedAt: new Date().toISOString(),
+      };
+      if (existingIdx >= 0) {
+        pushSubscriptions[existingIdx] = record;
+      } else {
+        pushSubscriptions.push(record);
+      }
+      saveSubscriptions();
     }
+
+    const combinedMap = new Map<string, any>();
+    if (subscription && subscription.endpoint) {
+      combinedMap.set(subscription.endpoint, subscription);
+    }
+
+    if (Array.isArray(extraSubscriptions)) {
+      extraSubscriptions.forEach((s: any) => {
+        const sub = s.subscription || s;
+        if (sub && sub.endpoint && !combinedMap.has(sub.endpoint)) {
+          combinedMap.set(sub.endpoint, sub);
+        }
+      });
+    }
+
+    pushSubscriptions
+      .filter((s) => (!userId || s.userId === userId) && (!householdId || s.householdId === householdId))
+      .forEach((s) => {
+        if (s.subscription && s.subscription.endpoint && !combinedMap.has(s.subscription.endpoint)) {
+          combinedMap.set(s.subscription.endpoint, s.subscription);
+        }
+      });
+
+    const targetSubs = Array.from(combinedMap.values());
 
     if (targetSubs.length === 0) {
       return res.status(400).json({
         success: false,
+        sentCount: 0,
         error: "Brak aktywnej subskrypcji dla tego urządzenia. Kliknij 'Włącz powiadomienia w telefonie', aby zarejestrować to urządzenie.",
       });
     }
@@ -647,6 +683,7 @@ app.post("/api/test-push-notification", async (req, res) => {
     });
 
     let sent = 0;
+    let lastError: string | null = null;
     for (const sub of targetSubs) {
       try {
         const endpoint = sub.endpoint || "";
@@ -665,8 +702,22 @@ app.post("/api/test-push-notification", async (req, res) => {
         await webpush.sendNotification(sub, payload, pushOptions);
         sent++;
       } catch (e: any) {
-        console.warn("Błąd wysyłki test push:", e?.message || e);
+        lastError = e?.message || String(e);
+        console.warn("Błąd wysyłki test push:", e?.message || e, "statusCode:", e?.statusCode);
+        // Clean up expired subscriptions
+        if (e?.statusCode === 410 || e?.statusCode === 404) {
+          pushSubscriptions = pushSubscriptions.filter((s) => s.subscription?.endpoint !== sub.endpoint);
+          saveSubscriptions();
+        }
       }
+    }
+
+    if (sent === 0 && targetSubs.length > 0) {
+      return res.status(502).json({
+        success: false,
+        sentCount: 0,
+        error: lastError ? `Błąd dostarczenia powiadomienia: ${lastError}` : "Powiadomienie zostało odrzucone przez usługę push dostawcy (Google/Apple).",
+      });
     }
 
     return res.json({
@@ -676,7 +727,7 @@ app.post("/api/test-push-notification", async (req, res) => {
     });
   } catch (e: any) {
     console.error("Błąd test-push-notification:", e);
-    return res.status(500).json({ success: false, error: e?.message || "Błąd wysyłki testowej." });
+    return res.status(500).json({ success: false, sentCount: 0, error: e?.message || "Błąd wysyłki testowej." });
   }
 });
 

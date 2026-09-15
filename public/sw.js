@@ -28,6 +28,9 @@ self.addEventListener('push', (event) => {
     body: data.body || 'Nowe powiadomienie od domownika',
     icon: data.icon || '/pwa-192x192.png',
     badge: data.badge || '/pwa-192x192.png',
+    vibrate: [180, 80, 180],
+    tag: data.tag || `push-${Date.now()}`,
+    renotify: true,
     data: {
       ...notifData,
       url: targetUrl,
@@ -39,6 +42,28 @@ self.addEventListener('push', (event) => {
       console.error('Błąd showNotification w Service Workerze:', err);
     })
   );
+});
+
+// Direct message from main thread to show notification via service worker
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
+    const title = event.data.title || 'Planer Budżetu Domowego';
+    const options = {
+      body: event.data.body || 'Powiadomienie testowe',
+      icon: event.data.icon || '/pwa-192x192.png',
+      badge: event.data.badge || '/pwa-192x192.png',
+      vibrate: [180, 80, 180],
+      tag: `test-${Date.now()}`,
+      renotify: true,
+      data: event.data.data || { url: '/' },
+      ...event.data.options,
+    };
+    event.waitUntil(
+      self.registration.showNotification(title, options).catch((err) => {
+        console.warn('Błąd showNotification z wiadomości w SW:', err);
+      })
+    );
+  }
 });
 
 // Handle Notification Click (Deep linking directly to specific transaction/tab)

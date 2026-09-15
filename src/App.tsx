@@ -2811,6 +2811,7 @@ export default function App() {
         onMarkNotificationRead={handleMarkNotificationRead}
         onLogout={handleLogout}
         onOpenMobileLauncher={() => setIsMobileLauncherOpen(true)}
+        onShowNotificationBanner={(notif) => setBannerNotification(notif)}
         onNavigate={handleDashboardNavigate}
       />
 

@@ -32,7 +32,11 @@ export async function sendBrowserPushNotification(title: string, options?: Notif
     // 1. Priorytet dla telefonów / Service Workera (na mobilnym Chrome wywołanie new Notification() rzuca błąd "Illegal constructor" i wymaga serviceWorkerRegistration.showNotification)
     if ('serviceWorker' in navigator) {
       try {
-        const registration = await navigator.serviceWorker.ready;
+        const registration = await Promise.race([
+          navigator.serviceWorker.ready,
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 1200)),
+        ]);
+
         if (registration && typeof registration.showNotification === 'function') {
           await registration.showNotification(title, {
             icon: '/pwa-192x192.png',
@@ -43,6 +47,19 @@ export async function sendBrowserPushNotification(title: string, options?: Notif
             ...options,
           } as NotificationOptions);
           return;
+        }
+
+        // Spróbuj także wysłać wiadomość do aktywnego workera
+        if (navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage({
+            type: 'SHOW_NOTIFICATION',
+            title,
+            options: {
+              ...options,
+              icon: '/pwa-192x192.png',
+              badge: '/pwa-192x192.png',
+            },
+          });
         }
       } catch (err) {
         console.warn('Próba wysłania powiadomienia mobilnego przez Service Worker nie powiodła się, sprawdzam fallback:', err);

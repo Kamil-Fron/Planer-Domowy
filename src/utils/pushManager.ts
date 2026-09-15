@@ -40,6 +40,30 @@ export function getNotificationPermission(): NotificationPermission | 'unsupport
   return Notification.permission;
 }
 
+// Get active service worker registration safely with timeout to avoid Promise deadlocks
+export async function getActiveServiceWorker(timeoutMs = 2500): Promise<ServiceWorkerRegistration | null> {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return null;
+  try {
+    const readyPromise = navigator.serviceWorker.ready;
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs));
+    const readyReg = await Promise.race([readyPromise, timeoutPromise]);
+    if (readyReg) return readyReg;
+
+    // If ready timed out, check existing registrations
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    if (registrations.length > 0) {
+      return registrations[0];
+    }
+
+    // Try registering directly
+    const directReg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    return directReg;
+  } catch (err) {
+    console.warn('getActiveServiceWorker warning:', err);
+    return null;
+  }
+}
+
 // Register the service worker at /sw.js
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
   if (!isPushSupported()) return null;
@@ -47,9 +71,12 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
     const registration = await navigator.serviceWorker.register('/sw.js', {
       scope: '/',
     });
-    // Wait for the active worker
-    await navigator.serviceWorker.ready;
-    return registration;
+    // Wait with timeout for active worker
+    const readyWorker = await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500)),
+    ]);
+    return readyWorker || registration;
   } catch (error) {
     console.warn('Błąd rejestracji Service Workera:', error);
     return null;
@@ -99,7 +126,11 @@ export async function subscribeToPushNotifications(options: {
 
   try {
     // 1. Ask permission
-    const permission = await Notification.requestPermission();
+    let permission = Notification.permission;
+    if (permission !== 'granted') {
+      permission = await Notification.requestPermission();
+    }
+
     if (permission !== 'granted') {
       return {
         subscription: null,
@@ -113,45 +144,68 @@ export async function subscribeToPushNotifications(options: {
     // 2. Register SW
     const registration = await registerServiceWorker();
     if (!registration) {
-      return { subscription: null, error: 'Nie udało się zarejestrować Service Workera.' };
+      return { subscription: null, error: 'Nie udało się zarejestrować Service Workera w przeglądarce.' };
     }
 
     // 3. Get VAPID Key
     const vapidKey = await getVapidPublicKey();
     if (!vapidKey) {
-      return { subscription: null, error: 'Serwer nie udostępnił klucza VAPID.' };
+      return { subscription: null, error: 'Serwer nie udostępnił publicznego klucza VAPID.' };
     }
 
-    // 4. Subscribe or refresh existing subscription with current VAPID key
+    // 4. Check existing subscription and reuse if key matches
     const convertedVapidKey = urlBase64ToUint8Array(vapidKey);
     let subscription = await registration.pushManager.getSubscription();
+
+    let needsNewSubscription = !subscription;
     if (subscription) {
       try {
-        await subscription.unsubscribe();
-      } catch {}
+        const existingKey = (subscription as any).options?.applicationServerKey;
+        if (existingKey) {
+          const existingBytes = new Uint8Array(existingKey);
+          if (existingBytes.length !== convertedVapidKey.length || !existingBytes.every((b, i) => b === convertedVapidKey[i])) {
+            needsNewSubscription = true;
+          }
+        }
+      } catch {
+        needsNewSubscription = true;
+      }
     }
 
-    subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: convertedVapidKey,
-    });
+    if (needsNewSubscription) {
+      if (subscription) {
+        try {
+          await subscription.unsubscribe();
+        } catch {}
+      }
+
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: convertedVapidKey,
+      });
+    }
+
+    if (!subscription) {
+      return { subscription: null, error: 'Nie udało się uzyskać subskrypcji push z przeglądarki.' };
+    }
 
     // 5. Send subscription to server
+    const subJson = subscription.toJSON();
     const payload = {
-      subscription: subscription.toJSON(),
+      subscription: subJson,
       householdId: options.householdId,
       userId: options.userId,
       userName: options.userName,
     };
 
-    const serverRes = await fetch('/api/push-subscribe', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-
-    if (!serverRes.ok) {
-      console.warn('Serwer zwrócił błąd podczas zapisu subskrypcji push');
+    try {
+      await fetch('/api/push-subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {
+      console.warn('Ostrzeżenie przy zapisie subskrypcji na serwerze:', e);
     }
 
     return { subscription };
@@ -163,27 +217,40 @@ export async function subscribeToPushNotifications(options: {
 
 // Send test push directly via backend Web Push service
 export async function sendTestPushNotification(options?: {
-  subscription?: PushSubscription | null;
+  subscription?: PushSubscription | any | null;
   householdId?: string;
   userId?: string;
-}): Promise<{ success: boolean; message?: string; error?: string }> {
+  extraSubscriptions?: any[];
+}): Promise<{ success: boolean; message?: string; error?: string; sentCount?: number }> {
   try {
+    let subData: any = undefined;
+    if (options?.subscription) {
+      subData = typeof options.subscription.toJSON === 'function'
+        ? options.subscription.toJSON()
+        : options.subscription;
+    }
+
     const res = await fetch('/api/test-push-notification', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        subscription: options?.subscription ? options.subscription.toJSON() : undefined,
+        subscription: subData,
         householdId: options?.householdId,
         userId: options?.userId,
+        extraSubscriptions: options?.extraSubscriptions,
         title: '🔔 Test powiadomienia w telefonie',
         body: 'Powiadomienia w tle działają prawidłowo!',
       }),
     });
     const data = await res.json();
-    if (!res.ok) {
-      return { success: false, error: data?.error || 'Błąd wysyłki testowego powiadomienia.' };
+    if (!res.ok || !data.success) {
+      return {
+        success: false,
+        error: data?.error || 'Błąd wysyłki testowego powiadomienia.',
+        sentCount: data?.sentCount || 0,
+      };
     }
-    return { success: true, message: data.message };
+    return { success: true, message: data.message, sentCount: data.sentCount };
   } catch (err: any) {
     return { success: false, error: err?.message || 'Błąd połączenia z serwerem.' };
   }
@@ -193,7 +260,8 @@ export async function sendTestPushNotification(options?: {
 export async function unsubscribeFromPushNotifications(): Promise<boolean> {
   if (!isPushSupported()) return false;
   try {
-    const registration = await navigator.serviceWorker.ready;
+    const registration = await getActiveServiceWorker(2500);
+    if (!registration) return false;
     const subscription = await registration.pushManager.getSubscription();
     if (subscription) {
       const endpoint = subscription.endpoint;
@@ -211,6 +279,18 @@ export async function unsubscribeFromPushNotifications(): Promise<boolean> {
     console.warn('Błąd wyrejestrowywania push:', e);
   }
   return false;
+}
+
+// Get existing push subscription safely
+export async function getExistingPushSubscription(): Promise<PushSubscription | null> {
+  if (!isPushSupported()) return null;
+  try {
+    const registration = await getActiveServiceWorker(2500);
+    if (!registration) return null;
+    return await registration.pushManager.getSubscription();
+  } catch {
+    return null;
+  }
 }
 
 // Send push notification to all OTHER members of the household

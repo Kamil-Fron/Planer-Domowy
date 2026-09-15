@@ -1054,15 +1054,16 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
 
       {/* MODAL 1: DODAJ NOWE ZADŁUŻENIE */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
-          <div className="bg-white w-full max-w-xl rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6 my-8 border border-slate-100 animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white w-full max-w-xl rounded-3xl shadow-2xl border border-slate-100 flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95">
+            {/* Header (sticky at top) */}
+            <div className="p-5 sm:p-6 pb-4 border-b border-slate-100 flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-3">
-                <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl">
-                  <Scale className="w-6 h-6" />
+                <div className="p-2.5 sm:p-3 bg-indigo-50 text-indigo-600 rounded-2xl shrink-0">
+                  <Scale className="w-5 h-5 sm:w-6 sm:h-6" />
                 </div>
                 <div>
-                  <h2 className="text-lg sm:text-xl font-black text-slate-900">
+                  <h2 className="text-base sm:text-lg font-black text-slate-900">
                     Nowe zadłużenie / pożyczka
                   </h2>
                   <p className="text-xs text-slate-500">
@@ -1071,14 +1072,16 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => setIsAddModalOpen(false)}
-                className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors"
+                className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveNewDebt} className="space-y-4">
+            <form onSubmit={handleSaveNewDebt} className="flex flex-col flex-1 min-h-0">
+              <div className="p-5 sm:p-6 overflow-y-auto flex-1 space-y-4">
               {/* Krok 1: Wybór kierunku (Duże kafelki) */}
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-slate-700">Kierunek zobowiązania:</label>
@@ -1625,18 +1628,20 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                 )}
               </div>
 
-              {/* Modal buttons */}
-              <div className="pt-2 flex items-center justify-end space-x-3">
+              </div>
+
+              {/* Modal buttons (sticky footer) */}
+              <div className="p-4 sm:p-5 border-t border-slate-100 flex items-center justify-end space-x-3 shrink-0 bg-slate-50/80 rounded-b-3xl">
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}
-                  className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+                  className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
                 >
                   Anuluj
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 rounded-xl shadow-lg shadow-indigo-600/25 transition-all"
+                  className="px-6 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 rounded-xl shadow-lg shadow-indigo-600/25 transition-all cursor-pointer"
                 >
                   Zapisz zadłużenie
                 </button>
@@ -1968,162 +1973,460 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
 
       {/* MODAL 3: SZCZEGÓŁY I HISTORIA WPŁAT */}
       {selectedDebtForDetails && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
-          <div className="bg-white w-full max-w-lg rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6 border border-slate-100 animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${
-                  selectedDebtForDetails.type === 'borrowed' ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl border border-slate-100 flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95">
+            {/* Header (sticky at top) */}
+            <div className="p-5 sm:p-6 pb-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-3">
+                <div className={`p-2.5 sm:p-3 rounded-2xl shrink-0 ${
+                  selectedDebtForDetails.isBankLoan || selectedDebtForDetails.category === 'kredyt_bankowy'
+                    ? 'bg-indigo-50 text-indigo-600'
+                    : selectedDebtForDetails.type === 'borrowed'
+                    ? 'bg-rose-50 text-rose-600'
+                    : 'bg-emerald-50 text-emerald-600'
                 }`}>
-                  {selectedDebtForDetails.type === 'borrowed' ? 'Moje zobowiązanie' : 'Pożyczone komuś'}
-                </span>
-                <h2 className="text-xl font-black text-slate-900 mt-1">
-                  {selectedDebtForDetails.name}
-                </h2>
-                <p className="text-xs text-slate-500">
-                  {selectedDebtForDetails.counterparty}
-                </p>
+                  {selectedDebtForDetails.isBankLoan || selectedDebtForDetails.category === 'kredyt_bankowy' ? (
+                    <Landmark className="w-5 h-5 sm:w-6 sm:h-6" />
+                  ) : (
+                    <Scale className="w-5 h-5 sm:w-6 sm:h-6" />
+                  )}
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${
+                      selectedDebtForDetails.type === 'borrowed' ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'
+                    }`}>
+                      {selectedDebtForDetails.type === 'borrowed' ? 'Moje zobowiązanie' : 'Pożyczone komuś'}
+                    </span>
+                    {selectedDebtForDetails.isBankLoan && (
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-indigo-100 text-indigo-800">
+                        Kredyt bankowy / hipoteczny
+                      </span>
+                    )}
+                  </div>
+                  <h2 className="text-base sm:text-lg font-black text-slate-900 mt-0.5">
+                    {selectedDebtForDetails.name}
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    {selectedDebtForDetails.counterparty}
+                  </p>
+                </div>
               </div>
               <button
+                type="button"
                 onClick={() => setSelectedDebtForDetails(null)}
-                className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100"
+                className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Quick Metrics */}
-            <div className="grid grid-cols-3 gap-2 p-3 bg-slate-50 rounded-2xl text-center border border-slate-100">
-              <div>
-                <p className="text-[10px] text-slate-400 font-semibold">Początkowo</p>
-                <p className="text-xs sm:text-sm font-black text-slate-800">
-                  {selectedDebtForDetails.initialAmount.toLocaleString('pl-PL')} zł
-                </p>
+            {/* Scrollable Content */}
+            <div className="p-5 sm:p-6 overflow-y-auto flex-1 space-y-5">
+              {/* Quick Metrics */}
+              <div className="grid grid-cols-3 gap-2 p-3 bg-slate-50 rounded-2xl text-center border border-slate-100">
+                <div>
+                  <p className="text-[10px] text-slate-400 font-semibold">Początkowo</p>
+                  <p className="text-xs sm:text-sm font-black text-slate-800">
+                    {selectedDebtForDetails.initialAmount.toLocaleString('pl-PL')} zł
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-400 font-semibold">Spłacono</p>
+                  <p className="text-xs sm:text-sm font-black text-emerald-600">
+                    {selectedDebtForDetails.paidAmount.toLocaleString('pl-PL')} zł
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-400 font-semibold">Zostało</p>
+                  <p className="text-xs sm:text-sm font-black text-rose-600">
+                    {selectedDebtForDetails.currentRemaining.toLocaleString('pl-PL')} zł
+                  </p>
+                </div>
               </div>
-              <div>
-                <p className="text-[10px] text-slate-400 font-semibold">Spłacono</p>
-                <p className="text-xs sm:text-sm font-black text-emerald-600">
-                  {selectedDebtForDetails.paidAmount.toLocaleString('pl-PL')} zł
-                </p>
-              </div>
-              <div>
-                <p className="text-[10px] text-slate-400 font-semibold">Zostało</p>
-                <p className="text-xs sm:text-sm font-black text-rose-600">
-                  {selectedDebtForDetails.currentRemaining.toLocaleString('pl-PL')} zł
-                </p>
-              </div>
-            </div>
 
-            {/* Payments History List */}
-            <div className="space-y-2">
-              <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                Historia rozliczeń ({selectedDebtForDetails.paymentsHistory?.length || 0})
-              </h4>
-              {(!selectedDebtForDetails.paymentsHistory || selectedDebtForDetails.paymentsHistory.length === 0) ? (
-                <p className="text-xs text-slate-400 italic py-4 text-center">
-                  Brak zarejestrowanych spłat w historii.
-                </p>
-              ) : (
-                <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto pr-1">
-                  {selectedDebtForDetails.paymentsHistory.map((p) => (
-                    <div key={p.id} className="py-2.5 flex items-center justify-between text-xs">
-                      <div>
-                        <span className="font-bold text-slate-800">
-                          {p.amount.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł
-                        </span>
-                        {p.notes && <p className="text-[11px] text-slate-400 italic">{p.notes}</p>}
+              {/* MORTGAGE / BANK LOAN ADVANCED STATISTICS */}
+              {(() => {
+                const isMortgageOrBank = selectedDebtForDetails.isBankLoan ||
+                  selectedDebtForDetails.category === 'kredyt_bankowy' ||
+                  selectedDebtForDetails.name.toLowerCase().includes('hipoteczn') ||
+                  selectedDebtForDetails.name.toLowerCase().includes('kredyt');
+
+                if (!isMortgageOrBank) return null;
+
+                const d = selectedDebtForDetails;
+                const history = d.paymentsHistory || [];
+                const overpayments = history.filter(p => p.type === 'overpayment');
+                const regularPayments = history.filter(p => p.type !== 'overpayment');
+
+                const overpaymentsSum = overpayments.reduce((s, p) => s + (p.principalAmount ?? p.amount), 0);
+                const totalPaid = d.paidAmount || 0;
+                const initAmount = d.initialAmount || (totalPaid + d.currentRemaining) || 1;
+                const remaining = d.currentRemaining || 0;
+
+                const effectiveOverpayment = Math.min(totalPaid, overpaymentsSum);
+                const effectiveRegular = Math.max(0, totalPaid - effectiveOverpayment);
+
+                const regularShare = totalPaid > 0 ? (effectiveRegular / totalPaid) * 100 : 0;
+                const overpaymentShare = totalPaid > 0 ? (effectiveOverpayment / totalPaid) * 100 : 0;
+                const totalProgressPercent = Math.min(100, Math.max(0, (totalPaid / initAmount) * 100));
+
+                const pmt = d.monthlyPayment || 0;
+                const rate = d.interestRate || 0;
+                const monthlyRate = (rate / 100) / 12;
+
+                let monthsLeft = 0;
+                if (remaining <= 0) {
+                  monthsLeft = 0;
+                } else if (pmt > 0) {
+                  if (monthlyRate > 0 && pmt > remaining * monthlyRate) {
+                    monthsLeft = Math.ceil(-Math.log(1 - (remaining * monthlyRate) / pmt) / Math.log(1 + monthlyRate));
+                  } else {
+                    monthsLeft = Math.ceil(remaining / pmt);
+                  }
+                } else if (d.loanTermYears) {
+                  const totalM = Math.round(d.loanTermYears * 12);
+                  const startD = d.startDate ? new Date(d.startDate) : new Date();
+                  const nowD = new Date();
+                  const elapsedM = Math.max(0, (nowD.getFullYear() - startD.getFullYear()) * 12 + (nowD.getMonth() - startD.getMonth()));
+                  monthsLeft = Math.max(0, totalM - elapsedM);
+                } else if (d.dueDate) {
+                  const dueD = new Date(d.dueDate);
+                  const nowD = new Date();
+                  monthsLeft = Math.max(0, Math.ceil((dueD.getTime() - nowD.getTime()) / (1000 * 60 * 60 * 24 * 30.4375)));
+                }
+
+                const yearsLeft = Math.floor(monthsLeft / 12);
+                const monthsLeftPart = monthsLeft % 12;
+
+                let payoffDateLabel = '';
+                let payoffExactStr = '';
+                if (remaining <= 0) {
+                  payoffDateLabel = 'Kredyt całkowicie spłacony';
+                } else if (monthsLeft > 0) {
+                  const targetD = new Date();
+                  targetD.setMonth(targetD.getMonth() + monthsLeft);
+                  const day = d.paymentDayOfMonth || 10;
+                  payoffDateLabel = targetD.toLocaleDateString('pl-PL', { month: 'long', year: 'numeric' });
+                  payoffExactStr = `${targetD.getFullYear()}-${String(targetD.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                } else {
+                  payoffDateLabel = 'Brak danych raty';
+                }
+
+                let savedMonths = 0;
+                let estimatedInterestSaved = 0;
+                if (effectiveOverpayment > 0 && pmt > 0 && monthlyRate > 0) {
+                  const balanceWithoutOverpayment = remaining + effectiveOverpayment;
+                  if (pmt > balanceWithoutOverpayment * monthlyRate) {
+                    const monthsWithoutOverpay = Math.ceil(-Math.log(1 - (balanceWithoutOverpayment * monthlyRate) / pmt) / Math.log(1 + monthlyRate));
+                    savedMonths = Math.max(0, monthsWithoutOverpay - monthsLeft);
+                  }
+                  const yearsRemainingFactor = yearsLeft + monthsLeftPart / 12;
+                  estimatedInterestSaved = effectiveOverpayment * (rate / 100) * yearsRemainingFactor;
+                }
+                const savedYears = Math.floor(savedMonths / 12);
+                const savedMonthsPart = savedMonths % 12;
+
+                let curInterest = 0;
+                let curPrincipal = 0;
+                if (pmt > 0 && remaining > 0 && monthlyRate > 0) {
+                  curInterest = Math.round(remaining * monthlyRate * 100) / 100;
+                  curPrincipal = Math.max(0, Math.round((pmt - curInterest) * 100) / 100);
+                }
+
+                return (
+                  <div className="p-4 sm:p-5 bg-gradient-to-br from-indigo-900 via-slate-900 to-slate-900 text-white rounded-2xl shadow-md border border-indigo-500/20 space-y-4">
+                    {/* Header of Mortgage Stats */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <div className="p-2 bg-indigo-500/20 rounded-xl text-indigo-300 border border-indigo-400/20">
+                          <Landmark className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-black uppercase tracking-wider text-indigo-200">
+                            Statystyki kredytu hipotecznego
+                          </h4>
+                          <p className="text-[11px] text-slate-400">
+                            Podział spłaconego kapitału, nadpłaty i prognoza czasu
+                          </p>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <span className="text-[11px] text-slate-500 font-medium">{p.date}</span>
-                        <p className="text-[10px] text-slate-400">
-                          Zostało po: {p.remainingAfter.toLocaleString('pl-PL')} zł
+                      <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
+                        {totalProgressPercent.toFixed(1)}% spłacone
+                      </span>
+                    </div>
+
+                    {/* Progress Bar of Capital Split */}
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-[11px] text-slate-300 font-medium">
+                        <span>Spłacony kapitał:</span>
+                        <span>{totalPaid.toLocaleString('pl-PL')} zł z {initAmount.toLocaleString('pl-PL')} zł</span>
+                      </div>
+                      <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden flex p-0.5 border border-slate-700">
+                        {effectiveRegular > 0 && (
+                          <div
+                            style={{ width: `${Math.min(100, (effectiveRegular / initAmount) * 100)}%` }}
+                            className="bg-indigo-500 h-full rounded-l-full transition-all"
+                            title={`Normalne raty: ${effectiveRegular.toFixed(2)} zł`}
+                          />
+                        )}
+                        {effectiveOverpayment > 0 && (
+                          <div
+                            style={{ width: `${Math.min(100, (effectiveOverpayment / initAmount) * 100)}%` }}
+                            className="bg-emerald-400 h-full transition-all"
+                            title={`Nadpłaty: ${effectiveOverpayment.toFixed(2)} zł`}
+                          />
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center justify-between text-[10px] text-slate-400 gap-1 pt-0.5">
+                        <span className="flex items-center space-x-1">
+                          <span className="w-2 h-2 rounded-full bg-indigo-500 inline-block" />
+                          <span>Raty: {effectiveRegular.toLocaleString('pl-PL', { maximumFractionDigits: 0 })} zł ({regularShare.toFixed(0)}%)</span>
+                        </span>
+                        <span className="flex items-center space-x-1">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />
+                          <span>Nadpłaty: {effectiveOverpayment.toLocaleString('pl-PL', { maximumFractionDigits: 0 })} zł ({overpaymentShare.toFixed(0)}%)</span>
+                        </span>
+                        <span className="text-rose-300 font-medium">
+                          Pozostało: {remaining.toLocaleString('pl-PL', { maximumFractionDigits: 0 })} zł
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* 4 Stat Cards */}
+                    <div className="grid grid-cols-2 gap-2.5 pt-1">
+                      {/* 1: Raty normalne */}
+                      <div className="p-3 bg-slate-800/80 rounded-xl border border-slate-700/60">
+                        <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
+                          Spłacone w normalnych ratach
+                        </p>
+                        <p className="text-sm sm:text-base font-black text-indigo-300 mt-0.5">
+                          {effectiveRegular.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł
+                        </p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          {regularShare.toFixed(1)}% spłaconego kapitału
+                        </p>
+                      </div>
+
+                      {/* 2: Nadpłaty */}
+                      <div className="p-3 bg-emerald-950/40 rounded-xl border border-emerald-500/30">
+                        <p className="text-[10px] text-emerald-400 font-semibold uppercase tracking-wider">
+                          Spłacone przez nadpłaty
+                        </p>
+                        <p className="text-sm sm:text-base font-black text-emerald-300 mt-0.5">
+                          {effectiveOverpayment.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł
+                        </p>
+                        <p className="text-[10px] text-emerald-400/80 mt-0.5">
+                          {overpaymentShare.toFixed(1)}% ({overpayments.length} {overpayments.length === 1 ? 'nadpłata' : overpayments.length < 5 ? 'nadpłaty' : 'nadpłat'})
+                        </p>
+                      </div>
+
+                      {/* 3: Pozostały czas */}
+                      <div className="p-3 bg-slate-800/80 rounded-xl border border-slate-700/60">
+                        <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
+                          Ile zostało jeszcze lat
+                        </p>
+                        <p className="text-sm sm:text-base font-black text-amber-300 mt-0.5">
+                          {remaining <= 0
+                            ? '0 lat (spłacony)'
+                            : monthsLeft > 0
+                            ? `${yearsLeft > 0 ? `${yearsLeft} ${yearsLeft === 1 ? 'rok' : yearsLeft < 5 ? 'lata' : 'lat'} ` : ''}${monthsLeftPart > 0 ? `${monthsLeftPart} mies.` : ''}`.trim()
+                            : '—'}
+                        </p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          {remaining <= 0 ? 'Kredyt rozliczony' : monthsLeft > 0 ? `Łącznie ${monthsLeft} rat` : 'Sprawdź harmonogram'}
+                        </p>
+                      </div>
+
+                      {/* 4: Data spłacenia */}
+                      <div className="p-3 bg-slate-800/80 rounded-xl border border-slate-700/60">
+                        <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
+                          Kiedy data całkowitej spłaty
+                        </p>
+                        <p className="text-sm sm:text-base font-black text-white capitalize mt-0.5">
+                          {payoffDateLabel}
+                        </p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          {payoffExactStr ? `planowana: ${payoffExactStr}` : 'zgodnie z harmonogramem'}
                         </p>
                       </div>
                     </div>
-                  ))}
+
+                    {/* Overpayment Impact Banner */}
+                    {effectiveOverpayment > 0 && (
+                      <div className="p-3 bg-gradient-to-r from-emerald-950/60 to-slate-900 rounded-xl border border-emerald-500/30 flex items-start space-x-2.5">
+                        <Sparkles className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                        <div className="text-xs">
+                          <p className="font-bold text-emerald-300">
+                            Zysk z dotychczasowych nadpłat
+                          </p>
+                          <p className="text-[11px] text-slate-300 mt-0.5 leading-relaxed">
+                            {savedMonths > 0 ? (
+                              <>
+                                Dzięki nadpłatom okres spłaty skrócił się o ok.{' '}
+                                <strong className="text-white">
+                                  {savedYears > 0 ? `${savedYears} ${savedYears === 1 ? 'rok' : savedYears < 5 ? 'lata' : 'lat'} ` : ''}
+                                  {savedMonthsPart > 0 ? `${savedMonthsPart} mies.` : ''}
+                                </strong>
+                                {estimatedInterestSaved > 0 && (
+                                  <>, a szacowana oszczędność na odsetkach to ok. <strong className="text-emerald-300">~{estimatedInterestSaved.toLocaleString('pl-PL', { maximumFractionDigits: 0 })} zł</strong></>
+                                )}
+                                .
+                              </>
+                            ) : (
+                              <>
+                                Nadpłacona kwota <strong className="text-white">{effectiveOverpayment.toLocaleString('pl-PL')} zł</strong> zmniejszyła bezpośrednio kapitał do spłaty, redukując odsetki w każdej kolejnej racie.
+                              </>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Breakdown of Current Monthly Payment */}
+                    {pmt > 0 && curPrincipal > 0 && curInterest > 0 && (
+                      <div className="p-2.5 bg-slate-800/60 rounded-xl border border-slate-700/40 flex flex-wrap items-center justify-between text-[11px] gap-1">
+                        <span className="text-slate-400">Podział bieżącej raty ({pmt.toFixed(2)} zł):</span>
+                        <span className="space-x-2">
+                          <span className="text-indigo-300 font-semibold">{curPrincipal.toFixed(2)} zł kapitał</span>
+                          <span className="text-slate-500">+</span>
+                          <span className="text-rose-300 font-semibold">{curInterest.toFixed(2)} zł odsetki</span>
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Payments History List */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  Historia rozliczeń ({selectedDebtForDetails.paymentsHistory?.length || 0})
+                </h4>
+                {(!selectedDebtForDetails.paymentsHistory || selectedDebtForDetails.paymentsHistory.length === 0) ? (
+                  <p className="text-xs text-slate-400 italic py-4 text-center">
+                    Brak zarejestrowanych spłat w historii.
+                  </p>
+                ) : (
+                  <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto pr-1">
+                    {selectedDebtForDetails.paymentsHistory.map((p) => (
+                      <div key={p.id} className="py-2.5 flex items-center justify-between text-xs">
+                        <div>
+                          <div className="flex items-center space-x-2">
+                            <span className="font-bold text-slate-800">
+                              {p.amount.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł
+                            </span>
+                            {p.type === 'overpayment' && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                Nadpłata
+                              </span>
+                            )}
+                            {p.type === 'regular' && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700">
+                                Rata
+                              </span>
+                            )}
+                          </div>
+                          {p.principalAmount !== undefined && p.interestAmount !== undefined && (
+                            <p className="text-[10px] text-slate-500 mt-0.5">
+                              Kapitał: {p.principalAmount.toFixed(2)} zł | Odsetki: {p.interestAmount.toFixed(2)} zł
+                            </p>
+                          )}
+                          {p.notes && <p className="text-[11px] text-slate-400 italic mt-0.5">{p.notes}</p>}
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[11px] text-slate-500 font-medium">{p.date}</span>
+                          <p className="text-[10px] text-slate-400">
+                            Zostało po: {p.remainingAfter.toLocaleString('pl-PL')} zł
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Mortgage & Bank Loan extra details if present */}
+              {selectedDebtForDetails.isBankLoan && (
+                <div className="p-3.5 bg-indigo-50/70 rounded-2xl border border-indigo-100 space-y-2 text-xs">
+                  <div className="flex items-center space-x-1.5 font-bold text-indigo-900">
+                    <Landmark className="w-4 h-4 text-indigo-600" />
+                    <span>Parametry umowy bankowej</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[11px]">
+                    {selectedDebtForDetails.bankName && (
+                      <div>
+                        <span className="text-slate-400">Bank:</span>{' '}
+                        <span className="font-semibold text-slate-800">{selectedDebtForDetails.bankName}</span>
+                      </div>
+                    )}
+                    {selectedDebtForDetails.loanAccountNumber && (
+                      <div className="col-span-2">
+                        <span className="text-slate-400">Nr rachunku spłaty:</span>{' '}
+                        <span className="font-mono text-slate-700 select-all">{selectedDebtForDetails.loanAccountNumber}</span>
+                      </div>
+                    )}
+                    {selectedDebtForDetails.monthlyPayment && (
+                      <div>
+                        <span className="text-slate-400">Rata miesięczna:</span>{' '}
+                        <span className="font-semibold text-slate-800">{selectedDebtForDetails.monthlyPayment} zł</span>
+                      </div>
+                    )}
+                    {selectedDebtForDetails.rateType && (
+                      <div>
+                        <span className="text-slate-400">Typ rat:</span>{' '}
+                        <span className="font-semibold text-slate-800">{selectedDebtForDetails.rateType === 'decreasing' ? 'Malejące' : 'Równe'}</span>
+                      </div>
+                    )}
+                    {selectedDebtForDetails.interestRate && (
+                      <div>
+                        <span className="text-slate-400">Oprocentowanie:</span>{' '}
+                        <span className="font-semibold text-slate-800">{selectedDebtForDetails.interestRate}%</span>
+                      </div>
+                    )}
+                    {selectedDebtForDetails.marginRate && (
+                      <div>
+                        <span className="text-slate-400">Marża banku:</span>{' '}
+                        <span className="font-semibold text-slate-800">{selectedDebtForDetails.marginRate}%</span>
+                      </div>
+                    )}
+                    {selectedDebtForDetails.referenceRateType && (
+                      <div>
+                        <span className="text-slate-400">Stawka bazowa:</span>{' '}
+                        <span className="font-semibold text-slate-800">{selectedDebtForDetails.referenceRateType}{selectedDebtForDetails.referenceRate ? ` (${selectedDebtForDetails.referenceRate}%)` : ''}</span>
+                      </div>
+                    )}
+                    {selectedDebtForDetails.insuranceMonthly && (
+                      <div>
+                        <span className="text-slate-400">Ubezpieczenia:</span>{' '}
+                        <span className="font-semibold text-slate-800">{selectedDebtForDetails.insuranceMonthly} zł/msc</span>
+                      </div>
+                    )}
+                    {selectedDebtForDetails.loanTermYears && (
+                      <div>
+                        <span className="text-slate-400">Okres kredytu:</span>{' '}
+                        <span className="font-semibold text-slate-800">{selectedDebtForDetails.loanTermYears} lat</span>
+                      </div>
+                    )}
+                    {selectedDebtForDetails.paymentDayOfMonth && (
+                      <div>
+                        <span className="text-slate-400">Dzień spłaty:</span>{' '}
+                        <span className="font-semibold text-slate-800">{selectedDebtForDetails.paymentDayOfMonth}. dzień msc</span>
+                      </div>
+                    )}
+                    {selectedDebtForDetails.overpaymentCommission !== undefined && (
+                      <div className="col-span-2">
+                        <span className="text-slate-400">Prowizja za nadpłatę:</span>{' '}
+                        <span className="font-semibold text-slate-800">{selectedDebtForDetails.overpaymentCommission}% {selectedDebtForDetails.overpaymentCommissionYears ? `(pierwsze ${selectedDebtForDetails.overpaymentCommissionYears} lat)` : ''}</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
 
-            {/* Mortgage & Bank Loan extra details if present */}
-            {selectedDebtForDetails.isBankLoan && (
-              <div className="p-3.5 bg-indigo-50/70 rounded-2xl border border-indigo-100 space-y-2 text-xs">
-                <div className="flex items-center space-x-1.5 font-bold text-indigo-900">
-                  <Landmark className="w-4 h-4 text-indigo-600" />
-                  <span>Parametry kredytu bankowego</span>
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-[11px]">
-                  {selectedDebtForDetails.bankName && (
-                    <div>
-                      <span className="text-slate-400">Bank:</span>{' '}
-                      <span className="font-semibold text-slate-800">{selectedDebtForDetails.bankName}</span>
-                    </div>
-                  )}
-                  {selectedDebtForDetails.loanAccountNumber && (
-                    <div className="col-span-2">
-                      <span className="text-slate-400">Nr rachunku spłaty:</span>{' '}
-                      <span className="font-mono text-slate-700 select-all">{selectedDebtForDetails.loanAccountNumber}</span>
-                    </div>
-                  )}
-                  {selectedDebtForDetails.monthlyPayment && (
-                    <div>
-                      <span className="text-slate-400">Rata miesięczna:</span>{' '}
-                      <span className="font-semibold text-slate-800">{selectedDebtForDetails.monthlyPayment} zł</span>
-                    </div>
-                  )}
-                  {selectedDebtForDetails.rateType && (
-                    <div>
-                      <span className="text-slate-400">Typ rat:</span>{' '}
-                      <span className="font-semibold text-slate-800">{selectedDebtForDetails.rateType === 'decreasing' ? 'Malejące' : 'Równe'}</span>
-                    </div>
-                  )}
-                  {selectedDebtForDetails.interestRate && (
-                    <div>
-                      <span className="text-slate-400">Oprocentowanie:</span>{' '}
-                      <span className="font-semibold text-slate-800">{selectedDebtForDetails.interestRate}%</span>
-                    </div>
-                  )}
-                  {selectedDebtForDetails.marginRate && (
-                    <div>
-                      <span className="text-slate-400">Marża banku:</span>{' '}
-                      <span className="font-semibold text-slate-800">{selectedDebtForDetails.marginRate}%</span>
-                    </div>
-                  )}
-                  {selectedDebtForDetails.referenceRateType && (
-                    <div>
-                      <span className="text-slate-400">Stawka bazowa:</span>{' '}
-                      <span className="font-semibold text-slate-800">{selectedDebtForDetails.referenceRateType}{selectedDebtForDetails.referenceRate ? ` (${selectedDebtForDetails.referenceRate}%)` : ''}</span>
-                    </div>
-                  )}
-                  {selectedDebtForDetails.insuranceMonthly && (
-                    <div>
-                      <span className="text-slate-400">Ubezpieczenia:</span>{' '}
-                      <span className="font-semibold text-slate-800">{selectedDebtForDetails.insuranceMonthly} zł/msc</span>
-                    </div>
-                  )}
-                  {selectedDebtForDetails.loanTermYears && (
-                    <div>
-                      <span className="text-slate-400">Okres kredytu:</span>{' '}
-                      <span className="font-semibold text-slate-800">{selectedDebtForDetails.loanTermYears} lat</span>
-                    </div>
-                  )}
-                  {selectedDebtForDetails.paymentDayOfMonth && (
-                    <div>
-                      <span className="text-slate-400">Dzień spłaty:</span>{' '}
-                      <span className="font-semibold text-slate-800">{selectedDebtForDetails.paymentDayOfMonth}. dzień msc</span>
-                    </div>
-                  )}
-                  {selectedDebtForDetails.overpaymentCommission !== undefined && (
-                    <div className="col-span-2">
-                      <span className="text-slate-400">Prowizja za nadpłatę:</span>{' '}
-                      <span className="font-semibold text-slate-800">{selectedDebtForDetails.overpaymentCommission}% {selectedDebtForDetails.overpaymentCommissionYears ? `(pierwsze ${selectedDebtForDetails.overpaymentCommissionYears} lat)` : ''}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <div className="pt-2 flex items-center justify-between">
+            {/* Sticky Footer */}
+            <div className="p-4 sm:p-5 border-t border-slate-100 flex items-center justify-between shrink-0 bg-slate-50/80 rounded-b-3xl">
               <button
                 type="button"
                 onClick={() => {
@@ -2131,14 +2434,15 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                   setSelectedDebtForDetails(null);
                   handleOpenEditModal(debt);
                 }}
-                className="px-4 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-xl font-bold text-xs flex items-center space-x-1.5 transition-colors"
+                className="px-4 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-xl font-bold text-xs flex items-center space-x-1.5 transition-colors cursor-pointer"
               >
                 <Pencil className="w-3.5 h-3.5" />
                 <span>Edytuj parametry</span>
               </button>
               <button
+                type="button"
                 onClick={() => setSelectedDebtForDetails(null)}
-                className="px-5 py-2 bg-slate-900 text-white rounded-xl font-bold text-xs"
+                className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs transition-colors cursor-pointer"
               >
                 Zamknij
               </button>
@@ -2258,15 +2562,16 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
 
       {/* MODAL 6: EDYCJA ZOBOWIĄZANIA */}
       {selectedDebtForEdit && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
-          <div className="bg-white w-full max-w-xl rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6 my-8 border border-slate-100 animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white w-full max-w-xl rounded-3xl shadow-2xl border border-slate-100 flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95">
+            {/* Header (sticky at top) */}
+            <div className="p-5 sm:p-6 pb-4 border-b border-slate-100 flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-3">
-                <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl">
-                  <Pencil className="w-6 h-6" />
+                <div className="p-2.5 sm:p-3 bg-indigo-50 text-indigo-600 rounded-2xl shrink-0">
+                  <Pencil className="w-5 h-5 sm:w-6 sm:h-6" />
                 </div>
                 <div>
-                  <h2 className="text-lg sm:text-xl font-black text-slate-900">
+                  <h2 className="text-base sm:text-lg font-black text-slate-900">
                     Edycja zadłużenia / pożyczki
                   </h2>
                   <p className="text-xs text-slate-500">
@@ -2275,14 +2580,16 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => setSelectedDebtForEdit(null)}
-                className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors"
+                className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveEditDebt} className="space-y-4">
+            <form onSubmit={handleSaveEditDebt} className="flex flex-col flex-1 min-h-0">
+              <div className="p-5 sm:p-6 overflow-y-auto flex-1 space-y-4">
               {/* Kierunek */}
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-slate-700">Kierunek zobowiązania:</label>
@@ -2627,18 +2934,20 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                 />
               </div>
 
-              {/* Modal buttons */}
-              <div className="pt-2 flex items-center justify-end space-x-3">
+              </div>
+
+              {/* Modal buttons (sticky footer) */}
+              <div className="p-4 sm:p-5 border-t border-slate-100 flex items-center justify-end space-x-3 shrink-0 bg-slate-50/80 rounded-b-3xl">
                 <button
                   type="button"
                   onClick={() => setSelectedDebtForEdit(null)}
-                  className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+                  className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
                 >
                   Anuluj
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 rounded-xl shadow-lg shadow-indigo-600/25 transition-all flex items-center space-x-1.5"
+                  className="px-6 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 rounded-xl shadow-lg shadow-indigo-600/25 transition-all flex items-center space-x-1.5 cursor-pointer"
                 >
                   <Check className="w-4 h-4" />
                   <span>Zapisz zmiany</span>

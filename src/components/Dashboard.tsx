@@ -25,6 +25,8 @@ import {
   Landmark,
   CreditCard,
   HandCoins,
+  CalendarClock,
+  Check,
 } from 'lucide-react';
 import {
   Transaction,
@@ -103,39 +105,118 @@ export const Dashboard: React.FC<DashboardProps> = ({
     transactions,
   });
 
+  const now = new Date();
+  const currentCalendarMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const todayStr = `${currentCalendarMonth}-${String(now.getDate()).padStart(2, '0')}`;
+  const isCurrentMonth = !selectedMonth || selectedMonth === currentCalendarMonth;
+
   // Month transactions
   const monthTransactions = transactions.filter(
     (t) => !selectedMonth || t.date.startsWith(selectedMonth)
   );
 
-  const totalIncome = monthTransactions
+  // Transakcje rozliczone na dany dzień:
+  // W bieżącym miesiącu do salda bieżącego wliczamy transakcje z datą <= dzisiaj.
+  // Transakcje opłacone z datą przyszłą (np. opłacone 10-go z terminem 15-go) zostaną zaksięgowane 15-go.
+  const settledMonthTransactions = isCurrentMonth
+    ? monthTransactions.filter((t) => t.date <= todayStr)
+    : monthTransactions;
+
+  const futureMonthTransactions = isCurrentMonth
+    ? monthTransactions.filter((t) => t.date > todayStr)
+    : [];
+
+  const totalIncome = settledMonthTransactions
     .filter((t) => t.type === 'income')
     .reduce((s, t) => s + t.amount, 0);
 
-  const totalExpense = monthTransactions
+  const totalExpense = settledMonthTransactions
     .filter((t) => t.type === 'expense')
     .reduce((s, t) => s + t.amount, 0);
 
   const balance = totalIncome - totalExpense;
   const savingsRate = totalIncome > 0 ? ((balance / totalIncome) * 100).toFixed(0) : '0';
 
-  // Urgent / Upcoming bills - show only near due dates (overdue or within 14 days)
+  const futureExpense = futureMonthTransactions
+    .filter((t) => t.type === 'expense')
+    .reduce((s, t) => s + t.amount, 0);
+
+  const futureIncome = futureMonthTransactions
+    .filter((t) => t.type === 'income')
+    .reduce((s, t) => s + t.amount, 0);
+
+  const projectedBalance = balance + futureIncome - futureExpense;
+
+  // Urgent / Upcoming bills - rachunki oczekujące na opłacenie ORAZ opłacone z datą przyszłą
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const pendingBills = bills
-    .filter((b) => b.status !== 'paid')
-    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+  interface UpcomingBillItem {
+    id: string;
+    billId: string;
+    name: string;
+    amount: number;
+    targetDate: string;
+    diffDays: number;
+    isPaidFuture: boolean;
+    provider?: string;
+  }
 
-  // Only bills with near due dates (overdue or due within 14 days), hiding far future bills
-  const upcomingBills = pendingBills
-    .filter((b) => {
+  const upcomingBillsList: UpcomingBillItem[] = [];
+
+  bills.forEach((b) => {
+    // 1. Sprawdź czy rachunek został opłacony z datą przyszłą (do przodu)
+    const latestHistory = b.paymentHistory?.[0];
+    const isFuturePaid =
+      (b.paymentDate && b.paymentDate > todayStr) ||
+      (latestHistory && !latestHistory.isRollover && latestHistory.paidDate > todayStr);
+
+    if (isFuturePaid) {
+      const futureDate = (b.paymentDate && b.paymentDate > todayStr)
+        ? b.paymentDate!
+        : latestHistory!.paidDate;
+      const targetTime = new Date(futureDate).getTime();
+      const diffDays = Math.ceil((targetTime - today.getTime()) / (1000 * 60 * 60 * 24));
+      const paidAmt = b.lastPaidAmount || latestHistory?.amount || b.amount;
+
+      if (diffDays >= 0 && diffDays <= 14) {
+        upcomingBillsList.push({
+          id: `future-${b.id}`,
+          billId: b.id,
+          name: b.name,
+          amount: paidAmt,
+          targetDate: futureDate,
+          diffDays,
+          isPaidFuture: true,
+          provider: b.provider,
+        });
+        return;
+      }
+    }
+
+    // 2. Rachunki oczekujące na opłacenie (status !== 'paid')
+    if (b.status !== 'paid') {
       const dueTime = new Date(b.dueDate).getTime();
       const diffDays = Math.ceil((dueTime - today.getTime()) / (1000 * 60 * 60 * 24));
-      return diffDays <= 14;
-    })
-    .slice(0, 4);
+      if (diffDays <= 14) {
+        upcomingBillsList.push({
+          id: `pending-${b.id}`,
+          billId: b.id,
+          name: b.name,
+          amount: b.amount,
+          targetDate: b.dueDate,
+          diffDays,
+          isPaidFuture: false,
+          provider: b.provider,
+        });
+      }
+    }
+  });
 
+  upcomingBillsList.sort((a, b) => new Date(a.targetDate).getTime() - new Date(b.targetDate).getTime());
+  const upcomingBills = upcomingBillsList.slice(0, 6);
+  const pendingUpcomingCount = upcomingBills.filter((b) => !b.isPaidFuture).length;
+  const futurePaidUpcomingCount = upcomingBills.filter((b) => b.isPaidFuture).length;
 
   // Mini Sparkline Data for Income/Expense
   const daysInMonth = Array.from({ length: 15 }, (_, i) => {
@@ -153,9 +234,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
       setLoadingAdvice(true);
       setAdviceError(null);
       const advice = await getFinancialAdviceWithAI({
-        transactions: monthTransactions,
+        transactions: settledMonthTransactions,
         limits: budgetLimits,
-        bills: pendingBills,
+        bills: bills.filter((b) => b.status !== 'paid'),
       });
       if (advice) {
         setAiAdvice(advice);
@@ -170,41 +251,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
     }
   };
 
-  // Mortgage primary loan calculations for dashboard summary
-  const primaryLoan = mortgages[0];
-  const loanTotalAmount = primaryLoan?.totalLoanAmount || 0;
-  const loanRemainingPrincipal = primaryLoan?.remainingPrincipal || 0;
-  const loanInitialPaid = primaryLoan?.initialPaidPrincipal || 0;
-  const loanHistoryPaid = (primaryLoan?.paymentsHistory || []).reduce((sum, p) => sum + (p.principalAmount || 0), 0);
-  const loanTotalPaid = loanInitialPaid + loanHistoryPaid;
-  const loanPaidPercent = loanTotalAmount > 0 ? (loanTotalPaid / loanTotalAmount) * 100 : 0;
-  const loanRate = primaryLoan?.interestRate || 7.45;
-  const loanInterestAmt = loanRemainingPrincipal * (loanRate / 100 / 12);
-  const loanPrincipalAmt = Math.max(0, (primaryLoan?.monthlyPayment || 0) - loanInterestAmt);
-
-  const isLoanInGrace = primaryLoan ? (
-    (primaryLoan.gracePeriodEndDate && new Date().toISOString().split('T')[0] <= primaryLoan.gracePeriodEndDate) ||
-    (primaryLoan.gracePeriodMonths && primaryLoan.gracePeriodMonths > 0 && primaryLoan.startDate ? (
-      (() => {
-        const d = new Date(primaryLoan.startDate);
-        d.setMonth(d.getMonth() + (primaryLoan.gracePeriodMonths || 0));
-        return new Date() <= d;
-      })()
-    ) : false)
-  ) : false;
-
-  // Podsumowanie Zobowiązań & Pożyczek (debts + legacy mortgages)
+  // Podsumowanie Zobowiązań & Pożyczek (wyłącznie wpisy z debts, bez sztucznego fallbacku do primaryLoan)
   const borrowedDebts = debts.filter((d) => d.type === 'borrowed');
   const lentDebts = debts.filter((d) => d.type === 'lent');
 
-  // Archiwalny fallback do primaryLoan TYLKO gdy debts jest całkiem puste i istnieje nieprzemigrowany primaryLoan
-  const hasDebtsRecords = debts.length > 0;
-  const useLegacyLoan = !hasDebtsRecords && !!primaryLoan;
-
   // Kwoty do oddania (moje długi i kredyty)
-  const totalBorrowedInitial = borrowedDebts.reduce((s, d) => s + (d.initialAmount || d.totalAmount || 0), 0) + (useLegacyLoan && primaryLoan ? loanTotalAmount : 0);
-  const totalBorrowedRemaining = borrowedDebts.reduce((s, d) => s + (d.currentRemaining ?? 0), 0) + (useLegacyLoan && primaryLoan ? loanRemainingPrincipal : 0);
-  const totalBorrowedPaid = borrowedDebts.reduce((s, d) => s + (d.paidAmount || 0), 0) + (useLegacyLoan && primaryLoan ? loanTotalPaid : 0);
+  const totalBorrowedInitial = borrowedDebts.reduce((s, d) => s + (d.initialAmount || d.totalAmount || 0), 0);
+  const totalBorrowedRemaining = borrowedDebts.reduce((s, d) => s + (d.currentRemaining ?? 0), 0);
+  const totalBorrowedPaid = borrowedDebts.reduce((s, d) => s + (d.paidAmount || 0), 0);
   const borrowedPaidPercent = totalBorrowedInitial > 0 ? (totalBorrowedPaid / totalBorrowedInitial) * 100 : 0;
 
   // Kwoty do odzyskania (pożyczone komuś)
@@ -223,7 +277,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     if (payment <= 0) return s;
     const effectivePayment = payment <= remaining ? payment : remaining;
     return s + effectivePayment;
-  }, 0) + (useLegacyLoan && primaryLoan && loanRemainingPrincipal > 0 ? (primaryLoan.monthlyPayment || 0) : 0);
+  }, 0);
 
   const activeBankDebt = debts.find((d) => (d.isBankLoan || d.category === 'kredyt_bankowy') && (d.currentRemaining ?? 0) > 0);
   const primaryBankDebt = activeBankDebt || debts.find((d) => d.isBankLoan || d.category === 'kredyt_bankowy');
@@ -298,6 +352,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 {balance >= 0 ? '+' : ''}
                 {balance.toFixed(2)} <span className="text-lg font-bold text-slate-300">PLN</span>
               </p>
+              {futureExpense > 0 && (
+                <div className="mt-2 inline-flex items-center space-x-1.5 text-xs text-slate-300 bg-slate-800/80 border border-slate-700/60 px-2.5 py-1 rounded-lg">
+                  <CalendarClock className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                  <span>
+                    <strong className={projectedBalance >= 0 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                      {projectedBalance >= 0 ? '+' : ''}{projectedBalance.toFixed(2)} zł
+                    </strong>
+                    <span className="text-slate-400 ml-1.5">po opłaceniu zleconego rachunku</span>
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -333,6 +398,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   <span>-{totalExpense.toFixed(2)} zł</span>
                   <span className="text-[11px] text-slate-500 group-hover/exp:text-slate-300 transition-colors">→</span>
                 </p>
+                {futureExpense > 0 && (
+                  <span className="text-[10px] text-amber-300 font-medium block mt-0.5">
+                    +{futureExpense.toFixed(2)} zł zlecone
+                  </span>
+                )}
               </div>
             </div>
 
@@ -410,39 +480,87 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
       {/* 2. Upcoming Bills Alert Strip */}
       {upcomingBills.length > 0 && (
-        <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
+        <div
+          className={`rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs border ${
+            pendingUpcomingCount === 0 && futurePaidUpcomingCount > 0
+              ? 'bg-emerald-50/90 border-emerald-200'
+              : 'bg-amber-50/80 border-amber-200'
+          }`}
+        >
           <div className="flex items-start space-x-3">
-            <div className="p-2 rounded-xl bg-amber-100 text-amber-800 flex-shrink-0 mt-0.5 border border-amber-200">
-              <Clock className="w-4 h-4" />
+            <div
+              className={`p-2 rounded-xl flex-shrink-0 mt-0.5 border ${
+                pendingUpcomingCount === 0 && futurePaidUpcomingCount > 0
+                  ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                  : 'bg-amber-100 text-amber-800 border-amber-200'
+              }`}
+            >
+              {pendingUpcomingCount === 0 ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              ) : (
+                <Clock className="w-4 h-4 text-amber-800" />
+              )}
             </div>
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <h4 className="text-sm font-bold text-amber-950">
+                <h4 className="text-sm font-bold text-slate-900">
                   Zbliżające się terminy płatności rachunków ({upcomingBills.length})
                 </h4>
-                <span className="text-[11px] font-semibold text-amber-800 bg-amber-100/90 px-2 py-0.5 rounded-md">
-                  Kliknij rachunek, aby od razu go opłacić
+                <span
+                  className={`text-[11px] font-semibold px-2 py-0.5 rounded-md ${
+                    pendingUpcomingCount === 0
+                      ? 'text-emerald-800 bg-emerald-100/90'
+                      : 'text-amber-800 bg-amber-100/90'
+                  }`}
+                >
+                  {pendingUpcomingCount > 0 ? `${pendingUpcomingCount} do opłacenia` : 'Bieżące rachunki uregulowane'}
+                  {futurePaidUpcomingCount > 0 && ` • ${futurePaidUpcomingCount} opłacone z góry`}
                 </span>
               </div>
               <div className="flex flex-wrap gap-2 mt-2">
-                {upcomingBills.map((b) => (
-                  <button
-                    key={b.id}
-                    onClick={() => onNavigate('bills', { payBillId: b.id })}
-                    className="flex items-center space-x-2 text-xs font-medium px-3 py-1.5 bg-white hover:bg-amber-100/80 rounded-xl border border-amber-300 text-slate-800 shadow-2xs transition-all cursor-pointer group active:scale-95 text-left"
-                    title={`Kliknij, aby natychmiast przejść do opłacenia rachunku: ${b.name}`}
-                  >
-                    <div>
-                      <strong className="text-slate-900 font-bold group-hover:text-amber-950">{b.name}</strong>
-                      <span className="text-slate-700 ml-1 font-semibold">{b.amount.toFixed(2)} zł</span>
-                      <span className="text-[10px] text-slate-400 block sm:inline sm:ml-1">Termin: {b.dueDate}</span>
-                    </div>
-                    <span className="px-2 py-0.5 bg-emerald-600 group-hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold shrink-0 flex items-center space-x-1 shadow-2xs transition-colors ml-1">
-                      <CreditCard className="w-3 h-3" />
-                      <span>Opłać</span>
-                    </span>
-                  </button>
-                ))}
+                {upcomingBills.map((b) => {
+                  if (b.isPaidFuture) {
+                    return (
+                      <div
+                        key={b.id}
+                        onClick={() => onNavigate('bills')}
+                        className="flex items-center space-x-2 text-xs font-medium px-3 py-1.5 bg-white hover:bg-emerald-50/70 rounded-xl border border-emerald-300 text-slate-800 shadow-2xs transition-all cursor-pointer group text-left"
+                        title={`Rachunek "${b.name}" został już opłacony z datą przyszłą: ${b.targetDate}. Zostanie uwzględniony w saldzie w tym dniu. Kliknij, aby otworzyć rachunki.`}
+                      >
+                        <div>
+                          <strong className="text-slate-900 font-bold group-hover:text-emerald-950">{b.name}</strong>
+                          <span className="text-slate-700 ml-1 font-semibold">{b.amount.toFixed(2)} zł</span>
+                          <span className="text-[10px] text-emerald-700 block sm:inline sm:ml-1 font-medium">
+                            Termin: {b.targetDate}
+                          </span>
+                        </div>
+                        <span className="px-2 py-0.5 bg-emerald-600 text-white rounded-lg text-[10px] font-bold shrink-0 flex items-center space-x-1 shadow-2xs ml-1">
+                          <Check className="w-3 h-3 stroke-[3]" />
+                          <span>Opłacone</span>
+                        </span>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <button
+                      key={b.id}
+                      onClick={() => onNavigate('bills', { payBillId: b.billId })}
+                      className="flex items-center space-x-2 text-xs font-medium px-3 py-1.5 bg-white hover:bg-amber-100/80 rounded-xl border border-amber-300 text-slate-800 shadow-2xs transition-all cursor-pointer group active:scale-95 text-left"
+                      title={`Kliknij, aby natychmiast przejść do opłacenia rachunku: ${b.name}`}
+                    >
+                      <div>
+                        <strong className="text-slate-900 font-bold group-hover:text-amber-950">{b.name}</strong>
+                        <span className="text-slate-700 ml-1 font-semibold">{b.amount.toFixed(2)} zł</span>
+                        <span className="text-[10px] text-slate-400 block sm:inline sm:ml-1">Termin: {b.targetDate}</span>
+                      </div>
+                      <span className="px-2 py-0.5 bg-emerald-600 group-hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold shrink-0 flex items-center space-x-1 shadow-2xs transition-colors ml-1">
+                        <CreditCard className="w-3 h-3" />
+                        <span>Opłać</span>
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -552,6 +670,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <div className="space-y-2.5">
             {monthTransactions.slice(0, 4).map((item) => {
               const isIncome = item.type === 'income';
+              const isFuture = item.date > todayStr;
               return (
                 <div
                   key={item.id}
@@ -566,9 +685,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   title="Kliknij, aby przejść do tej transakcji"
                 >
                   <div className="min-w-0 pr-2">
-                    <p className="font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors truncate">
-                      {item.title}
-                    </p>
+                    <div className="flex items-center space-x-1.5 truncate">
+                      <p className="font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors truncate">
+                        {item.title}
+                      </p>
+                      {isFuture && (
+                        <span className="text-[9px] font-bold text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded shrink-0">
+                          Zaplanowane
+                        </span>
+                      )}
+                    </div>
                     <span className="text-[10px] text-slate-400">{item.date} • {item.category}</span>
                   </div>
                   <div className="text-right shrink-0">
@@ -604,26 +730,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     {primaryBankDebt.bankName}
                   </span>
                 )}
-                {!primaryBankDebt && useLegacyLoan && primaryLoan && (
-                  <span className="text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-100 px-2 py-0.5 rounded-md">
-                    {primaryLoan.bankName}
-                  </span>
-                )}
-                {isLoanInGrace && (
-                  <span className="text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-md">
-                    Karencja aktywna
-                  </span>
-                )}
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                {borrowedDebts.length > 0 || (useLegacyLoan && primaryLoan)
+                {borrowedDebts.length > 0 || lentDebts.length > 0
                   ? `${activeBorrowedDebts.length} aktywnych do spłaty (${borrowedDebts.length} ogółem) • ${activeLentDebts.length} do odzyskania`
-                  : 'Kredyty, pożyczki prywatne oraz środki pożyczone innym'}
+                  : 'Brak aktywnych zobowiązań i pożyczek'}
                 {activeBankDebt?.paymentDayOfMonth && (
                   <> • Rata bankowa: każdego <strong className="text-slate-700">{activeBankDebt.paymentDayOfMonth}.</strong> dnia miesiąca</>
-                )}
-                {!activeBankDebt && useLegacyLoan && primaryLoan?.paymentDayOfMonth && loanRemainingPrincipal > 0 && (
-                  <> • Rata bankowa: każdego <strong className="text-slate-700">{primaryLoan.paymentDayOfMonth}.</strong> dnia miesiąca</>
                 )}
               </p>
             </div>
@@ -650,7 +763,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <span>Ile muszę oddać</span>
                 <span className="text-slate-400">→</span>
               </span>
-              <span className="text-slate-500 font-medium">({borrowedDebts.length || (useLegacyLoan && primaryLoan ? 1 : 0)} poz.)</span>
+              <span className="text-slate-500 font-medium">({borrowedDebts.length} poz.)</span>
             </span>
             <div className="flex items-baseline space-x-1.5">
               <span className="text-xl font-black text-rose-600">
@@ -726,11 +839,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   <p className="text-[11px] font-bold text-emerald-600 flex items-center gap-1">
                     <span>Wszystkie raty spłacone</span>
                   </p>
-                ) : activeBankDebt?.interestRate || (useLegacyLoan && primaryLoan && loanRemainingPrincipal > 0 && primaryLoan?.interestRate) ? (
+                ) : activeBankDebt?.interestRate ? (
                   <p className="text-[11px] text-slate-500">
-                    Oprocentowanie: <strong className="text-amber-600">{activeBankDebt?.interestRate || primaryLoan?.interestRate}%</strong>
-                    {(activeBankDebt?.loanTermYears || (useLegacyLoan && primaryLoan?.loanTermYears)) && (
-                      <span> ({activeBankDebt?.loanTermYears || primaryLoan?.loanTermYears} lat)</span>
+                    Oprocentowanie: <strong className="text-amber-600">{activeBankDebt.interestRate}%</strong>
+                    {activeBankDebt?.loanTermYears && (
+                      <span> ({activeBankDebt.loanTermYears} lat)</span>
                     )}
                   </p>
                 ) : (
@@ -774,7 +887,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
           {budgetLimits.slice(0, 4).map((limit) => {
-            const spent = monthTransactions
+            const spent = settledMonthTransactions
+              .filter((t) => t.category === limit.category && t.type === 'expense')
+              .reduce((s, t) => s + t.amount, 0);
+            const futureSpent = futureMonthTransactions
               .filter((t) => t.category === limit.category && t.type === 'expense')
               .reduce((s, t) => s + t.amount, 0);
             const percent = limit.monthlyLimit > 0 ? (spent / limit.monthlyLimit) * 100 : 0;
@@ -809,6 +925,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <div className="flex justify-between items-center text-[10px] text-slate-400">
                   <span className={percent >= 100 ? 'text-rose-600 font-bold' : percent >= 80 ? 'text-amber-600 font-bold' : ''}>
                     {percent.toFixed(0)}% wykorzystane
+                    {futureSpent > 0 && (
+                      <span className="text-indigo-600 font-normal ml-1">
+                        (+{futureSpent.toFixed(0)} zł plan)
+                      </span>
+                    )}
                   </span>
                   <span className="opacity-0 group-hover:opacity-100 text-indigo-600 font-semibold transition-opacity">
                     edytuj →

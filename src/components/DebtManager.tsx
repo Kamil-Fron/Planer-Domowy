@@ -1054,8 +1054,8 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
 
       {/* MODAL 1: DODAJ NOWE ZADŁUŻENIE */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white w-full max-w-xl rounded-3xl shadow-2xl border border-slate-100 flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs p-2.5 sm:p-4 md:py-8 flex min-h-full items-start justify-center">
+          <div className="my-auto w-full max-w-xl rounded-3xl shadow-2xl border border-slate-100 flex flex-col max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-hidden bg-white animate-in fade-in zoom-in-95">
             {/* Header (sticky at top) */}
             <div className="p-5 sm:p-6 pb-4 border-b border-slate-100 flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-3">
@@ -1973,8 +1973,8 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
 
       {/* MODAL 3: SZCZEGÓŁY I HISTORIA WPŁAT */}
       {selectedDebtForDetails && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl border border-slate-100 flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs p-2.5 sm:p-4 md:py-8 flex min-h-full items-start justify-center">
+          <div className="my-auto w-full max-w-2xl rounded-3xl shadow-2xl border border-slate-100 flex flex-col max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-hidden bg-white animate-in fade-in zoom-in-95">
             {/* Header (sticky at top) */}
             <div className="p-5 sm:p-6 pb-4 border-b border-slate-100 flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-3">
@@ -2562,8 +2562,8 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
 
       {/* MODAL 6: EDYCJA ZOBOWIĄZANIA */}
       {selectedDebtForEdit && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white w-full max-w-xl rounded-3xl shadow-2xl border border-slate-100 flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs p-2.5 sm:p-4 md:py-8 flex min-h-full items-start justify-center">
+          <div className="my-auto w-full max-w-xl rounded-3xl shadow-2xl border border-slate-100 flex flex-col max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-hidden bg-white animate-in fade-in zoom-in-95">
             {/* Header (sticky at top) */}
             <div className="p-5 sm:p-6 pb-4 border-b border-slate-100 flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-3">

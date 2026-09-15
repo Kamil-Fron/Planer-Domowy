@@ -342,6 +342,22 @@ export default function App() {
     }
   }, [currentUser?.id, currentUser?.isLoggedIn, household?.id]);
 
+  // Synchronizuj rachunki z serwerem dla automatycznych powiadomień w tle
+  useEffect(() => {
+    if (!household?.id || !bills || bills.length === 0) return;
+    const timeout = setTimeout(() => {
+      fetch('/api/sync-household-bills', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          householdId: household.id,
+          bills,
+        }),
+      }).catch(() => {});
+    }, 1500);
+    return () => clearTimeout(timeout);
+  }, [household?.id, bills]);
+
   // Household Admin Permission Check
   const isHouseholdAdmin =
     !household ||

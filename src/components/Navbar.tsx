@@ -43,6 +43,7 @@ import {
   getNotificationPermission,
   subscribeToPushNotifications,
   sendTestPushNotification,
+  scheduleTestPushNotification,
   getExistingPushSubscription,
   isRunningInIframe,
   isAppleDevice,
@@ -156,6 +157,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [isSubscribingPush, setIsSubscribingPush] = useState(false);
   const [testPushMsg, setTestPushMsg] = useState<string | null>(null);
   const [pushErrorMsg, setPushErrorMsg] = useState<string | null>(null);
+  const [scheduledDelayCountdown, setScheduledDelayCountdown] = useState<number | null>(null);
+  const [isBackgroundGuideOpen, setIsBackgroundGuideOpen] = useState(false);
 
   const handleEnablePush = async () => {
     setIsSubscribingPush(true);
@@ -247,6 +250,54 @@ export const Navbar: React.FC<NavbarProps> = ({
       setTestPushMsg('Baner działa! 🔔');
       setPushErrorMsg(err?.message || 'Błąd wysyłki sieciowej');
       setTimeout(() => setTestPushMsg(null), 4500);
+    }
+  };
+
+  const handleScheduleDelayedTestPush = async () => {
+    setPushErrorMsg(null);
+    try {
+      let currentSub = await getExistingPushSubscription();
+      if (!currentSub && isPushSupported() && !isRunningInIframe()) {
+        const { subscription } = await subscribeToPushNotifications({
+          householdId: household?.id || 'default',
+          userId: currentUser?.id || 'user',
+          userName: currentUser?.name || 'Domownik',
+        });
+        if (subscription) {
+          currentSub = subscription;
+          setPushPermission('granted');
+        }
+      }
+
+      const res = await scheduleTestPushNotification({
+        subscription: currentSub,
+        householdId: household?.id,
+        userId: currentUser?.id,
+        extraSubscriptions: household?.pushSubscriptions,
+        delaySeconds: 10,
+        title: '📲 Test w tle: Sukces!',
+        body: 'Powiadomienie dotarło przy wyłączonej aplikacji / zablokowanym telefonie!',
+      });
+
+      if (res.success) {
+        let remaining = res.delaySeconds || 10;
+        setScheduledDelayCountdown(remaining);
+        const timer = setInterval(() => {
+          remaining -= 1;
+          if (remaining <= 0) {
+            clearInterval(timer);
+            setScheduledDelayCountdown(null);
+            setTestPushMsg('Wysłano w tle! 🔔');
+            setTimeout(() => setTestPushMsg(null), 4000);
+          } else {
+            setScheduledDelayCountdown(remaining);
+          }
+        }, 1000);
+      } else {
+        setPushErrorMsg(res.error || 'Nie udało się zaplanować testu w tle.');
+      }
+    } catch (err: any) {
+      setPushErrorMsg(err?.message || 'Błąd planowania testu push');
     }
   };
 
@@ -659,23 +710,81 @@ export const Navbar: React.FC<NavbarProps> = ({
                       {/* Status powiadomień w telefonie */}
                       <div className="px-3 pt-2">
                         {pushPermission === 'granted' ? (
-                          <div className="p-2 bg-emerald-50/90 border border-emerald-200 rounded-xl space-y-1.5 text-[11px]">
+                          <div className="p-2.5 bg-emerald-50/90 border border-emerald-200 rounded-xl space-y-2 text-[11px]">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center space-x-1.5 text-emerald-900 font-medium min-w-0">
                                 <Smartphone className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                                 <span className="truncate">Powiadomienia w telefonie: <strong className="text-emerald-700">Włączone</strong></span>
                               </div>
+                            </div>
+
+                            {/* Przyciski testowe: natychmiast oraz test w tle z opóźnieniem */}
+                            <div className="grid grid-cols-2 gap-1.5 pt-0.5">
                               <button
                                 onClick={handleSendTestPush}
-                                className="px-2.5 py-1 text-[10px] font-bold bg-white text-emerald-700 hover:bg-emerald-100 rounded-md border border-emerald-300 transition-colors shrink-0 shadow-2xs cursor-pointer active:scale-95"
-                                title="Wyślij próbne powiadomienie na to urządzenie"
+                                className="px-2 py-1.5 text-[10px] font-bold bg-white text-emerald-800 hover:bg-emerald-100/70 rounded-lg border border-emerald-300 transition-all shadow-2xs text-center cursor-pointer active:scale-95"
+                                title="Wyślij próbne powiadomienie natychmiast"
                               >
-                                {testPushMsg || 'Testuj 📲'}
+                                {testPushMsg || 'Test teraz 📲'}
+                              </button>
+                              <button
+                                onClick={handleScheduleDelayedTestPush}
+                                disabled={scheduledDelayCountdown !== null}
+                                className={`px-2 py-1.5 text-[10px] font-bold rounded-lg border transition-all shadow-2xs text-center cursor-pointer active:scale-95 ${
+                                  scheduledDelayCountdown !== null
+                                    ? 'bg-amber-100 text-amber-900 border-amber-300 animate-pulse'
+                                    : 'bg-indigo-600 text-white hover:bg-indigo-700 border-indigo-700'
+                                }`}
+                                title="Zaplanuj wysyłkę za 10 sekund — zablokuj telefon lub zamknij aplikację"
+                              >
+                                {scheduledDelayCountdown !== null
+                                  ? `Za ${scheduledDelayCountdown}s... zablokuj ekran! ⏳`
+                                  : 'Test w tle (za 10s) ⏳'}
                               </button>
                             </div>
+
+                            {scheduledDelayCountdown !== null && (
+                              <p className="text-[10px] text-amber-900 bg-amber-100/80 border border-amber-200 p-1.5 rounded-md font-medium leading-tight">
+                                🔒 <strong>Odliczanie aktywne:</strong> Zablokuj teraz ekran telefonu lub zamknij aplikację. Za chwilę otrzymasz powiadomienie Web Push w tle!
+                              </p>
+                            )}
+
                             {pushErrorMsg && (
                               <p className="text-[10px] text-slate-700 bg-emerald-100/60 p-1 rounded font-medium">{pushErrorMsg}</p>
                             )}
+
+                            {/* Przewodnik działania w tle */}
+                            <div className="pt-1.5 border-t border-emerald-200/60">
+                              <button
+                                type="button"
+                                onClick={() => setIsBackgroundGuideOpen((v) => !v)}
+                                className="text-[10px] text-emerald-800 hover:text-emerald-950 font-bold flex items-center space-x-1 cursor-pointer"
+                              >
+                                <span>{isBackgroundGuideOpen ? '▾ Ukryj wskazówki działania w tle' : '▸ Jak sprawić, by powiadomienia wyskakiwały zawsze?'}</span>
+                              </button>
+
+                              {isBackgroundGuideOpen && (
+                                <div className="mt-2 p-2 bg-white/95 border border-emerald-200 rounded-lg text-[10px] text-slate-700 space-y-2 leading-relaxed">
+                                  <div>
+                                    <strong className="text-slate-900 block">🤖 Android (Chrome / Aplikacja PWA):</strong>
+                                    <ol className="list-decimal list-inside space-y-0.5 mt-0.5 text-slate-600">
+                                      <li>Zainstaluj aplikację na ekranie (menu przeglądarki ⋮ → <em>Zainstaluj aplikację</em>).</li>
+                                      <li>W Ustawieniach telefonu → Aplikacje → Budżet Domowy → <strong>Zużycie baterii</strong>: wybierz <strong>„Bez ograniczeń”</strong> (wyłącz optymalizację baterii).</li>
+                                      <li>W telefonach Xiaomi/Samsung/Huawei: włącz uprawnienie <strong>„Autostart”</strong> lub „Uruchamianie w tle”.</li>
+                                    </ol>
+                                  </div>
+                                  <div>
+                                    <strong className="text-slate-900 block">🍏 iPhone / iPad (iOS):</strong>
+                                    <p className="text-slate-600 mt-0.5">
+                                      Na iOS powiadomienia w tle wymagają dodania do pulpitu: w Safari kliknij ikonę <strong>Udostępnij (kwadrat ze strzałką)</strong> → <strong>„Do ekranu początkowego”</strong>, otwórz z ikony na pulpicie i włącz powiadomienia.
+                                    </p>
+                                  </div>
+                                  <div className="text-[9px] text-slate-500 pt-1 border-t border-slate-100">
+                                    💡 <em>Serwer co 30 minut sprawdza Twoje rachunki i wysyła przypomnienia w tle, nawet gdy aplikacja jest wyłączona.</em>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         ) : pushPermission === 'denied' ? (
                           <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-[11px] space-y-2">

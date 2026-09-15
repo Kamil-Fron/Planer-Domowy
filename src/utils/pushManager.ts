@@ -320,3 +320,52 @@ export async function sendPushNotificationToHousehold(params: {
     return { success: false };
   }
 }
+
+// Zaplanuj test push z opóźnieniem (np. 10s) na zablokowany ekran / wyłączoną aplikację
+export async function scheduleTestPushNotification(params?: {
+  subscription?: PushSubscription | null;
+  householdId?: string;
+  userId?: string;
+  extraSubscriptions?: any[];
+  delaySeconds?: number;
+  title?: string;
+  body?: string;
+}): Promise<{ success: boolean; message?: string; delaySeconds?: number; error?: string }> {
+  try {
+    let sub = params?.subscription;
+    if (!sub) {
+      sub = await getExistingPushSubscription();
+    }
+    const res = await fetch('/api/schedule-test-push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        subscription: sub ? sub.toJSON() : undefined,
+        householdId: params?.householdId,
+        userId: params?.userId,
+        extraSubscriptions: params?.extraSubscriptions,
+        delaySeconds: params?.delaySeconds ?? 10,
+        title: params?.title,
+        body: params?.body,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return {
+        success: false,
+        error: data?.error || 'Nie udało się zaplanować powiadomienia w tle.',
+      };
+    }
+    return {
+      success: true,
+      delaySeconds: data.delaySeconds || 10,
+      message: data.message,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err?.message || 'Błąd połączenia z serwerem.',
+    };
+  }
+}
+

@@ -731,6 +731,244 @@ app.post("/api/test-push-notification", async (req, res) => {
   }
 });
 
+// Zaplanowane powiadomienie testowe z opóźnieniem (np. za 10s), aby użytkownik mógł zamknąć aplikację / zablokować telefon
+app.post("/api/schedule-test-push", async (req, res) => {
+  try {
+    const { subscription, title, body, userId, householdId, extraSubscriptions, delaySeconds = 10 } = req.body;
+
+    if (subscription && subscription.endpoint) {
+      const existingIdx = pushSubscriptions.findIndex(
+        (s) => s.subscription && s.subscription.endpoint === subscription.endpoint
+      );
+      const record: StoredPushSubscription = {
+        subscription,
+        householdId: householdId || "default",
+        userId: userId || "",
+        userName: "Domownik (test w tle)",
+        updatedAt: new Date().toISOString(),
+      };
+      if (existingIdx >= 0) {
+        pushSubscriptions[existingIdx] = record;
+      } else {
+        pushSubscriptions.push(record);
+      }
+      saveSubscriptions();
+    }
+
+    const targetSubs: any[] = [];
+    if (subscription && subscription.endpoint) {
+      targetSubs.push(subscription);
+    } else {
+      pushSubscriptions
+        .filter((s) => (!userId || s.userId === userId) && (!householdId || s.householdId === householdId))
+        .forEach((s) => {
+          if (s.subscription && !targetSubs.some((ts) => ts.endpoint === s.subscription.endpoint)) {
+            targetSubs.push(s.subscription);
+          }
+        });
+    }
+
+    if (Array.isArray(extraSubscriptions)) {
+      extraSubscriptions.forEach((s: any) => {
+        const sub = s.subscription || s;
+        if (sub && sub.endpoint && !targetSubs.some((ts) => ts.endpoint === sub.endpoint)) {
+          targetSubs.push(sub);
+        }
+      });
+    }
+
+    if (targetSubs.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Brak zarejestrowanego urządzenia do testu w tle. Najpierw zezwól na powiadomienia na tym urządzeniu.",
+      });
+    }
+
+    const effectiveDelay = Math.min(60, Math.max(3, Number(delaySeconds) || 10));
+
+    res.json({
+      success: true,
+      delaySeconds: effectiveDelay,
+      message: `Powiadomienie zaplanowane na za ${effectiveDelay} sekund! Zablokuj telefon lub zamknij aplikację teraz.`,
+    });
+
+    setTimeout(async () => {
+      const payload = JSON.stringify({
+        title: title || "🔔 Test w tle: Sukces!",
+        body: body || "Powiadomienie dotarło przy wyłączonej aplikacji i zablokowanym telefonie! System działa w 100% w tle.",
+        icon: "/pwa-192x192.png",
+        badge: "/pwa-192x192.png",
+        data: {
+          url: "/",
+          targetTab: "dashboard",
+          timestamp: Date.now(),
+        },
+      });
+
+      for (const sub of targetSubs) {
+        try {
+          const endpoint = sub.endpoint || "";
+          const isApple = endpoint.includes("push.apple.com");
+          const pushOptions: any = {
+            TTL: 86400,
+            urgency: "high",
+          };
+          if (isApple) {
+            pushOptions.headers = {
+              "apns-push-type": "alert",
+              "apns-priority": "10",
+            };
+          }
+          await webpush.sendNotification(sub, payload, pushOptions);
+        } catch (e: any) {
+          console.warn("Błąd dostarczenia zaplanowanego testu push:", e?.message);
+          if (e?.statusCode === 410 || e?.statusCode === 404) {
+            pushSubscriptions = pushSubscriptions.filter((s) => s.subscription?.endpoint !== sub.endpoint);
+            saveSubscriptions();
+          }
+        }
+      }
+    }, effectiveDelay * 1000);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || "Błąd planowania push." });
+  }
+});
+
+// Synchronizacja rachunków do monitorowania w tle przez serwer
+const BILLS_CACHE_FILE = path.join(process.cwd(), ".household-bills-cache.json");
+const NOTIFIED_BILLS_FILE = path.join(process.cwd(), ".notified-bills.json");
+
+let householdBillsMap: Record<string, any[]> = {};
+let notifiedBillsTracker: Record<string, string> = {};
+
+try {
+  if (fs.existsSync(BILLS_CACHE_FILE)) {
+    householdBillsMap = JSON.parse(fs.readFileSync(BILLS_CACHE_FILE, "utf-8"));
+  }
+} catch {}
+
+try {
+  if (fs.existsSync(NOTIFIED_BILLS_FILE)) {
+    notifiedBillsTracker = JSON.parse(fs.readFileSync(NOTIFIED_BILLS_FILE, "utf-8"));
+  }
+} catch {}
+
+function saveHouseholdBillsCache() {
+  try {
+    fs.writeFileSync(BILLS_CACHE_FILE, JSON.stringify(householdBillsMap, null, 2), "utf-8");
+  } catch {}
+}
+
+function saveNotifiedBillsTracker() {
+  try {
+    fs.writeFileSync(NOTIFIED_BILLS_FILE, JSON.stringify(notifiedBillsTracker, null, 2), "utf-8");
+  } catch {}
+}
+
+app.post("/api/sync-household-bills", (req, res) => {
+  try {
+    const { householdId, bills } = req.body;
+    if (!householdId || !Array.isArray(bills)) {
+      return res.status(400).json({ success: false, error: "Brak householdId lub bills." });
+    }
+    householdBillsMap[householdId] = bills;
+    saveHouseholdBillsCache();
+    checkUpcomingBillsBackground(householdId).catch(() => {});
+    return res.json({ success: true, count: bills.length });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e?.message });
+  }
+});
+
+async function checkUpcomingBillsBackground(filterHouseholdId?: string) {
+  const todayStr = new Date().toISOString().split("T")[0];
+  const now = new Date();
+
+  const householdsToCheck = filterHouseholdId
+    ? [filterHouseholdId]
+    : Object.keys(householdBillsMap);
+
+  for (const hId of householdsToCheck) {
+    const bills = householdBillsMap[hId] || [];
+    const targets = pushSubscriptions.filter((s) => s.householdId === hId && s.subscription);
+    if (targets.length === 0) continue;
+
+    for (const bill of bills) {
+      if (bill.status === "paid") continue;
+      if (!bill.dueDate) continue;
+
+      const due = new Date(bill.dueDate);
+      const diffDays = Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+      if (diffDays <= 2 && diffDays >= -14) {
+        const notifyKey = `${hId}:${bill.id}:${todayStr}:${diffDays <= 0 ? 'due_today' : 'upcoming'}`;
+        if (notifiedBillsTracker[notifyKey]) {
+          continue;
+        }
+
+        let title = "🔔 Rachunek do zapłacenia";
+        let body = `${bill.name}: ${Number(bill.amount || 0).toFixed(2)} zł`;
+        if (diffDays === 0) {
+          title = "⚠️ Rachunek płatny DZISIAJ!";
+          body = `${bill.name} (${Number(bill.amount || 0).toFixed(2)} zł) - termin mija dzisiaj!`;
+        } else if (diffDays === 1) {
+          title = "⏰ Rachunek płatny jutro";
+          body = `${bill.name} (${Number(bill.amount || 0).toFixed(2)} zł) - termin: jutro (${bill.dueDate}).`;
+        } else if (diffDays === 2) {
+          title = "📅 Zbliża się termin rachunku (za 2 dni)";
+          body = `${bill.name} (${Number(bill.amount || 0).toFixed(2)} zł) - płatność do ${bill.dueDate}.`;
+        } else if (diffDays < 0) {
+          title = "🚨 Zaległy rachunek do zapłacenia!";
+          body = `${bill.name} (${Number(bill.amount || 0).toFixed(2)} zł) - termin minął: ${bill.dueDate}.`;
+        }
+
+        const payload = JSON.stringify({
+          title,
+          body,
+          icon: "/pwa-192x192.png",
+          badge: "/pwa-192x192.png",
+          data: {
+            url: "/?tab=bills",
+            targetTab: "bills",
+            billId: bill.id,
+            timestamp: Date.now(),
+          },
+        });
+
+        for (const target of targets) {
+          try {
+            const isApple = target.subscription.endpoint?.includes("push.apple.com");
+            const pushOpts: any = {
+              TTL: 86400,
+              urgency: "high",
+            };
+            if (isApple) {
+              pushOpts.headers = {
+                "apns-push-type": "alert",
+                "apns-priority": "10",
+              };
+            }
+            await webpush.sendNotification(target.subscription, payload, pushOpts);
+          } catch (err: any) {
+            if (err?.statusCode === 410 || err?.statusCode === 404) {
+              pushSubscriptions = pushSubscriptions.filter((s) => s.subscription?.endpoint !== target.subscription.endpoint);
+              saveSubscriptions();
+            }
+          }
+        }
+
+        notifiedBillsTracker[notifyKey] = new Date().toISOString();
+        saveNotifiedBillsTracker();
+      }
+    }
+  }
+}
+
+// Sprawdzanie rachunków w tle co 30 minut
+setInterval(() => {
+  checkUpcomingBillsBackground().catch((e) => console.warn("Błąd okresowego sprawdzania rachunków:", e?.message));
+}, 30 * 60 * 1000);
+
 // Serve Service Worker with required headers
 app.get("/sw.js", (req, res) => {
   res.setHeader("Content-Type", "application/javascript");

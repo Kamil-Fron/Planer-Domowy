@@ -12,11 +12,14 @@ import {
   EyeOff,
   SlidersHorizontal,
   Trash2,
+  Archive,
+  Calendar,
 } from 'lucide-react';
 import { ShoppingList, ShoppingItem, Transaction } from '../types';
 import confetti from 'canvas-confetti';
 import { getSmartShoppingSuggestions } from '../utils/frequentShoppingItems';
 import { SwipeableShoppingItemRow } from './SwipeableShoppingItemRow';
+import { HistoricalShoppingItemRow } from './HistoricalShoppingItemRow';
 import { ListManagementModal } from './ListManagementModal';
 
 interface ShoppingListsProps {
@@ -163,10 +166,11 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
   // Confirmation before deletion
   const [itemToDelete, setItemToDelete] = useState<ShoppingItem | null>(null);
 
-  // Minimal Edit Item State: ONLY Name and Category as requested
+  // Edit Item State: Name, Category and Date
   const [editingItem, setEditingItem] = useState<ShoppingItem | null>(null);
   const [editName, setEditName] = useState('');
   const [editCategory, setEditCategory] = useState('Spożywcze');
+  const [editDate, setEditDate] = useState('');
 
   const handleStartEdit = (item: ShoppingItem, e?: React.MouseEvent | React.SyntheticEvent | { stopPropagation?: () => void }) => {
     if (e && typeof e.stopPropagation === 'function') {
@@ -175,6 +179,8 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
     setEditingItem(item);
     setEditName(item.name);
     setEditCategory(item.category || 'Spożywcze');
+    const rawDate = item.completedAt || item.createdAt;
+    setEditDate(rawDate ? rawDate.substring(0, 10) : new Date().toISOString().substring(0, 10));
   };
 
   const handleSaveEdit = (e: React.FormEvent) => {
@@ -182,10 +188,18 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
     if (!editingItem || !editName.trim()) return;
 
     if (onUpdateItem) {
-      onUpdateItem(editingItem.id, {
+      const updates: Partial<ShoppingItem> = {
         name: editName.trim(),
         category: editCategory,
-      });
+      };
+      if (editDate) {
+        if (editingItem.isCompleted) {
+          updates.completedAt = `${editDate}T12:00:00.000Z`;
+        } else {
+          updates.createdAt = `${editDate}T12:00:00.000Z`;
+        }
+      }
+      onUpdateItem(editingItem.id, updates);
     }
 
     setEditingItem(null);
@@ -813,19 +827,39 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
         </div>
       )}
 
-      {/* SWIPE HINT */}
-      <div className="flex items-center justify-between text-[11px] text-slate-400 px-1 select-none">
-        <span>Przesuń produkt w lewo, aby <b>usunąć</b>, w prawo, aby <b>edytować</b></span>
-        {selectedCategoryFilter !== 'all' && (
-          <button
-            type="button"
-            onClick={() => handleOpenListManagement(selectedCategoryFilter)}
-            className="text-indigo-600 hover:underline font-semibold cursor-pointer"
-          >
-            Zarządzaj listą &quot;{selectedCategoryFilter}&quot;
-          </button>
-        )}
-      </div>
+      {/* HINT BAR */}
+      {activeTab === 'completed' ? (
+        <div className="flex items-center justify-between text-[11px] text-slate-500 px-1 select-none">
+          <span className="flex items-center space-x-1.5 font-medium">
+            <Archive className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+            <span>
+              Rejestr archiwalny: kliknij <b>Odznacz</b> aby przywrócić, <b>Ołówek</b> do edycji lub <b>Kosz</b> do usunięcia.
+            </span>
+          </span>
+          {selectedCategoryFilter !== 'all' && (
+            <button
+              type="button"
+              onClick={() => handleOpenListManagement(selectedCategoryFilter)}
+              className="text-indigo-600 hover:underline font-semibold cursor-pointer shrink-0 ml-2"
+            >
+              Zarządzaj listą &quot;{selectedCategoryFilter}&quot;
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="flex items-center justify-between text-[11px] text-slate-400 px-1 select-none">
+          <span>Przesuń produkt w lewo, aby <b>usunąć</b>, w prawo, aby <b>edytować</b></span>
+          {selectedCategoryFilter !== 'all' && (
+            <button
+              type="button"
+              onClick={() => handleOpenListManagement(selectedCategoryFilter)}
+              className="text-indigo-600 hover:underline font-semibold cursor-pointer shrink-0 ml-2"
+            >
+              Zarządzaj listą &quot;{selectedCategoryFilter}&quot;
+            </button>
+          )}
+        </div>
+      )}
 
       {/* SHOPPING ITEMS LIST */}
       <div className="space-y-2 w-full">
@@ -833,7 +867,16 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
           flatItemsForCurrentTab.length > 0 ? (
             flatItemsForCurrentTab.map((item) => {
               const isHidden = sessionHiddenCategories.has(item.category || 'Spożywcze');
-              return (
+              return activeTab === 'completed' ? (
+                <HistoricalShoppingItemRow
+                  key={item.id}
+                  item={item}
+                  listColor={getListColor(item.category || '')}
+                  onRestore={handleToggle}
+                  onRequestDelete={(it) => setItemToDelete(it)}
+                  onEdit={handleStartEdit}
+                />
+              ) : (
                 <SwipeableShoppingItemRow
                   key={item.id}
                   item={item}
@@ -853,7 +896,7 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
                   ? `Brak wyników dla "${searchQuery}"`
                   : activeTab === 'active'
                   ? 'Brak produktów do kupienia'
-                  : 'Brak kupionych produktów'}
+                  : 'Brak wpisów w rejestrze kupionych produktów'}
               </p>
               <p className="text-xs text-slate-400">
                 {activeTab === 'active' && 'Kliknij przycisk "+" powyżej, aby dodać nowy produkt.'}
@@ -873,7 +916,16 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
                 .sort((a, b) => a.name.localeCompare(b.name, 'pl', { sensitivity: 'base' }))
                 .map((item) => {
                   const isHidden = sessionHiddenCategories.has(item.category || 'Spożywcze');
-                  return (
+                  return activeTab === 'completed' ? (
+                    <HistoricalShoppingItemRow
+                      key={item.id}
+                      item={item}
+                      listColor={getListColor(item.category || '')}
+                      onRestore={handleToggle}
+                      onRequestDelete={(it) => setItemToDelete(it)}
+                      onEdit={handleStartEdit}
+                    />
+                  ) : (
                     <SwipeableShoppingItemRow
                       key={item.id}
                       item={item}
@@ -916,7 +968,7 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
         />
       )}
 
-      {/* ULTRA-SIMPLIFIED EDIT ITEM MODAL (ONLY NAME AND CATEGORY) */}
+      {/* EDIT ITEM MODAL */}
       {editingItem && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
           <div className="bg-white w-full max-w-sm rounded-2xl shadow-xl border border-slate-200 overflow-hidden animate-in zoom-in-95">
@@ -926,8 +978,10 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
                   <Pencil className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-slate-900 text-sm">Edytuj produkt</h3>
-                  <p className="text-[11px] text-slate-500">Zmień nazwę lub kategorię</p>
+                  <h3 className="font-bold text-slate-900 text-sm">
+                    {editingItem.isCompleted ? 'Edytuj wpis w rejestrze' : 'Edytuj produkt'}
+                  </h3>
+                  <p className="text-[11px] text-slate-500">Zmień nazwę, kategorię lub datę</p>
                 </div>
               </div>
               <button
@@ -971,6 +1025,19 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
                 </select>
               </div>
 
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center space-x-1">
+                  <Calendar className="w-3.5 h-3.5 text-slate-500" />
+                  <span>{editingItem.isCompleted ? 'Data zakupu:' : 'Data utworzenia:'}</span>
+                </label>
+                <input
+                  type="date"
+                  value={editDate}
+                  onChange={(e) => setEditDate(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:bg-white focus:outline-hidden focus:border-indigo-600 cursor-pointer"
+                />
+              </div>
+
               <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
                 <button
                   type="button"
@@ -1001,19 +1068,25 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
                 <Trash2 className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="font-bold text-slate-900 text-base">Usunąć produkt?</h3>
-                <p className="text-xs text-slate-500">Czy na pewno usunąć ten produkt z listy?</p>
+                <h3 className="font-bold text-slate-900 text-base">
+                  {itemToDelete.isCompleted ? 'Usunąć wpis z rejestru?' : 'Usunąć produkt?'}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  {itemToDelete.isCompleted
+                    ? 'Czy na pewno usunąć ten wpis z historii zakupów?'
+                    : 'Czy na pewno usunąć ten produkt z listy zakupów?'}
+                </p>
               </div>
             </div>
 
             <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80">
-              <p className="text-xs font-semibold text-slate-500">Produkt:</p>
+              <p className="text-xs font-semibold text-slate-500">Pozycja:</p>
               <p className="text-sm font-bold text-slate-900 mt-0.5 break-words">
                 {itemToDelete.name}
               </p>
-              <div className="mt-1.5 flex items-center space-x-2">
+              <div className="mt-1.5 flex items-center space-x-2 flex-wrap gap-1">
                 <span className="text-[11px] font-semibold text-slate-600 bg-white px-2 py-0.5 rounded-lg border border-slate-200">
-                  Lista: {itemToDelete.category || 'Spożywcze'}
+                  Kategoria: {itemToDelete.category || 'Spożywcze'}
                 </span>
                 {itemToDelete.quantity && itemToDelete.quantity > 1 && (
                   <span className="text-[11px] font-semibold text-slate-600 bg-white px-2 py-0.5 rounded-lg border border-slate-200">

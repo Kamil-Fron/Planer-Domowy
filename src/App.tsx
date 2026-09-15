@@ -1675,6 +1675,7 @@ export default function App() {
           return {
             ...item,
             isCompleted,
+            completedAt: isCompleted ? (item.completedAt || new Date().toISOString()) : undefined,
           };
         }
         return item;

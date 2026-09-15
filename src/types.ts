@@ -90,6 +90,7 @@ export interface ShoppingItem {
   notes?: string;
   addedToExpenses?: boolean;
   assignedTo?: string;
+  completedAt?: string; // Data zakupu / oznaczenia jako kupione (ISO string)
   createdAt: string;
 }
 

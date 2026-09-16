@@ -501,6 +501,8 @@ app.post("/api/send-push-notification", async (req, res) => {
       body,
       targetTab,
       extraSubscriptions,
+      targetUserId,
+      targetUserIds,
       data,
     } = req.body;
 
@@ -552,13 +554,27 @@ app.post("/api/send-push-notification", async (req, res) => {
       saveSubscriptions();
     }
 
-    // Include all registered subscriptions in the household (self-notifications are enabled as requested by user)
-    const targets = Array.from(combinedMap.values());
+    // Include all registered subscriptions in the household
+    let targets = Array.from(combinedMap.values());
+    const filterUserIds = Array.isArray(targetUserIds)
+      ? targetUserIds
+      : targetUserId
+      ? [targetUserId]
+      : null;
+
+    if (filterUserIds && filterUserIds.length > 0) {
+      const filtered = targets.filter((t) => t.userId && filterUserIds.includes(t.userId));
+      if (filtered.length > 0) {
+        targets = filtered;
+      }
+    }
 
     const entityId = data?.entityId || data?.selectedTxId || data?.relatedId || "";
     let targetUrl = "/";
     if (targetTab === "transactions") {
       targetUrl = `/?tab=transactions${entityId ? `&txId=${encodeURIComponent(entityId)}` : ""}`;
+    } else if (targetTab === "household") {
+      targetUrl = `/?modal=household${entityId ? `&requestId=${encodeURIComponent(entityId)}` : ""}`;
     } else if (targetTab) {
       targetUrl = `/?tab=${encodeURIComponent(targetTab)}${entityId ? `&entityId=${encodeURIComponent(entityId)}` : ""}`;
     }

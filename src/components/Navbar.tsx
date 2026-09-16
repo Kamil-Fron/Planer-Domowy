@@ -34,6 +34,7 @@ import {
   BellRing,
   ExternalLink,
   Scale,
+  UserPlus,
 } from 'lucide-react';
 import { Bill, BudgetLimit, TabType, Transaction, Household, UserProfile, AppNotification } from '../types';
 import { generateAutomatedNotifications, sendBrowserPushNotification } from '../utils/notifications';
@@ -143,6 +144,13 @@ export const Navbar: React.FC<NavbarProps> = ({
   }, [allNotifications, dismissedIds, readIds]);
 
   // Historia powiadomień odczytanych
+  const isHouseholdAdmin =
+    !household ||
+    !currentUser?.isLoggedIn ||
+    household.createdBy === currentUser?.id ||
+    household.members?.find((m) => m.id === currentUser?.id)?.role === 'owner';
+
+  const pendingRequestsCount = (isHouseholdAdmin && household?.pendingRequests?.length) || 0;
   const historyNotifications = useMemo(() => {
     return allNotifications.filter(
       (n) => !dismissedIds.includes(n.id) && (readIds.includes(n.id) || n.read)
@@ -325,6 +333,16 @@ export const Navbar: React.FC<NavbarProps> = ({
     // Natychmiast oznacz jako przeczytane, dzięki czemu znika z listy nieprzeczytanych
     markNotificationAsRead(notif.id);
     setIsActionMenuOpen(false);
+
+    if (
+      notif.type === 'join_request' ||
+      notif.type === 'join_approved' ||
+      notif.title?.toLowerCase().includes('dołączenie') ||
+      notif.targetTab === ('household' as any)
+    ) {
+      onOpenHouseholdModal();
+      return;
+    }
 
     if (onNavigate) {
       if (notif.type === 'item_bought') {
@@ -563,12 +581,19 @@ export const Navbar: React.FC<NavbarProps> = ({
                   }`}
                 />
 
-                {/* Badge powiadomień na przycisku głównym */}
-                {unreadCount > 0 && (
+                {/* Badge powiadomień na przycisku głównym (amber dla próśb o dołączenie, rose dla alertów) */}
+                {pendingRequestsCount > 0 ? (
+                  <span
+                    className="absolute -top-1 -right-1 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-white ring-2 ring-white shadow-xs animate-bounce"
+                    title={`Nowe prośby o dołączenie: ${pendingRequestsCount}`}
+                  >
+                    {pendingRequestsCount}
+                  </span>
+                ) : unreadCount > 0 ? (
                   <span className="absolute -top-1 -right-1 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white ring-2 ring-white shadow-xs animate-pulse">
                     {unreadCount > 9 ? '9+' : unreadCount}
                   </span>
-                )}
+                ) : null}
               </button>
 
               {/* Jednolity Dropdown zawierający: Szybkie dodawanie, Powiadomienia o aktywnościach, Profil/Logowanie, Usuwanie */}
@@ -580,6 +605,36 @@ export const Navbar: React.FC<NavbarProps> = ({
                   />
                   <div className="absolute right-0 mt-2 w-80 sm:w-92 bg-white rounded-2xl shadow-xl border border-slate-200 py-2 z-50 animate-in fade-in zoom-in-95 duration-100 divide-y divide-slate-100 max-h-[85vh] overflow-y-auto">
                     
+                    {/* Wyróżniony baner: Oczekujące prośby o dołączenie do gospodarstwa */}
+                    {pendingRequestsCount > 0 && (
+                      <div className="p-2.5 bg-amber-50 border-b border-amber-200">
+                        <div
+                          onClick={() => {
+                            setIsActionMenuOpen(false);
+                            onOpenHouseholdModal();
+                          }}
+                          className="p-2.5 bg-white border border-amber-300 hover:border-amber-400 rounded-xl cursor-pointer flex items-center justify-between gap-2.5 transition-all shadow-xs group"
+                        >
+                          <div className="flex items-center space-x-2 min-w-0">
+                            <div className="w-7 h-7 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-2xs font-bold text-xs">
+                              <UserPlus className="w-3.5 h-3.5" />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-amber-950 truncate">
+                                Prośba o dołączenie ({pendingRequestsCount})
+                              </p>
+                              <p className="text-[10px] text-amber-800 truncate">
+                                {household?.pendingRequests?.[0]?.name} oczekuje na decyzję
+                              </p>
+                            </div>
+                          </div>
+                          <span className="px-2 py-1 bg-amber-600 group-hover:bg-amber-700 text-white rounded-lg text-[10px] font-bold shrink-0 shadow-2xs">
+                            Zatwierdź →
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
                     {/* 1. Szybkie Akcje / Dodawanie (+) */}
                     <div className="p-3">
                       <div className="flex items-center justify-between mb-2">

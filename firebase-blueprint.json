@@ -65,6 +65,10 @@
           "type": "array",
           "description": "List of household members"
         },
+        "pendingRequests": {
+          "type": "array",
+          "description": "List of pending member join requests requiring administrator approval"
+        },
         "transactions": {
           "type": "array",
           "description": "List of household transactions"

@@ -12,7 +12,10 @@ import {
   MortgageLoan,
   DebtItem,
   ActivityLogEntry,
+  HouseholdMember,
+  PendingJoinRequest,
 } from './types';
+import { Clock, UserPlus } from 'lucide-react';
 import {
   loadTransactions,
   saveTransactions,
@@ -52,6 +55,7 @@ import {
   getHouseholdFromFirestore,
   findHouseholdByInviteCode,
   findHouseholdsByMemberEmail,
+  cancelPendingJoinRequestFirestore,
   logoutFromFirebase,
 } from './firebase';
 import { Navbar } from './components/Navbar';
@@ -125,6 +129,22 @@ export default function App() {
   const [syncStatus, setSyncStatus] = useState<'synced' | 'saving' | 'error' | 'offline'>('synced');
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(() => new Date());
   const [syncErrorMessage, setSyncErrorMessage] = useState<string | null>(null);
+
+  // Oczekująca prośba o dołączenie do cudzego gospodarstwa domowego
+  const [pendingJoinInfo, setPendingJoinInfo] = useState<{
+    householdId: string;
+    householdName: string;
+    requestId: string;
+    requestedAt?: string;
+  } | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const saved = localStorage.getItem('budget_planner_pending_join_v1');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
 
   // Deep navigation states from Dashboard & Notifications
   const [navTxFilter, setNavTxFilter] = useState<'all' | 'expense' | 'income' | null>(null);
@@ -249,10 +269,13 @@ export default function App() {
     try {
       const params = new URLSearchParams(window.location.search);
       const tabParam = params.get('tab') as TabType;
+      const modalParam = params.get('modal');
       const txIdParam = params.get('txId') || params.get('selectedTxId') || params.get('entityId');
       const billIdParam = params.get('billId');
 
-      if (txIdParam) {
+      if (modalParam === 'household') {
+        setIsHouseholdModalOpen(true);
+      } else if (txIdParam) {
         setActiveTab('transactions');
         setNavTxSelectedId(txIdParam);
       } else if (tabParam) {
@@ -273,7 +296,9 @@ export default function App() {
         const notifData = event.data.notificationData || {};
         const entityId = notifData.selectedTxId || notifData.entityId || notifData.relatedId;
 
-        if (targetTab === 'transactions' || (entityId && entityId.startsWith('tx-'))) {
+        if (targetTab === ('household' as any) || notifData.type === 'join_request' || notifData.type === 'join_approved') {
+          setIsHouseholdModalOpen(true);
+        } else if (targetTab === 'transactions' || (entityId && entityId.startsWith('tx-'))) {
           setActiveTab('transactions');
           if (entityId) {
             setNavTxSelectedId(entityId);
@@ -291,6 +316,124 @@ export default function App() {
     navigator.serviceWorker.addEventListener('message', handleSwMessage);
     return () => navigator.serviceWorker.removeEventListener('message', handleSwMessage);
   }, []);
+
+  // Real-time listener for pending join request status (automatically transitions user when admin approves)
+  useEffect(() => {
+    if (!pendingJoinInfo || !pendingJoinInfo.householdId) return;
+
+    const unsubscribe = subscribeToHouseholdFirestore(
+      pendingJoinInfo.householdId,
+      (cloudHousehold) => {
+        if (!cloudHousehold) return;
+
+        const myEmail = (currentUser.email || '').trim().toLowerCase();
+        const myId = currentUser.id;
+
+        // Sprawdź czy administrator zatwierdził użytkownika
+        const isApprovedMember = (cloudHousehold.members || []).some(
+          (m) =>
+            (myId && m.id === myId) ||
+            (myEmail && m.email && m.email.trim().toLowerCase() === myEmail)
+        );
+
+        if (isApprovedMember) {
+          // 🎉 Sukces! Administrator zaakceptował prośbę!
+          const joinedHousehold: Household = {
+            id: cloudHousehold.id,
+            name: cloudHousehold.name,
+            inviteCode: cloudHousehold.inviteCode,
+            createdAt: cloudHousehold.createdAt,
+            createdBy: cloudHousehold.createdBy,
+            members: cloudHousehold.members || [],
+            pendingRequests: cloudHousehold.pendingRequests || [],
+            pushSubscriptions: cloudHousehold.pushSubscriptions || [],
+            syncStatus: 'synced',
+            cloudProvider: 'firebase',
+          };
+
+          setHousehold(joinedHousehold);
+          saveHousehold(joinedHousehold);
+
+          const cloudTxs = cloudHousehold.transactions || [];
+          const cloudBills = cloudHousehold.bills || [];
+          const cloudLimits = cloudHousehold.budgetLimits || [];
+          const cloudLists = cloudHousehold.shoppingLists || [];
+          const cloudItems = cloudHousehold.shoppingItems || [];
+
+          setTransactions(cloudTxs);
+          saveTransactions(cloudTxs);
+          setBills(cloudBills);
+          saveBills(cloudBills);
+          setBudgetLimits(cloudLimits);
+          saveBudgetLimits(cloudLimits);
+          setShoppingLists(cloudLists);
+          saveShoppingLists(cloudLists);
+          setShoppingItems(cloudItems);
+          saveShoppingItems(cloudItems);
+
+          if (cloudHousehold.notifications) {
+            setNotifications(cloudHousehold.notifications);
+            saveNotifications(cloudHousehold.notifications);
+          }
+
+          setPendingJoinInfo(null);
+          localStorage.removeItem('budget_planner_pending_join_v1');
+
+          if (currentUser.id) {
+            saveUserProfileToFirestore(currentUser, cloudHousehold.id).catch(console.warn);
+          }
+
+          setToastFeedback({
+            id: `toast-${Date.now()}`,
+            title: `🎉 Dołączono do gospodarstwa „${cloudHousehold.name}”!`,
+            type: 'income',
+          });
+
+          setBannerNotification({
+            id: `banner-${Date.now()}`,
+            title: 'Witamy w gospodarstwie domowym!',
+            message: `Administrator zaakceptował Twoją prośbę o dołączenie do „${cloudHousehold.name}”. Wspólny budżet został zsynchronizowany.`,
+            type: 'join_approved',
+            date: new Date().toISOString(),
+            read: false,
+          });
+          return;
+        }
+
+        // Sprawdź czy prośba została odrzucona (brak w pendingRequests i brak w members)
+        const isStillPending = (cloudHousehold.pendingRequests || []).some(
+          (r) =>
+            r.id === pendingJoinInfo.requestId ||
+            (myId && r.userId === myId) ||
+            (myEmail && r.email && r.email.trim().toLowerCase() === myEmail)
+        );
+
+        if (!isStillPending && !isApprovedMember) {
+          setPendingJoinInfo(null);
+          localStorage.removeItem('budget_planner_pending_join_v1');
+
+          setToastFeedback({
+            id: `toast-${Date.now()}`,
+            title: `Prośba o dołączenie do „${cloudHousehold.name}” została odrzucona`,
+            type: 'expense',
+          });
+
+          setBannerNotification({
+            id: `banner-${Date.now()}`,
+            title: 'Prośba o dołączenie odrzucona',
+            message: `Administrator gospodarstwa „${cloudHousehold.name}” odrzucił Twoją prośbę o dołączenie.`,
+            type: 'activity',
+            date: new Date().toISOString(),
+            read: false,
+          });
+        }
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [pendingJoinInfo, currentUser]);
 
   // Auto-subscribe device to push notifications if permission is already granted
   useEffect(() => {
@@ -669,33 +812,69 @@ export default function App() {
     const req = household.pendingRequests.find((r) => r.id === requestId);
     if (!req) return;
 
-    const newMember = {
+    const newMember: HouseholdMember = {
       id: req.userId || req.id,
       name: req.name,
       email: req.email,
       avatarUrl: req.avatarUrl,
-      role: 'member' as const,
+      role: 'member',
       joinedAt: new Date().toISOString(),
     };
 
-    const updatedMembers = [...(household.members || []).filter((m) => m.id !== newMember.id), newMember];
+    const updatedMembers = [
+      ...(household.members || []).filter(
+        (m) => m.id !== newMember.id && (!newMember.email || m.email !== newMember.email)
+      ),
+      newMember,
+    ];
     const updatedPending = household.pendingRequests.filter((r) => r.id !== requestId);
+
+    const approveNotif: AppNotification = {
+      id: `notif-approved-${Date.now()}`,
+      title: `Zatwierdzono domownika: ${req.name}`,
+      message: `${req.name} (${req.email}) dołączył(a) do gospodarstwa domowego.`,
+      type: 'join_approved',
+      date: new Date().toISOString(),
+      read: false,
+      authorName: currentUser.name || 'Administrator',
+    };
+
+    const updatedNotifications = [approveNotif, ...(household.notifications || [])].slice(0, 50);
 
     const updatedHousehold: Household = {
       ...household,
       members: updatedMembers,
       pendingRequests: updatedPending,
+      notifications: updatedNotifications,
     };
 
     setHousehold(updatedHousehold);
     saveHousehold(updatedHousehold);
+    setNotifications(updatedNotifications);
+    saveNotifications(updatedNotifications);
 
     if (isFirebaseConfigured() && household.id) {
       try {
         await saveHouseholdToFirestore(household.id, {
           ...updatedHousehold,
           lastUpdatedBy: currentUser.email || currentUser.name,
+          lastUpdatedAt: new Date().toISOString(),
         });
+
+        // Wyślij powiadomienie push informujące o dołączeniu
+        fetch('/api/send-push-notification', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            householdId: household.id,
+            senderUserId: currentUser.id,
+            senderUserName: currentUser.name || 'Administrator',
+            title: '🎉 Zaakceptowano prośbę o dołączenie!',
+            body: `${req.name} dołączył(a) do gospodarstwa „${household.name}”!`,
+            targetTab: 'household',
+            extraSubscriptions: household.pushSubscriptions || [],
+          }),
+        }).catch((e) => console.warn('Błąd powiadomienia push po zatwierdzeniu:', e));
       } catch (err) {
         console.warn('Błąd zatwierdzania prośby w Firestore:', err);
       }
@@ -733,18 +912,49 @@ export default function App() {
     if (isFirebaseConfigured() && household.id) {
       try {
         await saveHouseholdToFirestore(household.id, {
-          ...updatedHousehold,
+          pendingRequests: updatedPending,
           lastUpdatedBy: currentUser.email || currentUser.name,
+          lastUpdatedAt: new Date().toISOString(),
         });
       } catch (err) {
         console.warn('Błąd odrzucania prośby w Firestore:', err);
       }
     }
 
+    recordActivity({
+      action: 'update',
+      entityType: 'household' as any,
+      entityId: household.id,
+      title: 'Odrzucono prośbę o dołączenie',
+      description: `Odrzucono prośbę użytkownika ${req.name} (${req.email})`,
+    });
+
     setToastFeedback({
       id: `toast-${Date.now()}`,
       title: `Odrzucono prośbę od: ${req.name}`,
       type: 'expense',
+    });
+  };
+
+  // Anulowanie oczekującej prośby o dołączenie (dla Aplikanta)
+  const handleCancelPendingJoin = async () => {
+    if (!pendingJoinInfo) return;
+    try {
+      if (pendingJoinInfo.householdId && pendingJoinInfo.requestId) {
+        await cancelPendingJoinRequestFirestore(
+          pendingJoinInfo.householdId,
+          pendingJoinInfo.requestId
+        );
+      }
+    } catch (err) {
+      console.warn('Błąd anulowania prośby o dołączenie:', err);
+    }
+    setPendingJoinInfo(null);
+    localStorage.removeItem('budget_planner_pending_join_v1');
+    setToastFeedback({
+      id: `toast-${Date.now()}`,
+      title: 'Anulowano prośbę o dołączenie',
+      type: 'info',
     });
   };
 
@@ -2358,108 +2568,176 @@ export default function App() {
       const myEmail = (currentUser.email || '').trim().toLowerCase();
       const myId = currentUser.id;
 
-      // Sprawdź czy użytkownik jest już na liście członków (po ID lub emailu)
-      const existingIndex = existingMembers.findIndex(
+      // 1. Sprawdź czy użytkownik jest już pełnoprawnym członkiem gospodarstwa
+      const existingMember = existingMembers.find(
         (m: any) =>
           (myId && m.id === myId) ||
           (myEmail && m.email && m.email.trim().toLowerCase() === myEmail)
       );
 
-      let updatedMembers = [...existingMembers];
-      if (existingIndex >= 0) {
-        updatedMembers[existingIndex] = {
-          ...updatedMembers[existingIndex],
-          id: myId || updatedMembers[existingIndex].id,
-          name: currentUser.name || updatedMembers[existingIndex].name,
-          email: currentUser.email || updatedMembers[existingIndex].email,
-          avatarUrl: currentUser.avatarUrl || updatedMembers[existingIndex].avatarUrl,
+      if (existingMember) {
+        // Użytkownik jest już domownikiem – bezpośrednie przełączenie
+        const joinedHousehold: Household = {
+          id: cloudHousehold.id,
+          name: cloudHousehold.name,
+          inviteCode: cloudHousehold.inviteCode,
+          createdAt: cloudHousehold.createdAt,
+          createdBy: cloudHousehold.createdBy,
+          members: existingMembers,
+          pendingRequests: cloudHousehold.pendingRequests || [],
+          pushSubscriptions: cloudHousehold.pushSubscriptions || [],
+          syncStatus: 'synced',
+          cloudProvider: 'firebase',
         };
-      } else {
-        const newMember = {
-          id: myId || `member-${Date.now()}`,
-          email: currentUser.email || 'domownik@dom.pl',
-          name: currentUser.name || 'Domownik',
-          avatarUrl: currentUser.avatarUrl,
-          role: 'member' as const,
-          joinedAt: new Date().toISOString(),
+
+        setHousehold(joinedHousehold);
+        saveHousehold(joinedHousehold);
+
+        const cloudTxs = cloudHousehold.transactions || [];
+        const cloudBills = cloudHousehold.bills || [];
+        const cloudLimits = cloudHousehold.budgetLimits || [];
+        const cloudLists = cloudHousehold.shoppingLists || [];
+        const cloudItems = cloudHousehold.shoppingItems || [];
+
+        setTransactions(cloudTxs);
+        saveTransactions(cloudTxs);
+
+        setBills(cloudBills);
+        saveBills(cloudBills);
+
+        setBudgetLimits(cloudLimits);
+        saveBudgetLimits(cloudLimits);
+
+        setShoppingLists(cloudLists);
+        saveShoppingLists(cloudLists);
+
+        setShoppingItems(cloudItems);
+        saveShoppingItems(cloudItems);
+
+        if (cloudHousehold.notifications) {
+          setNotifications(cloudHousehold.notifications);
+          saveNotifications(cloudHousehold.notifications);
+        }
+
+        setPendingJoinInfo(null);
+        localStorage.removeItem('budget_planner_pending_join_v1');
+
+        if (currentUser.id) {
+          await saveUserProfileToFirestore(currentUser, cloudHousehold.id);
+        }
+
+        return {
+          success: true,
+          message: `Jesteś już domownikiem gospodarstwa „${cloudHousehold.name}”. Przełączono widok budżetu.`,
         };
-        updatedMembers.push(newMember);
       }
 
-      const joinNotif = createActivityNotification(
-        'Nowy domownik',
-        `${currentUser.name || 'Nowy użytkownik'} dołączył(a) do wspólnego gospodarstwa domowego`,
-        currentUser.name || 'Domownik',
-        'activity'
+      // 2. Sprawdź czy prośba już oczekuje na decyzję administratora
+      const existingPending = (cloudHousehold.pendingRequests || []).find(
+        (r) =>
+          (r.userId && r.userId === myId) ||
+          (myEmail && r.email && r.email.trim().toLowerCase() === myEmail)
       );
 
-      const combinedNotifications = [
-        joinNotif,
-        ...(cloudHousehold.notifications || []),
-      ].slice(0, 50);
+      if (existingPending) {
+        const joinInfo = {
+          householdId: cloudHousehold.id,
+          householdName: cloudHousehold.name,
+          requestId: existingPending.id,
+          requestedAt: existingPending.requestedAt,
+        };
+        setPendingJoinInfo(joinInfo);
+        localStorage.setItem('budget_planner_pending_join_v1', JSON.stringify(joinInfo));
 
-      const joinedHousehold: Household = {
-        id: cloudHousehold.id,
-        name: cloudHousehold.name,
-        inviteCode: cloudHousehold.inviteCode,
-        createdAt: cloudHousehold.createdAt,
-        createdBy: cloudHousehold.createdBy,
-        members: updatedMembers,
-        pushSubscriptions: cloudHousehold.pushSubscriptions || [],
-        syncStatus: 'synced',
-        cloudProvider: 'firebase',
-      };
-
-      setHousehold(joinedHousehold);
-      saveHousehold(joinedHousehold);
-
-      const cloudTxs = cloudHousehold.transactions || [];
-      const cloudBills = cloudHousehold.bills || [];
-      const cloudLimits = cloudHousehold.budgetLimits || [];
-      const cloudLists = cloudHousehold.shoppingLists || [];
-      const cloudItems = cloudHousehold.shoppingItems || [];
-
-      setTransactions(cloudTxs);
-      saveTransactions(cloudTxs);
-
-      setBills(cloudBills);
-      saveBills(cloudBills);
-
-      setBudgetLimits(cloudLimits);
-      saveBudgetLimits(cloudLimits);
-
-      setShoppingLists(cloudLists);
-      saveShoppingLists(cloudLists);
-
-      setShoppingItems(cloudItems);
-      saveShoppingItems(cloudItems);
-
-      setNotifications(combinedNotifications);
-      saveNotifications(combinedNotifications);
-
-      await saveHouseholdToFirestore(cloudHousehold.id, {
-        id: cloudHousehold.id,
-        name: cloudHousehold.name,
-        inviteCode: cloudHousehold.inviteCode,
-        createdAt: cloudHousehold.createdAt,
-        createdBy: cloudHousehold.createdBy,
-        members: updatedMembers,
-        transactions: cloudTxs,
-        bills: cloudBills,
-        budgetLimits: cloudLimits,
-        shoppingLists: cloudLists,
-        shoppingItems: cloudItems,
-        notifications: combinedNotifications,
-        lastUpdatedBy: currentUser.email || currentUser.name,
-      });
-
-      hasUnsavedLocalChanges.current = false;
-
-      if (currentUser.id) {
-        await saveUserProfileToFirestore(currentUser, cloudHousehold.id);
+        return {
+          success: true,
+          message: `Twoja prośba o dołączenie do „${cloudHousehold.name}” oczekuje już na decyzję administratora.`,
+        };
       }
 
-      return { success: true };
+      // 3. NOWA PROŚBA: Wysyłamy prośbę o dołączenie, która wymaga akceptacji przez Administratora
+      const newRequestId = `req-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const newRequest: PendingJoinRequest = {
+        id: newRequestId,
+        userId: myId || `user-${Date.now()}`,
+        name: currentUser.name || 'Nowy domownik',
+        email: currentUser.email || 'brak@email.pl',
+        avatarUrl: currentUser.avatarUrl,
+        requestedAt: new Date().toISOString(),
+      };
+
+      const updatedPending = [...(cloudHousehold.pendingRequests || []), newRequest];
+
+      const joinReqNotif: AppNotification = {
+        id: `notif-join-${newRequestId}`,
+        title: 'Prośba o dołączenie do gospodarstwa',
+        message: `${newRequest.name} (${newRequest.email}) prosi o dołączenie do gospodarstwa „${cloudHousehold.name}”. Zaakceptuj w menu Domowników.`,
+        type: 'join_request',
+        date: new Date().toISOString(),
+        read: false,
+        relatedId: newRequestId,
+        authorName: newRequest.name,
+        authorId: newRequest.userId,
+      };
+
+      const updatedNotifs = [joinReqNotif, ...(cloudHousehold.notifications || [])].slice(0, 50);
+
+      // Zapisujemy prośbę i powiadomienie w chmurze (Firestore)
+      await saveHouseholdToFirestore(cloudHousehold.id, {
+        pendingRequests: updatedPending,
+        notifications: updatedNotifs,
+        lastUpdatedAt: new Date().toISOString(),
+        lastUpdatedBy: newRequest.name,
+      });
+
+      // Wyślij powiadomienie push do Administratora tego gospodarstwa
+      try {
+        const adminMember = (cloudHousehold.members || []).find((m) => m.role === 'owner');
+        const adminUserId = adminMember?.id || cloudHousehold.createdBy;
+
+        fetch('/api/send-push-notification', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            householdId: cloudHousehold.id,
+            senderUserId: newRequest.userId,
+            senderUserName: newRequest.name,
+            title: '📩 Prośba o dołączenie do domu',
+            body: `${newRequest.name} (${newRequest.email}) prosi o dołączenie do gospodarstwa „${cloudHousehold.name}”. Otwórz aplikację, aby zaakceptować.`,
+            targetTab: 'household',
+            targetUserId: adminUserId,
+            extraSubscriptions: cloudHousehold.pushSubscriptions || [],
+            data: {
+              type: 'join_request',
+              requestId: newRequestId,
+              householdId: cloudHousehold.id,
+            },
+          }),
+        }).catch((e) => console.warn('Błąd wysyłki powiadomienia push:', e));
+      } catch (pushErr) {
+        console.warn('Błąd wysyłki powiadomienia push do admina:', pushErr);
+      }
+
+      // Zapisujemy stan oczekiwania w pamięci aplikanta
+      const joinInfo = {
+        householdId: cloudHousehold.id,
+        householdName: cloudHousehold.name,
+        requestId: newRequestId,
+        requestedAt: newRequest.requestedAt,
+      };
+      setPendingJoinInfo(joinInfo);
+      localStorage.setItem('budget_planner_pending_join_v1', JSON.stringify(joinInfo));
+
+      setToastFeedback({
+        id: `toast-${Date.now()}`,
+        title: `Wysłano prośbę do „${cloudHousehold.name}”`,
+        type: 'info',
+      });
+
+      return {
+        success: true,
+        message: `Wysłano prośbę o dołączenie do gospodarstwa „${cloudHousehold.name}”. Administrator otrzymał powiadomienie. Gdy zaakceptuje Twoją prośbę, uzyskasz dostęp do budżetu!`,
+      };
     } catch (err: any) {
       console.error('Błąd dołączania do domu:', err);
       let userMsg = 'Wystąpił błąd podczas dołączania do gospodarstwa domowego.';
@@ -2771,6 +3049,8 @@ export default function App() {
           currentUser={currentUser}
           household={household}
           initialTab={householdModalTab}
+          pendingJoinInfo={pendingJoinInfo}
+          onCancelPendingJoin={handleCancelPendingJoin}
           onLoginSuccess={handleLoginSuccess}
           onLogout={handleLogout}
           onCreateHousehold={handleCreateHousehold}
@@ -2898,6 +3178,8 @@ export default function App() {
         currentUser={currentUser}
         household={household}
         initialTab={householdModalTab}
+        pendingJoinInfo={pendingJoinInfo}
+        onCancelPendingJoin={handleCancelPendingJoin}
         onLoginSuccess={handleLoginSuccess}
         onLogout={handleLogout}
         onCreateHousehold={handleCreateHousehold}
@@ -2950,6 +3232,74 @@ export default function App() {
         onForceSync={handleForceSync}
         onRestoreData={handleRestoreData}
       />
+
+      {/* Persistent Notification Banner for Admin: Pending Member Requests */}
+      {isHouseholdAdmin && household?.pendingRequests && household.pendingRequests.length > 0 && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-3 w-full">
+          <div className="bg-amber-500/10 border border-amber-300 dark:border-amber-700/50 rounded-2xl p-3 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-center space-x-3">
+              <div className="p-2 bg-amber-500 text-white rounded-xl shadow-xs">
+                <UserPlus className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-xs sm:text-sm font-bold text-amber-950">
+                  Oczekujące prośby o dołączenie do domu ({household.pendingRequests.length})
+                </h4>
+                <p className="text-[11px] sm:text-xs text-amber-800">
+                  Nowi domownicy czekają na Twoje zatwierdzenie, aby uzyskać dostęp do budżetu gospodarstwa.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setHouseholdModalTab('household');
+                setIsHouseholdModalOpen(true);
+              }}
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors shrink-0 flex items-center space-x-1.5 self-end sm:self-center"
+            >
+              <span>Zarządzaj prośbami</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Persistent Notification Banner for Applicant: Pending Approval */}
+      {pendingJoinInfo && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-3 w-full">
+          <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-3 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-center space-x-3">
+              <div className="p-2 bg-indigo-600 text-white rounded-xl shadow-xs">
+                <Clock className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-xs sm:text-sm font-bold text-indigo-950">
+                  Wysłano prośbę o dołączenie do „{pendingJoinInfo.householdName}”
+                </h4>
+                <p className="text-[11px] sm:text-xs text-indigo-800">
+                  Czekasz na akceptację administratora. Gdy zatwierdzi Twoją prośbę, wspólny budżet od razu się załaduje.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2 self-end sm:self-center shrink-0">
+              <button
+                onClick={handleCancelPendingJoin}
+                className="px-3 py-1.5 text-xs text-rose-600 hover:text-rose-700 font-semibold"
+              >
+                Anuluj prośbę
+              </button>
+              <button
+                onClick={() => {
+                  setHouseholdModalTab('household');
+                  setIsHouseholdModalOpen(true);
+                }}
+                className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors"
+              >
+                Szczegóły
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Dynamic Views Viewport */}
       <main className="flex-1 pb-24 md:pb-12">

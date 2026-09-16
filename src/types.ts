@@ -187,6 +187,8 @@ export interface AppNotification {
     | 'item_bought'
     | 'bill_added'
     | 'item_restored'
+    | 'join_request'
+    | 'join_approved'
     | 'activity'
     | 'info';
   date: string;

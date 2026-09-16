@@ -34,6 +34,13 @@ interface HouseholdModalProps {
   onCancelPendingJoin?: () => void;
   onTriggerSync?: () => void;
   isSyncing?: boolean;
+  initialTab?: string;
+  transactions?: any[];
+  bills?: any[];
+  budgetLimits?: any[];
+  shoppingLists?: any[];
+  shoppingItems?: any[];
+  onDeleteSelectedData?: any;
 }
 
 export const HouseholdModal: React.FC<HouseholdModalProps> = ({
@@ -66,6 +73,7 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
   const [joinSuccessMessage, setJoinSuccessMessage] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
   const [creationMode, setCreationMode] = useState<'join' | 'create'>('create');
+  const [showJoinAnother, setShowJoinAnother] = useState(false);
 
   const isHouseholdAdmin =
     !household ||
@@ -460,6 +468,89 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({
                 </form>
                 {inviteSuccess && (
                   <p className="text-xs text-emerald-600 font-semibold">{inviteSuccess}</p>
+                )}
+              </div>
+
+              {/* Dołącz do innego gospodarstwa kodem zaproszenia */}
+              <div className="pt-2 border-t border-slate-100">
+                {showJoinAnother || pendingJoinInfo ? (
+                  <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2.5 animate-in fade-in">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-slate-900 flex items-center space-x-1.5">
+                        <UserPlus className="w-3.5 h-3.5 text-indigo-600" />
+                        <span>Dołącz do innego gospodarstwa kodem</span>
+                      </h4>
+                      {!pendingJoinInfo && (
+                        <button
+                          type="button"
+                          onClick={() => setShowJoinAnother(false)}
+                          className="text-[11px] text-slate-400 hover:text-slate-600 font-semibold"
+                        >
+                          Zamknij
+                        </button>
+                      )}
+                    </div>
+
+                    {pendingJoinInfo && (
+                      <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl space-y-1.5 text-[11px] text-amber-800">
+                        <div className="flex items-center space-x-1.5 font-bold text-amber-950">
+                          <Clock className="w-3.5 h-3.5 text-amber-600" />
+                          <span>Oczekujesz na decyzję administratora</span>
+                        </div>
+                        <p>
+                          Wysłano prośbę o dołączenie do: <strong>{pendingJoinInfo.householdName}</strong>. Administrator musi zaakceptować prośbę, aby udostępnić wspólny budżet.
+                        </p>
+                        {onCancelPendingJoin && (
+                          <button
+                            type="button"
+                            onClick={onCancelPendingJoin}
+                            className="text-rose-600 hover:text-rose-700 underline font-semibold"
+                          >
+                            Anuluj wysłaną prośbę
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {joinSuccessMessage && (
+                      <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-900 text-xs flex items-start space-x-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                        <p className="text-[11px] leading-relaxed">{joinSuccessMessage}</p>
+                      </div>
+                    )}
+
+                    <form onSubmit={handleJoin} className="space-y-2">
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          maxLength={6}
+                          value={joinCodeInput}
+                          onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
+                          placeholder="Kod zaproszenia (np. DOM123)"
+                          className="flex-1 px-3 py-2 font-mono text-xs font-bold uppercase tracking-wider bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                        <button
+                          type="submit"
+                          disabled={joinLoading || joinCodeInput.trim().length < 3}
+                          className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-xs transition-colors shrink-0"
+                        >
+                          {joinLoading ? 'Wysyłanie...' : 'Wyślij prośbę'}
+                        </button>
+                      </div>
+                      {joinError && (
+                        <p className="text-xs text-rose-600 font-semibold">{joinError}</p>
+                      )}
+                    </form>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowJoinAnother(true)}
+                    className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold flex items-center space-x-1.5 py-1"
+                  >
+                    <UserPlus className="w-3.5 h-3.5" />
+                    <span>Chcesz dołączyć do innego gospodarstwa kodem?</span>
+                  </button>
                 )}
               </div>
 

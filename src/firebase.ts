@@ -36,6 +36,7 @@ import {
   MortgageLoan,
   DebtItem,
   HouseholdPushSubscription,
+  PendingJoinRequest,
 } from './types';
 
 export enum OperationType {
@@ -429,6 +430,7 @@ export interface HouseholdFirestoreData {
   mortgages?: MortgageLoan[];
   debts?: DebtItem[];
   pushSubscriptions?: HouseholdPushSubscription[];
+  pendingRequests?: PendingJoinRequest[];
   lastUpdatedAt: string;
   lastUpdatedBy?: string;
 }
@@ -587,3 +589,131 @@ export function subscribeToHouseholdFirestore(
     }
   );
 }
+
+/**
+ * Wysłanie prośby o dołączenie do gospodarstwa domowego (Two-Step Approval Flow)
+ */
+export async function requestJoinHouseholdFirestore(
+  code: string,
+  requester: { id: string; name: string; email: string; avatarUrl?: string }
+): Promise<{
+  success: boolean;
+  message: string;
+  alreadyMember?: boolean;
+  alreadyPending?: boolean;
+  household?: HouseholdFirestoreData;
+  requestId?: string;
+}> {
+  const cleanCode = code.trim().toUpperCase();
+  const targetHousehold = await findHouseholdByInviteCode(cleanCode);
+
+  if (!targetHousehold) {
+    return {
+      success: false,
+      message: `Nie znaleziono gospodarstwa o kodzie „${cleanCode}”. Sprawdź kod i spróbuj ponownie.`,
+    };
+  }
+
+  const requesterEmail = (requester.email || '').trim().toLowerCase();
+  const requesterId = requester.id;
+
+  // 1. Sprawdź, czy użytkownik jest już pełnoprawnym członkiem
+  const isAlreadyMember = targetHousehold.members?.some(
+    (m) =>
+      (m.id && m.id === requesterId) ||
+      (requesterEmail && m.email && m.email.trim().toLowerCase() === requesterEmail)
+  );
+
+  if (isAlreadyMember) {
+    return {
+      success: true,
+      alreadyMember: true,
+      household: targetHousehold,
+      message: `Jesteś już członkiem gospodarstwa „${targetHousehold.name}”! Przełączono widok.`,
+    };
+  }
+
+  // 2. Sprawdź, czy prośba już nie oczekuje w kolejce
+  const existingPending = (targetHousehold.pendingRequests || []).find(
+    (r) =>
+      (r.userId && r.userId === requesterId) ||
+      (requesterEmail && r.email && r.email.trim().toLowerCase() === requesterEmail)
+  );
+
+  if (existingPending) {
+    return {
+      success: true,
+      alreadyPending: true,
+      household: targetHousehold,
+      requestId: existingPending.id,
+      message: `Twoja prośba o dołączenie do „${targetHousehold.name}” została już wysłana i oczekuje na akceptację administratora.`,
+    };
+  }
+
+  // 3. Utwórz nową prośbę
+  const newRequestId = `req-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  const newRequest: PendingJoinRequest = {
+    id: newRequestId,
+    userId: requesterId,
+    name: requester.name || 'Nowy domownik',
+    email: requester.email || 'brak@email.pl',
+    avatarUrl: requester.avatarUrl || '',
+    requestedAt: new Date().toISOString(),
+  };
+
+  const updatedPendingRequests = [...(targetHousehold.pendingRequests || []), newRequest];
+
+  // 4. Utwórz powiadomienie dla Administratora
+  const adminNotification: AppNotification = {
+    id: `notif-join-req-${newRequestId}`,
+    title: 'Prośba o dołączenie do gospodarstwa',
+    message: `${newRequest.name} (${newRequest.email}) prosi o dołączenie do Twojego domu „${targetHousehold.name}”. Zaakceptuj lub odrzuć prośbę.`,
+    type: 'join_request',
+    date: new Date().toISOString(),
+    read: false,
+    relatedId: newRequestId,
+    authorName: newRequest.name,
+    authorId: newRequest.userId,
+  };
+
+  const updatedNotifications = [adminNotification, ...(targetHousehold.notifications || [])].slice(0, 50);
+
+  // 5. Zapisz do Firestore
+  await saveHouseholdToFirestore(targetHousehold.id, {
+    pendingRequests: updatedPendingRequests,
+    notifications: updatedNotifications,
+    lastUpdatedAt: new Date().toISOString(),
+    lastUpdatedBy: newRequest.name,
+  });
+
+  return {
+    success: true,
+    message: `Wysłano prośbę o dołączenie do gospodarstwa „${targetHousehold.name}”. Dołączysz do budżetu od razu, gdy Administrator zaakceptuje Twoje zgłoszenie.`,
+    household: targetHousehold,
+    requestId: newRequestId,
+  };
+}
+
+/**
+ * Anulowanie oczekującej prośby o dołączenie przez użytkownika
+ */
+export async function cancelPendingJoinRequestFirestore(
+  householdId: string,
+  requestId: string
+): Promise<boolean> {
+  try {
+    const household = await getHouseholdFromFirestore(householdId);
+    if (!household) return false;
+
+    const updatedPending = (household.pendingRequests || []).filter((r) => r.id !== requestId);
+    await saveHouseholdToFirestore(householdId, {
+      pendingRequests: updatedPending,
+      lastUpdatedAt: new Date().toISOString(),
+    });
+    return true;
+  } catch (err) {
+    console.warn('Błąd anulowania prośby o dołączenie:', err);
+    return false;
+  }
+}
+

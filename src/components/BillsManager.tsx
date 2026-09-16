@@ -134,6 +134,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   const [payModalSplitMode, setPayModalSplitMode] = useState<boolean>(false);
   const [payModalMeterCurr, setPayModalMeterCurr] = useState<string>('');
   const [payModalCycles, setPayModalCycles] = useState<number>(1); // Liczba opłacanych cykli (1 = bieżący, 2 = 2 z góry, etc.)
+  const [payModalShowMore, setPayModalShowMore] = useState<boolean>(false);
 
   // Stan modala przeniesienia / kumulacji nieopłaconego rachunku na kolejny miesiąc
   const [rolloverModalBill, setRolloverModalBill] = useState<Bill | null>(null);
@@ -564,6 +565,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
     setPayModalMeterCurr(initialMeterCurr);
     setPayModalDate(payDate);
     setPayModalCycles(1);
+    setPayModalShowMore(false);
 
     // Initial split for debt-linked bills: tylko jeśli dług ma oprocentowanie (np. kredyt bankowy/hipoteczny)
     if (linkedDebt && isInterestBearingDebt(linkedDebt)) {
@@ -2498,24 +2500,25 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                     </p>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setPayModalBill(null)}
-                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
-                  title="Zamknij"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Informacyjny komunikat o dacie */}
-              <div className="p-3.5 bg-emerald-50/70 border border-emerald-200/90 rounded-xl text-xs text-emerald-950 flex items-start space-x-2.5">
-                <Calendar className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                <div className="space-y-0.5">
-                  <p className="font-bold">Wskaż datę wykonania opłaty:</p>
-                  <p className="text-emerald-800/90 text-[11px] leading-relaxed">
-                    Możesz wybrać datę dzisiejszą, wsteczną (gdy rachunek został już opłacony) lub przyszłą (gdy wiesz, że opłata nastąpi za kilka dni).
-                  </p>
+                <div className="flex items-center space-x-1.5 shrink-0">
+                  <button
+                    type="button"
+                    disabled={!isValidAmount || !payModalDate || isOverpaid}
+                    onClick={handleConfirmPayment}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl flex items-center space-x-1 shadow-xs transition-colors cursor-pointer"
+                    title="Zatwierdź opłatę natychmiast"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Opłać</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPayModalBill(null)}
+                    className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+                    title="Zamknij"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
                 </div>
               </div>
 
@@ -2547,7 +2550,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                   <button
                     type="button"
                     onClick={() => setPayModalDate(new Date().toISOString().split('T')[0])}
-                    className={`px-2.5 py-1 text-xs rounded-lg font-semibold border transition-colors ${
+                    className={`px-2.5 py-1 text-xs rounded-lg font-semibold border transition-colors cursor-pointer ${
                       payModalDate === new Date().toISOString().split('T')[0]
                         ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
                         : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
@@ -2558,7 +2561,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                   <button
                     type="button"
                     onClick={() => setPayModalDate(getYesterdayDate())}
-                    className={`px-2.5 py-1 text-xs rounded-lg font-semibold border transition-colors ${
+                    className={`px-2.5 py-1 text-xs rounded-lg font-semibold border transition-colors cursor-pointer ${
                       payModalDate === getYesterdayDate()
                         ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
                         : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
@@ -2569,319 +2572,45 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                   <button
                     type="button"
                     onClick={() => setPayModalDate(bill.dueDate)}
-                    className={`px-2.5 py-1 text-xs rounded-lg font-semibold border transition-colors ${
+                    className={`px-2.5 py-1 text-xs rounded-lg font-semibold border transition-colors cursor-pointer ${
                       payModalDate === bill.dueDate
                         ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
                         : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
                     }`}
                     title="Ustaw datę zgodną z terminem płatności z rachunku"
                   >
-                    Termin rachunku ({bill.dueDate})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPayModalDate(getOffsetDate(3))}
-                    className="px-2.5 py-1 text-xs rounded-lg font-semibold border bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200 transition-colors"
-                  >
-                    +3 dni
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPayModalDate(getOffsetDate(7))}
-                    className="px-2.5 py-1 text-xs rounded-lg font-semibold border bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200 transition-colors"
-                  >
-                    +7 dni
+                    Termin ({bill.dueDate})
                   </button>
                 </div>
               </div>
 
-              {/* Wybór liczby okresów / Opłacenie z góry */}
-              {bill.billingCycle !== 'jednorazowo' && (
-                <div className="space-y-2 pt-1 border-t border-slate-100">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
-                      <CalendarPlus className="w-3.5 h-3.5 text-blue-600" />
-                      <span>Okresy płatności (płatność z góry):</span>
-                    </label>
-                    <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
-                      {payModalCycles === 1 ? 'Bieżący okres (1 cykl)' : `${payModalCycles} okresy z góry`}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2">
-                    {[1, 2, 3].map((c) => {
-                      const baseAmt =
-                        bill.baseAmount ||
-                        (bill.amount / Math.max(1, (bill.rolloverCount || 0) + 1));
-                      const isSelected = payModalCycles === c;
-                      const calculatedAmt = (baseAmt * c).toFixed(2);
-
-                      return (
-                        <button
-                          key={c}
-                          type="button"
-                          onClick={() => {
-                            setPayModalCycles(c);
-                            setPayModalAmount(calculatedAmt);
-                          }}
-                          className={`p-2.5 rounded-xl text-xs font-semibold border transition-all text-left flex flex-col justify-between ${
-                            isSelected
-                              ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
-                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                          }`}
-                        >
-                          <span className="font-bold">
-                            {c === 1 ? '1 okres' : `${c} okresy ${c === 2 ? '(z góry)' : ''}`}
-                          </span>
-                          <span
-                            className={`text-[11px] mt-0.5 font-medium ${
-                              isSelected ? 'text-blue-100' : 'text-slate-500'
-                            }`}
-                          >
-                            {calculatedAmt} PLN
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {payModalCycles > 1 && (
-                    <div className="text-[11px] text-blue-900 bg-blue-50/80 border border-blue-200/80 p-2.5 rounded-xl flex items-start space-x-2">
-                      <Info className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
-                      <div>
-                        <span className="font-bold block">Płatność za {payModalCycles} okresy z góry:</span>
-                        <span>
-                          Obejmuje: {coveredPeriodsPreview.join(' + ')}. Kolejny termin płatności przesunie się na{' '}
-                          <strong>{nextDuePreview}</strong>.
-                        </span>
-                      </div>
-                    </div>
-                  )}
+              {/* Kwota całkowita */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-800">
+                  Kwota opłaty (PLN):
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={payModalAmount}
+                    onChange={(e) => {
+                      const newAmt = e.target.value;
+                      setPayModalAmount(newAmt);
+                      if (bill.debtId && payModalSplitMode) {
+                        const parsed = parseFloat(newAmt) || 0;
+                        const interest = parseFloat(payModalInterest) || 0;
+                        setPayModalPrincipal(Math.max(0, parsed - interest).toFixed(2));
+                      }
+                    }}
+                    className="w-full px-3 py-2 text-sm font-black text-slate-900 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
+                    placeholder="0.00"
+                  />
+                  <span className="absolute right-3 top-2 text-xs font-bold text-slate-400">
+                    PLN
+                  </span>
                 </div>
-              )}
-
-              {/* Kwota i ewentualny stan licznika */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-800">
-                    Kwota całkowita raty/rachunku (PLN):
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={payModalAmount}
-                      onChange={(e) => {
-                        const newAmt = e.target.value;
-                        setPayModalAmount(newAmt);
-                        if (bill.debtId && payModalSplitMode) {
-                          const parsed = parseFloat(newAmt) || 0;
-                          const interest = parseFloat(payModalInterest) || 0;
-                          setPayModalPrincipal(Math.max(0, parsed - interest).toFixed(2));
-                        }
-                      }}
-                      className="w-full px-3 py-2 text-sm font-black text-slate-900 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
-                      placeholder="0.00"
-                    />
-                    <span className="absolute right-3 top-2 text-xs font-bold text-slate-400">
-                      PLN
-                    </span>
-                  </div>
-                </div>
-
-                {bill.meterReading && (
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-800 flex items-center space-x-1">
-                      <Gauge className="w-3.5 h-3.5 text-slate-500" />
-                      <span>Stan licznika ({bill.meterReading.unit}):</span>
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      placeholder={`Poprz: ${bill.meterReading.previous || bill.meterReading.current}`}
-                      value={payModalMeterCurr}
-                      onChange={(e) => setPayModalMeterCurr(e.target.value)}
-                      className="w-full px-3 py-2 text-sm font-bold text-slate-900 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden text-right"
-                    />
-                  </div>
-                )}
               </div>
-
-              {/* Rozbicie raty na kapitał i odsetki dla rachunku powiązanego ze zobowiązaniem/kredytem */}
-              {linkedDebt && (() => {
-                const isInterestLoan = isInterestBearingDebt(linkedDebt);
-                const splitSuggestion = calculateSuggestedLoanSplit({
-                  debt: linkedDebt,
-                  paymentAmount: parseFloat(payModalAmount) || 0,
-                  paymentDate: payModalDate,
-                  paymentType: 'regular',
-                });
-
-                if (!isInterestLoan) {
-                  return (
-                    <div className="p-3.5 rounded-xl border border-indigo-200 bg-indigo-50/70 space-y-1.5 text-xs text-indigo-950">
-                      <div className="flex items-center gap-1.5 font-bold">
-                        <Landmark className="w-4 h-4 text-indigo-600 shrink-0" />
-                        <span>Powiązanie ze zobowiązaniem (0% bez odsetek): {linkedDebt.name}</span>
-                      </div>
-                      <p className="text-[11px] text-indigo-800 leading-relaxed">
-                        To zobowiązanie nie posiada naliczanego oprocentowania. Cała kwota wpłaty (<strong>{payModalAmount || '0.00'} PLN</strong>) pomniejszy pozostałe saldo kapitału (do spłaty: {remainingDebt.toFixed(2)} PLN).
-                      </p>
-                    </div>
-                  );
-                }
-
-                return (
-                  <div className="p-3.5 rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50/90 via-indigo-50/50 to-white space-y-3 shadow-2xs">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
-                      <div className="flex items-center gap-2">
-                        <div className="p-1.5 rounded-lg bg-indigo-600 text-white shrink-0">
-                          <Landmark className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <span className="text-xs font-black text-indigo-950 block leading-tight">
-                            Podział raty: Kapitał vs Odsetki
-                          </span>
-                          <span className="text-[11px] text-slate-500 font-medium">
-                            Kredyt: <strong className="text-slate-800">{linkedDebt.name}</strong> • Saldo kapitału: <strong>{remainingDebt.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł</strong>
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-1 self-start sm:self-auto">
-                        {splitSuggestion.isInGracePeriod ? (
-                          <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold flex items-center gap-1">
-                            <Clock className="w-3 h-3 text-amber-700" />
-                            <span>Karencja do {splitSuggestion.graceEndDate || 'końca'}</span>
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-900 border border-indigo-200 text-[10px] font-bold flex items-center gap-1">
-                            <Percent className="w-3 h-3 text-indigo-700" />
-                            <span>Oprocentowanie: {splitSuggestion.effectiveAnnualRate}%</span>
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Inteligentny baner sugestii wyliczenia */}
-                    <div className={`p-2.5 rounded-xl border text-[11px] leading-relaxed flex items-start gap-2 ${
-                      splitSuggestion.isInGracePeriod
-                        ? 'bg-amber-50/80 border-amber-200 text-amber-900'
-                        : 'bg-blue-50/70 border-blue-200 text-blue-950'
-                    }`}>
-                      <Sparkles className={`w-4 h-4 shrink-0 mt-0.5 ${splitSuggestion.isInGracePeriod ? 'text-amber-600' : 'text-blue-600'}`} />
-                      <div className="space-y-1">
-                        <span className="font-bold block">
-                          {splitSuggestion.isInGracePeriod
-                            ? '🟡 Wykryto aktywny okres karencji kredytu'
-                            : '📐 Automatyczna kalkulacja bankowa raty:'}
-                        </span>
-                        <span>{splitSuggestion.explanation}</span>
-                      </div>
-                    </div>
-
-                    {/* Szybkie przyciski sugestii podziału */}
-                    <div className="flex flex-wrap gap-1.5 pt-0.5">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPayModalSplitMode(true);
-                          setPayModalPrincipal(splitSuggestion.suggestedPrincipal.toFixed(2));
-                          setPayModalInterest(splitSuggestion.suggestedInterest.toFixed(2));
-                        }}
-                        className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] transition-all flex items-center gap-1 shadow-2xs cursor-pointer"
-                        title="Zastosuj wyliczenie oparte o oprocentowanie i karencję"
-                      >
-                        <Sparkles className="w-3 h-3" />
-                        <span>Sugestia bankowa ({splitSuggestion.suggestedPrincipal.toFixed(2)} zł / {splitSuggestion.suggestedInterest.toFixed(2)} zł)</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const total = parseFloat(payModalAmount) || 0;
-                          setPayModalSplitMode(true);
-                          setPayModalPrincipal(total.toFixed(2));
-                          setPayModalInterest('0.00');
-                        }}
-                        className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-semibold text-[11px] transition-colors cursor-pointer"
-                        title="100% kwoty przeznaczone na spłatę kapitału"
-                      >
-                        100% kapitał (nadpłata)
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const total = parseFloat(payModalAmount) || 0;
-                          setPayModalSplitMode(true);
-                          setPayModalPrincipal('0.00');
-                          setPayModalInterest(total.toFixed(2));
-                        }}
-                        className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-semibold text-[11px] transition-colors cursor-pointer"
-                        title="100% kwoty przeznaczone na koszt odsetkowy"
-                      >
-                        100% odsetki (karencja)
-                      </button>
-                    </div>
-
-                    {/* Edytowalne pola kapitału i odsetek */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1 border-t border-indigo-100">
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1 flex items-center justify-between">
-                          <span>Spłata kapitału (zmniejsza dług):</span>
-                          <span className="text-indigo-600 font-bold">Kapitał</span>
-                        </label>
-                        <div className="relative">
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={payModalPrincipal}
-                            onChange={(e) => {
-                              const pVal = e.target.value;
-                              setPayModalPrincipal(pVal);
-                              const total = parseFloat(payModalAmount) || 0;
-                              const pNum = parseFloat(pVal) || 0;
-                              setPayModalInterest(Math.max(0, total - pNum).toFixed(2));
-                            }}
-                            className="w-full px-3 py-2 text-xs font-bold text-slate-900 bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
-                            placeholder="0.00"
-                          />
-                          <span className="absolute right-3 top-2 text-[11px] font-bold text-slate-400">PLN</span>
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1 flex items-center justify-between">
-                          <span>Część odsetkowa (koszt bankowy):</span>
-                          <span className="text-amber-600 font-bold">Odsetki</span>
-                        </label>
-                        <div className="relative">
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={payModalInterest}
-                            onChange={(e) => {
-                              const iVal = e.target.value;
-                              setPayModalInterest(iVal);
-                              const total = parseFloat(payModalAmount) || 0;
-                              const iNum = parseFloat(iVal) || 0;
-                              setPayModalPrincipal(Math.max(0, total - iNum).toFixed(2));
-                            }}
-                            className="w-full px-3 py-2 text-xs font-bold text-slate-900 bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
-                            placeholder="0.00"
-                          />
-                          <span className="absolute right-3 top-2 text-[11px] font-bold text-slate-400">PLN</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <p className="text-[10px] text-indigo-800 leading-relaxed font-medium">
-                      💡 Tylko zadeklarowana część kapitałowa (<strong>{payModalPrincipal || '0.00'} zł</strong>) pomniejszy saldo zadłużenia. W historii transakcji zaksięgowany zostanie pełny wydatek raty (<strong>{payModalAmount || '0.00'} zł</strong>).
-                    </p>
-                  </div>
-                );
-              })()}
 
               {/* Ostrzeżenie przed nadpłatą / przekroczeniem wartości do spłaty */}
               {linkedDebt && isOverpaid && (
@@ -2896,7 +2625,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                         </span>
                       </h4>
                       <p className="text-[11px] text-rose-800 leading-relaxed font-medium">
-                        Zadeklarowano spłatę kapitału: <strong>{principalNum.toFixed(2)} PLN</strong>. Do całkowitego zamknięcia zobowiązania <em>„{linkedDebt.name}”</em> należy zapłacić dokładnie <strong>{remainingDebt.toFixed(2)} PLN</strong>.
+                        Zadeklarowano spłatę kapitału: <strong>{principalNum.toFixed(2)} PLN</strong>. Do spłaty: <strong>{remainingDebt.toFixed(2)} PLN</strong>.
                       </p>
                     </div>
                   </div>
@@ -2915,123 +2644,252 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white rounded-xl font-bold text-xs shadow-xs transition-all cursor-pointer"
                     >
                       <Sparkles className="w-3.5 h-3.5" />
-                      <span>Ustaw dokładną kwotę do spłaty ({remainingDebt.toFixed(2)} PLN)</span>
+                      <span>Ustaw dokładną kwotę ({remainingDebt.toFixed(2)} PLN)</span>
                     </button>
-                    <span className="text-[10px] text-rose-700 font-semibold">
-                      (zapobiega nadpłacie długu)
-                    </span>
                   </div>
                 </div>
               )}
 
-              {/* Informacja o ostatniej racie gdy kwota nie jest przekroczona */}
+              {/* Informacja o ostatniej racie */}
               {linkedDebt && remainingDebt > 0 && !isOverpaid && isFinalInstallment && (
-                <div className="p-3.5 bg-emerald-50/90 border border-emerald-300/90 rounded-2xl space-y-2 text-emerald-950 animate-in fade-in shadow-2xs">
-                  <div className="flex items-start space-x-2.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                    <div className="space-y-0.5">
-                      <h4 className="font-extrabold text-xs text-emerald-900 flex items-center gap-1.5">
-                        <span>🏁 Ostatnia rata zobowiązania: {linkedDebt.name}</span>
-                      </h4>
-                      <p className="text-[11px] text-emerald-800 leading-relaxed">
-                        Do pełnego zamknięcia zobowiązania pozostało dokładnie <strong>{remainingDebt.toFixed(2)} PLN</strong>{remainingDebt < bill.amount ? ` (mniej niż pierwotna rata ${bill.amount.toFixed(2)} PLN)` : ''}.
-                      </p>
-                    </div>
+                <div className="p-3 bg-emerald-50/90 border border-emerald-300/90 rounded-2xl space-y-1.5 text-emerald-950 animate-in fade-in">
+                  <div className="flex items-center space-x-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <h4 className="font-extrabold text-xs text-emerald-900">
+                      Ostatnia rata: do pełnej spłaty zostało {remainingDebt.toFixed(2)} PLN
+                    </h4>
                   </div>
                   {Math.abs(principalNum - remainingDebt) > 0.009 && (
-                    <div className="pt-0.5">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const interestVal = parseFloat(payModalInterest.replace(',', '.')) || 0;
-                          if (payModalSplitMode) {
-                            setPayModalPrincipal(remainingDebt.toFixed(2));
-                            setPayModalAmount((remainingDebt + interestVal).toFixed(2));
-                          } else {
-                            setPayModalAmount(remainingDebt.toFixed(2));
-                          }
-                        }}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px] shadow-2xs transition-colors cursor-pointer"
-                      >
-                        <Sparkles className="w-3 h-3" />
-                        <span>Dopasuj do pełnej spłaty ({remainingDebt.toFixed(2)} PLN)</span>
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const interestVal = parseFloat(payModalInterest.replace(',', '.')) || 0;
+                        if (payModalSplitMode) {
+                          setPayModalPrincipal(remainingDebt.toFixed(2));
+                          setPayModalAmount((remainingDebt + interestVal).toFixed(2));
+                        } else {
+                          setPayModalAmount(remainingDebt.toFixed(2));
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px] shadow-2xs transition-colors cursor-pointer"
+                    >
+                      <Sparkles className="w-3 h-3" />
+                      <span>Dopasuj do pełnej spłaty ({remainingDebt.toFixed(2)} PLN)</span>
+                    </button>
                   )}
                 </div>
               )}
 
-              {/* Podsumowanie skutków opłacenia */}
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 text-xs text-slate-600 space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-500">Okres rozliczeniowy:</span>
-                  <span className="font-semibold text-slate-800">
-                    {coveredPeriodsPreview.join(' + ')}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-500">Zapis w transakcjach:</span>
-                  <span className="font-semibold text-emerald-700">
-                    Wydatek z datą: {payModalDate}
-                  </span>
-                </div>
-                {bill.debtId && (() => {
-                  const linkedDebt = debts.find((d) => d.id === bill.debtId);
-                  const remAfter = linkedDebt ? Math.max(0, linkedDebt.currentRemaining - principalNum) : 0;
-                  return (
-                    <div className="space-y-1 text-indigo-700 bg-indigo-50/80 p-2 rounded-lg border border-indigo-200">
-                      <div className="flex items-center justify-between">
-                        <span className="flex items-center gap-1.5 font-semibold">
-                          <Landmark className="w-3.5 h-3.5 text-indigo-600" />
-                          Spłata zobowiązania:
-                        </span>
-                        <span className="font-bold">
-                          {linkedDebt ? linkedDebt.name : 'Zobowiązanie'}
-                        </span>
-                      </div>
-                      {linkedDebt && (
-                        <div className="flex items-center justify-between text-[11px] text-indigo-900 pt-0.5 border-t border-indigo-200/60">
-                          <span>Pozostałość po tej wpłacie:</span>
-                          <span className={`font-bold ${remAfter <= 0.01 ? 'text-emerald-700' : 'text-indigo-800'}`}>
-                            {remAfter <= 0.01 ? '0.00 PLN (Całkowicie spłacone 🎉)' : `${remAfter.toFixed(2)} PLN`}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-500">Kolejny cykl płatności:</span>
-                  <span className="font-semibold text-slate-800">
-                    {nextDuePreview
-                      ? `${nextDuePreview} (${bill.billingCycle})`
-                      : 'Rachunek jednorazowy (zakończony)'}
-                  </span>
-                </div>
+              {/* Przycisk Więcej opcji */}
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => setPayModalShowMore(!payModalShowMore)}
+                  className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
+                >
+                  <span>Więcej opcji (odroczone daty, licznik, cykle, rozbicie raty, kumulacja)</span>
+                  <ChevronDown className={`w-4 h-4 transition-transform ${payModalShowMore ? 'rotate-180' : ''}`} />
+                </button>
               </div>
 
-              {/* Opcja przeniesienia zaległości / kumulacji */}
-              {bill.billingCycle !== 'jednorazowo' && (
-                <div className="p-3 bg-amber-50/80 border border-amber-200/90 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs">
-                  <div className="flex items-start space-x-2">
-                    <Layers className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                    <div>
-                      <span className="font-bold text-amber-950 block">
-                        Nie opłacasz w tym terminie?
-                      </span>
-                      <span className="text-[11px] text-amber-800">
-                        Przełóż i skumuluj ten rachunek z kolejnym okresem rozliczeniowym.
-                      </span>
+              {/* Sekcja Więcej (ukryta domyślnie) */}
+              {payModalShowMore && (
+                <div className="space-y-4 pt-2 border-t border-slate-100 animate-in fade-in">
+                  {/* Szybkie daty przyszłe */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] font-semibold text-slate-500">Planowana data:</span>
+                    <button
+                      type="button"
+                      onClick={() => setPayModalDate(getOffsetDate(3))}
+                      className="px-2.5 py-1 text-xs rounded-lg font-semibold border bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 cursor-pointer"
+                    >
+                      +3 dni
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPayModalDate(getOffsetDate(7))}
+                      className="px-2.5 py-1 text-xs rounded-lg font-semibold border bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 cursor-pointer"
+                    >
+                      +7 dni
+                    </button>
+                  </div>
+
+                  {/* Wybór liczby okresów / Opłacenie z góry */}
+                  {bill.billingCycle !== 'jednorazowo' && (
+                    <div className="space-y-2 pt-1 border-t border-slate-100">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
+                          <CalendarPlus className="w-3.5 h-3.5 text-blue-600" />
+                          <span>Płatność z góry:</span>
+                        </label>
+                        <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
+                          {payModalCycles === 1 ? '1 cykl' : `${payModalCycles} cykle z góry`}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2">
+                        {[1, 2, 3].map((c) => {
+                          const baseAmt =
+                            bill.baseAmount ||
+                            (bill.amount / Math.max(1, (bill.rolloverCount || 0) + 1));
+                          const isSelected = payModalCycles === c;
+                          const calculatedAmt = (baseAmt * c).toFixed(2);
+
+                          return (
+                            <button
+                              key={c}
+                              type="button"
+                              onClick={() => {
+                                setPayModalCycles(c);
+                                setPayModalAmount(calculatedAmt);
+                              }}
+                              className={`p-2.5 rounded-xl text-xs font-semibold border transition-all text-left flex flex-col justify-between cursor-pointer ${
+                                isSelected
+                                  ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                              }`}
+                            >
+                              <span className="font-bold">
+                                {c === 1 ? '1 okres' : `${c} okresy`}
+                              </span>
+                              <span
+                                className={`text-[11px] mt-0.5 font-medium ${
+                                  isSelected ? 'text-blue-100' : 'text-slate-500'
+                                }`}
+                              >
+                                {calculatedAmt} PLN
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Stan licznika jeśli rachunek go posiada */}
+                  {bill.meterReading && (
+                    <div className="space-y-1 pt-1 border-t border-slate-100">
+                      <label className="text-xs font-bold text-slate-800 flex items-center space-x-1">
+                        <Gauge className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Stan licznika ({bill.meterReading.unit}):</span>
+                      </label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        placeholder={`Poprz: ${bill.meterReading.previous || bill.meterReading.current}`}
+                        value={payModalMeterCurr}
+                        onChange={(e) => setPayModalMeterCurr(e.target.value)}
+                        className="w-full px-3 py-2 text-sm font-bold text-slate-900 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
+                      />
+                    </div>
+                  )}
+
+                  {/* Rozbicie raty na kapitał i odsetki */}
+                  {linkedDebt && (() => {
+                    const isInterestLoan = isInterestBearingDebt(linkedDebt);
+                    const splitSuggestion = calculateSuggestedLoanSplit({
+                      debt: linkedDebt,
+                      paymentAmount: parseFloat(payModalAmount) || 0,
+                      paymentDate: payModalDate,
+                      paymentType: 'regular',
+                    });
+
+                    if (!isInterestLoan) {
+                      return (
+                        <div className="p-3 rounded-xl border border-indigo-200 bg-indigo-50/70 text-xs text-indigo-950">
+                          <p className="font-bold">Zobowiązanie 0% ({linkedDebt.name})</p>
+                          <p className="text-[11px] text-indigo-800 mt-0.5">Cała kwota ({payModalAmount || '0.00'} PLN) pomniejsza kapitał.</p>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="p-3.5 rounded-2xl border border-indigo-200 bg-indigo-50/40 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-indigo-950">Podział raty ({linkedDebt.name})</span>
+                          <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-md">
+                            {splitSuggestion.effectiveAnnualRate}% rocznie
+                          </span>
+                        </div>
+
+                        <div className="flex flex-wrap gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPayModalSplitMode(true);
+                              setPayModalPrincipal(splitSuggestion.suggestedPrincipal.toFixed(2));
+                              setPayModalInterest(splitSuggestion.suggestedInterest.toFixed(2));
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] cursor-pointer"
+                          >
+                            Sugestia bankowa ({splitSuggestion.suggestedPrincipal.toFixed(2)} zł / {splitSuggestion.suggestedInterest.toFixed(2)} zł)
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-600 mb-1">Kapitał</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={payModalPrincipal}
+                              onChange={(e) => {
+                                const pVal = e.target.value;
+                                setPayModalPrincipal(pVal);
+                                const total = parseFloat(payModalAmount) || 0;
+                                setPayModalInterest(Math.max(0, total - (parseFloat(pVal) || 0)).toFixed(2));
+                              }}
+                              className="w-full px-3 py-1.5 text-xs font-bold bg-white border border-indigo-200 rounded-xl"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-600 mb-1">Odsetki</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={payModalInterest}
+                              onChange={(e) => {
+                                const iVal = e.target.value;
+                                setPayModalInterest(iVal);
+                                const total = parseFloat(payModalAmount) || 0;
+                                setPayModalPrincipal(Math.max(0, total - (parseFloat(iVal) || 0)).toFixed(2));
+                              }}
+                              className="w-full px-3 py-1.5 text-xs font-bold bg-white border border-indigo-200 rounded-xl"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Podsumowanie skutków opłacenia */}
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 text-xs text-slate-600 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Okres rozliczeniowy:</span>
+                      <span className="font-semibold text-slate-800">{coveredPeriodsPreview.join(' + ')}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Kolejny cykl:</span>
+                      <span className="font-semibold text-slate-800">{nextDuePreview || 'Zakończony'}</span>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleOpenRolloverModal(bill)}
-                    className="w-full sm:w-auto px-3 py-1.5 bg-white hover:bg-amber-100 border border-amber-300 text-amber-950 font-bold text-xs rounded-xl shadow-2xs whitespace-nowrap transition-colors flex items-center justify-center space-x-1 shrink-0"
-                  >
-                    <FastForward className="w-3.5 h-3.5 text-amber-700" />
-                    <span>Przełóż / Kumuluj</span>
-                  </button>
+
+                  {/* Opcja przeniesienia zaległości / kumulacji */}
+                  {bill.billingCycle !== 'jednorazowo' && (
+                    <div className="p-3 bg-amber-50/80 border border-amber-200/90 rounded-xl flex items-center justify-between gap-2 text-xs">
+                      <div>
+                        <span className="font-bold text-amber-950 block">Nie opłacasz teraz?</span>
+                        <span className="text-[11px] text-amber-800">Przełóż rachunek na kolejny okres.</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenRolloverModal(bill)}
+                        className="px-3 py-1.5 bg-white hover:bg-amber-100 border border-amber-300 text-amber-950 font-bold text-xs rounded-xl shadow-2xs transition-colors cursor-pointer shrink-0"
+                      >
+                        Przełóż / Kumuluj
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -3102,123 +2960,58 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                 </button>
               </div>
 
-              {/* Wyjaśnienie */}
-              <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-950 flex items-start space-x-2.5">
-                <Info className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                <div className="space-y-0.5">
-                  <p className="font-bold">Kumulacja rachunku na kolejny okres:</p>
-                  <p className="text-amber-900/90 text-[11px] leading-relaxed">
-                    Jeśli rachunek nie został opłacony w bieżącym terminie ({currentPeriod}), możesz przenieść zaległość na kolejny miesiąc ({targetPeriod}). Kwota zostanie skumulowana z kolejnym okresem rozliczeniowym.
-                  </p>
-                </div>
-              </div>
+              {/* Wybór trybu: 2x lub Tylko odrocz termin */}
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRolloverMode('accumulate');
+                    setRolloverAmount((bill.amount + baseAmt).toFixed(2));
+                  }}
+                  className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    rolloverMode === 'accumulate'
+                      ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                      : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>2x (Kumulacja)</span>
+                </button>
 
-              {/* Wybór trybu: Kumulacja kwoty czy tylko odroczenie terminu */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-800">
-                  Wybierz sposób przełożenia:
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRolloverMode('accumulate');
-                      setRolloverAmount((bill.amount + baseAmt).toFixed(2));
-                    }}
-                    className={`p-3 rounded-xl border text-left transition-all ${
-                      rolloverMode === 'accumulate'
-                        ? 'bg-amber-50/80 border-amber-400 ring-2 ring-amber-400/20 shadow-2xs'
-                        : 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-600'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-1.5 mb-1">
-                      <Layers
-                        className={`w-4 h-4 ${
-                          rolloverMode === 'accumulate' ? 'text-amber-700' : 'text-slate-500'
-                        }`}
-                      />
-                      <span
-                        className={`text-xs font-bold ${
-                          rolloverMode === 'accumulate' ? 'text-amber-950' : 'text-slate-800'
-                        }`}
-                      >
-                        Kumuluj kwoty (2x)
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 leading-tight">
-                      Dodaje koszt kolejnego cyklu: bieżąca ({bill.amount.toFixed(2)} zł) + kolejny ({baseAmt.toFixed(2)} zł) ={' '}
-                      {(bill.amount + baseAmt).toFixed(2)} zł
-                    </p>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRolloverMode('defer_only');
-                      setRolloverAmount(bill.amount.toFixed(2));
-                    }}
-                    className={`p-3 rounded-xl border text-left transition-all ${
-                      rolloverMode === 'defer_only'
-                        ? 'bg-amber-50/80 border-amber-400 ring-2 ring-amber-400/20 shadow-2xs'
-                        : 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-600'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-1.5 mb-1">
-                      <Clock
-                        className={`w-4 h-4 ${
-                          rolloverMode === 'defer_only' ? 'text-amber-700' : 'text-slate-500'
-                        }`}
-                      />
-                      <span
-                        className={`text-xs font-bold ${
-                          rolloverMode === 'defer_only' ? 'text-amber-950' : 'text-slate-800'
-                        }`}
-                      >
-                        Tylko odrocz termin
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 leading-tight">
-                      Przesuwa jedynie datę ważności, zachowując obecną kwotę do zapłaty ({bill.amount.toFixed(2)} zł)
-                    </p>
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRolloverMode('defer_only');
+                    setRolloverAmount(bill.amount.toFixed(2));
+                  }}
+                  className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    rolloverMode === 'defer_only'
+                      ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                      : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+                  }`}
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>Tylko odrocz termin</span>
+                </button>
               </div>
 
               {/* Nowy termin płatności */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
-                    <Calendar className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Nowy termin płatności (kolejny okres):</span>
-                  </label>
-                  <span className="text-[10px] font-semibold text-slate-500">
-                    Dotychczas: {bill.dueDate}
-                  </span>
-                </div>
-
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-800">
+                  Nowy termin płatności:
+                </label>
                 <input
                   type="date"
                   value={rolloverNewDate}
                   onChange={(e) => setRolloverNewDate(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold text-slate-900 focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-hidden transition-all"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
                 />
-
-                <div className="flex items-center gap-1.5 pt-0.5">
-                  <button
-                    type="button"
-                    onClick={() => setRolloverNewDate(nextDefaultDue)}
-                    className="px-2.5 py-1 text-xs rounded-lg font-semibold border bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200"
-                  >
-                    Kolejny cykl wg umowy ({nextDefaultDue})
-                  </button>
-                </div>
               </div>
 
-              {/* Nowa kwota po kumulacji z możliwością ręcznej korekty */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-800 flex items-center justify-between">
-                  <span>Nowa łączna kwota do zapłaty (PLN):</span>
-                  <span className="text-[11px] text-slate-400 font-normal">możesz edytować</span>
+              {/* Nowa kwota rachunku */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-800">
+                  Nowa kwota rachunku (PLN):
                 </label>
                 <div className="relative">
                   <input
@@ -3226,7 +3019,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                     step="0.01"
                     value={rolloverAmount}
                     onChange={(e) => setRolloverAmount(e.target.value)}
-                    className="w-full px-3 py-2 text-sm font-black text-amber-950 bg-amber-50/50 border border-amber-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                    className="w-full px-3 py-2 text-xs font-black text-amber-950 bg-amber-50/50 border border-amber-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
                   />
                   <span className="absolute right-3 top-2 text-xs font-bold text-amber-700">
                     PLN
@@ -3234,40 +3027,18 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                 </div>
               </div>
 
-              {/* Notatka / Komentarz do kumulacji */}
+              {/* Notatka */}
               <div className="space-y-1">
                 <label className="text-xs font-bold text-slate-800">
-                  Notatka / powód przeniesienia:
+                  Notatka:
                 </label>
                 <input
                   type="text"
                   value={rolloverNote}
                   onChange={(e) => setRolloverNote(e.target.value)}
-                  placeholder="np. Skumulowano opłatę za wrzesień z październikiem"
+                  placeholder="np. Skumulowano opłatę"
                   className="w-full px-3 py-2 text-xs text-slate-700 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
                 />
-              </div>
-
-              {/* Podsumowanie */}
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 text-xs text-slate-600 space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-500">Dotychczasowy okres:</span>
-                  <span className="font-semibold text-slate-700 line-through">{currentPeriod}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-500">Docelowy okres rozliczeniowy:</span>
-                  <span className="font-bold text-amber-800">{targetPeriod}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-500">Nowy termin płatności:</span>
-                  <span className="font-bold text-slate-800">{rolloverNewDate}</span>
-                </div>
-                <div className="flex items-center justify-between pt-1 border-t border-slate-200/60">
-                  <span className="text-slate-500 font-semibold">Do zapłaty łącznie:</span>
-                  <span className="font-black text-sm text-amber-800">
-                    {parseFloat(rolloverAmount || '0').toFixed(2)} PLN
-                  </span>
-                </div>
               </div>
 
               {/* Dolne przyciski */}
@@ -3275,19 +3046,17 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                 <button
                   type="button"
                   onClick={() => setRolloverModalBill(null)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
                 >
                   Anuluj
                 </button>
                 <button
                   type="button"
                   onClick={handleConfirmRollover}
-                  className="px-5 py-2 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white text-xs font-bold rounded-xl flex items-center space-x-2 transition-all shadow-xs"
+                  className="px-5 py-2 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 transition-all shadow-xs cursor-pointer"
                 >
                   <Check className="w-4 h-4" />
-                  <span>
-                    Zatwierdź przełożenie ({parseFloat(rolloverAmount || '0').toFixed(2)} PLN)
-                  </span>
+                  <span>Zapisz</span>
                 </button>
               </div>
             </div>

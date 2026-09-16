@@ -813,15 +813,28 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                 </div>
                 <h3 className="font-bold text-base text-slate-900">Edycja transakcji</h3>
               </div>
-              <button
-                onClick={() => setEditingTransaction(null)}
-                className="text-slate-400 hover:text-slate-600 p-1"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center space-x-1.5 shrink-0">
+                <button
+                  type="submit"
+                  form="edit-tx-form"
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xs rounded-xl shadow-xs flex items-center space-x-1 transition-colors cursor-pointer"
+                  title="Zapisz zmiany"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Zapisz</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingTransaction(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+                  title="Zamknij"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
-            <form onSubmit={handleSaveEdit} className="space-y-3.5">
+            <form id="edit-tx-form" onSubmit={handleSaveEdit} className="space-y-3.5">
               {/* Type Switcher */}
               <div className="flex bg-slate-100 p-1 rounded-xl">
                 <button
@@ -1170,33 +1183,61 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
       )}
 
       {/* Add Transaction Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-5 sm:p-6 border border-slate-200 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center space-x-2">
-                {formType === 'income' ? (
-                  <div className="p-1.5 bg-emerald-100 text-emerald-700 rounded-lg">
-                    <ArrowUp className="w-4 h-4 stroke-[2.5]" />
-                  </div>
-                ) : (
-                  <div className="p-1.5 bg-rose-100 text-rose-700 rounded-lg">
-                    <ArrowDown className="w-4 h-4 stroke-[2.5]" />
-                  </div>
-                )}
-                <h3 className="font-bold text-base text-slate-900">
-                  {formType === 'income' ? 'Nowa wpłata' : 'Nowy wydatek'}
-                </h3>
-              </div>
-              <button
-                onClick={() => setShowAddModal(false)}
-                className="text-slate-400 hover:text-slate-600 p-1"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      {showAddModal && (() => {
+        const isDebtCategory = formCategory === 'Zobowiązania i pożyczki';
+        const linkedDebtTarget =
+          isDebtCategory && formDebtActionType === 'link' && formDebtId
+            ? debts.find((d) => d.id === formDebtId)
+            : undefined;
+        const parsedFormAmt = parseFloat(formAmount.replace(',', '.')) || 0;
+        const isDebtOverpaid =
+          !!linkedDebtTarget &&
+          linkedDebtTarget.currentRemaining > 0 &&
+          parsedFormAmt > linkedDebtTarget.currentRemaining + 0.009;
+        const isFormValid =
+          !!formTitle.trim() && !!formAmount && parsedFormAmt > 0 && !isDebtOverpaid;
 
-            <form onSubmit={handleSubmit} className="space-y-3.5">
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl max-w-md w-full p-5 sm:p-6 border border-slate-200 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center space-x-2">
+                  {formType === 'income' ? (
+                    <div className="p-1.5 bg-emerald-100 text-emerald-700 rounded-lg">
+                      <ArrowUp className="w-4 h-4 stroke-[2.5]" />
+                    </div>
+                  ) : (
+                    <div className="p-1.5 bg-rose-100 text-rose-700 rounded-lg">
+                      <ArrowDown className="w-4 h-4 stroke-[2.5]" />
+                    </div>
+                  )}
+                  <h3 className="font-bold text-base text-slate-900">
+                    {formType === 'income' ? 'Nowa wpłata' : 'Nowy wydatek'}
+                  </h3>
+                </div>
+                <div className="flex items-center space-x-1.5 shrink-0">
+                  <button
+                    type="submit"
+                    form="add-tx-form"
+                    disabled={!isFormValid}
+                    className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 active:bg-slate-950 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs rounded-xl shadow-xs flex items-center space-x-1 transition-colors cursor-pointer"
+                    title={formType === 'income' ? 'Dodaj wpłatę' : 'Dodaj wydatek'}
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>{formType === 'income' ? 'Dodaj' : 'Zapisz'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddModal(false)}
+                    className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+                    title="Zamknij"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              <form id="add-tx-form" onSubmit={handleSubmit} className="space-y-3.5">
               {/* Type Switcher */}
               <div className="flex bg-slate-100 p-1 rounded-xl">
                 <button
@@ -1742,30 +1783,19 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                 >
                   Anuluj
                 </button>
-                {(() => {
-                  const isDebtCategory = formCategory === 'Zobowiązania i pożyczki';
-                  const linkedDebtTarget = isDebtCategory && formDebtActionType === 'link' && formDebtId
-                    ? debts.find((d) => d.id === formDebtId)
-                    : undefined;
-                  const parsedFormAmt = parseFloat(formAmount.replace(',', '.')) || 0;
-                  const isDebtOverpaid = !!linkedDebtTarget && linkedDebtTarget.currentRemaining > 0 && parsedFormAmt > linkedDebtTarget.currentRemaining + 0.009;
-                  const isFormValid = !!formTitle.trim() && !!formAmount && parsedFormAmt > 0 && !isDebtOverpaid;
-
-                  return (
-                    <button
-                      type="submit"
-                      disabled={!isFormValid}
-                      className="px-4 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
-                    >
-                      {isDebtOverpaid ? 'Kwota przekracza saldo spłaty' : (formType === 'income' ? 'Dodaj wpłatę' : 'Dodaj wydatek')}
-                    </button>
-                  );
-                })()}
+                <button
+                  type="submit"
+                  disabled={!isFormValid}
+                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
+                >
+                  {isDebtOverpaid ? 'Kwota przekracza saldo spłaty' : (formType === 'income' ? 'Dodaj wpłatę' : 'Dodaj wydatek')}
+                </button>
               </div>
             </form>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Receipt Item Breakdown Modal */}
       {selectedReceiptDetails && (

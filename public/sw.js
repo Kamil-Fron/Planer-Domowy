@@ -102,6 +102,27 @@ self.addEventListener('message', (event) => {
   }
 });
 
+// Background Sync and Periodic Background Sync (PWA Background Refresh)
+self.addEventListener('sync', (event) => {
+  if (event.tag === 'budget-sync' || event.tag === 'budget-refresh') {
+    event.waitUntil(
+      Promise.resolve().then(() => {
+        console.log('[SW] Background sync triggered in background');
+      })
+    );
+  }
+});
+
+self.addEventListener('periodicsync', (event) => {
+  if (event.tag === 'budget-periodic-refresh') {
+    event.waitUntil(
+      Promise.resolve().then(() => {
+        console.log('[SW] Periodic background refresh triggered');
+      })
+    );
+  }
+});
+
 // Handle Notification Click (Deep linking directly to specific transaction/tab)
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();

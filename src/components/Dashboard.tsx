@@ -27,6 +27,7 @@ import {
   HandCoins,
   CalendarClock,
   Check,
+  ChevronDown,
 } from 'lucide-react';
 import {
   Transaction,
@@ -97,6 +98,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [aiAdvice, setAiAdvice] = useState<AiAdviceData | string | null>(null);
   const [loadingAdvice, setLoadingAdvice] = useState(false);
   const [adviceError, setAdviceError] = useState<string | null>(null);
+  const [isDebtsExpanded, setIsDebtsExpanded] = useState<boolean>(false);
 
   // Mobile swipe gesture between months on budget tile
   const { touchHandlers, swipeFeedback } = useMonthSwipe({
@@ -415,23 +417,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
         {/* Action Hub */}
         <div className="lg:col-span-2 bg-white rounded-2xl p-6 border border-slate-200 shadow-xs flex flex-col justify-between space-y-4">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 mb-1">Szybkie Akcje</h3>
-              <p className="text-xs text-slate-500">
-                Rejestrowanie paragonów AI, szybkie wpisy w 3 sekundy oraz listy zakupów.
-              </p>
-            </div>
-            {onQuickAddTransaction && (
-              <button
-                onClick={onQuickAddTransaction}
-                className="flex items-center space-x-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs active:scale-95 transition-all shrink-0"
-                title="Szybkie dodawanie wydatku lub wpływu (Skrót klawisza: + lub N)"
-              >
-                <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-                <span>+ Szybki wpis</span>
-              </button>
-            )}
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Szybkie Akcje</h3>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
@@ -716,22 +703,35 @@ export const Dashboard: React.FC<DashboardProps> = ({
       </div>
 
       {/* 4. Sekcja Podsumowania Zobowiązań (Poniżej ostatnich transakcji, a przed limitami wydatków) */}
-      <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200 shadow-xs space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
-          <div className="flex items-center space-x-3">
-            <div className="p-2.5 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-700">
+      <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200 shadow-xs transition-all">
+        <div
+          onClick={() => setIsDebtsExpanded((prev) => !prev)}
+          className={`flex items-center justify-between gap-3 cursor-pointer select-none group ${
+            isDebtsExpanded ? 'pb-3 border-b border-slate-100 mb-4' : ''
+          }`}
+          title={isDebtsExpanded ? 'Kliknij, aby zwinąć podsumowanie zobowiązań' : 'Kliknij, aby odkryć podsumowanie zobowiązań'}
+        >
+          <div className="flex items-center space-x-3 min-w-0">
+            <div className="p-2.5 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-700 group-hover:bg-indigo-100 transition-colors shrink-0">
               <HandCoins className="w-5 h-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="font-bold text-sm sm:text-base text-slate-900">Podsumowanie Zobowiązań</h3>
+                <h3 className="font-bold text-sm sm:text-base text-slate-900 group-hover:text-indigo-600 transition-colors flex items-center gap-1.5">
+                  <span>Podsumowanie Zobowiązań</span>
+                  <ChevronDown
+                    className={`w-4 h-4 text-slate-400 group-hover:text-indigo-600 transition-transform duration-200 ${
+                      isDebtsExpanded ? 'rotate-180 text-indigo-600' : ''
+                    }`}
+                  />
+                </h3>
                 {primaryBankDebt?.bankName && (
                   <span className="text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-100 px-2 py-0.5 rounded-md">
                     {primaryBankDebt.bankName}
                   </span>
                 )}
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-slate-500 mt-0.5 truncate sm:whitespace-normal">
                 {borrowedDebts.length > 0 || lentDebts.length > 0
                   ? `${activeBorrowedDebts.length} aktywnych do spłaty (${borrowedDebts.length} ogółem) • ${activeLentDebts.length} do odzyskania`
                   : 'Brak aktywnych zobowiązań i pożyczek'}
@@ -741,127 +741,134 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </p>
             </div>
           </div>
-          <button
-            onClick={() => onNavigate('debts')}
-            className="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50/70 hover:bg-indigo-100/70 px-3.5 py-2 rounded-xl border border-indigo-100 transition-colors flex items-center space-x-1 self-start sm:self-auto cursor-pointer"
-          >
-            <span>Zadłużenia & Spłaty</span>
-            <span>→</span>
-          </button>
+          <div className="flex items-center space-x-2 shrink-0">
+            <span className="text-xs font-semibold text-indigo-600 group-hover:text-indigo-800 transition-colors hidden sm:inline">
+              {isDebtsExpanded ? 'Zwiń' : 'Rozwiń'}
+            </span>
+            <div className="p-1.5 rounded-lg text-slate-400 group-hover:text-indigo-600 transition-colors">
+              <ChevronDown
+                className={`w-4 h-4 transition-transform duration-200 ${
+                  isDebtsExpanded ? 'rotate-180 text-indigo-600' : ''
+                }`}
+              />
+            </div>
+          </div>
         </div>
 
         {/* 3 Metric Cards: Ile muszę oddać | Ile ktoś musi mi oddać | Miesięczne raty */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-          {/* Card 1: Ile muszę oddać */}
-          <div
-            onClick={() => onNavigate('debts')}
-            className="p-4 rounded-xl bg-slate-50 hover:bg-rose-50/40 border border-slate-100 hover:border-rose-200 transition-all cursor-pointer space-y-2 group"
-            title="Kliknij, aby otworzyć listę zobowiązań do spłaty"
-          >
-            <span className="text-[10px] font-bold uppercase tracking-wider text-rose-600 flex items-center justify-between">
-              <span className="group-hover:translate-x-0.5 transition-transform flex items-center gap-1">
-                <span>Ile muszę oddać</span>
-                <span className="text-slate-400">→</span>
-              </span>
-              <span className="text-slate-500 font-medium">({borrowedDebts.length} poz.)</span>
-            </span>
-            <div className="flex items-baseline space-x-1.5">
-              <span className="text-xl font-black text-rose-600">
-                {totalBorrowedRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} zł
-              </span>
-              <span className="text-[11px] text-slate-400">
-                / {totalBorrowedInitial.toLocaleString('pl-PL', { maximumFractionDigits: 0 })} zł
-              </span>
-            </div>
-            <div>
-              <div className="flex justify-between text-[10px] text-slate-500 mb-1">
-                <span>Spłacono: {totalBorrowedPaid.toLocaleString('pl-PL', { maximumFractionDigits: 0 })} zł</span>
-                <span className="font-bold text-rose-600">{borrowedPaidPercent.toFixed(1)}%</span>
-              </div>
-              <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-                <div
-                  className="h-2 bg-gradient-to-r from-rose-500 to-amber-500 rounded-full"
-                  style={{ width: `${Math.min(100, Math.max(totalBorrowedPaid > 0 ? 1 : 0, borrowedPaidPercent))}%` }}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Card 2: Ile ktoś musi mi oddać */}
-          <div
-            onClick={() => onNavigate('debts')}
-            className="p-4 rounded-xl bg-slate-50 hover:bg-emerald-50/40 border border-slate-100 hover:border-emerald-200 transition-all cursor-pointer space-y-2 group"
-            title="Kliknij, aby otworzyć listę pożyczek udzielonych innym"
-          >
-            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 flex items-center justify-between">
-              <span className="group-hover:translate-x-0.5 transition-transform flex items-center gap-1">
-                <span>Ile ktoś musi mi oddać</span>
-                <span className="text-slate-400">→</span>
-              </span>
-              <span className="text-slate-500 font-medium">({lentDebts.length} poz.)</span>
-            </span>
-            <div className="flex items-baseline space-x-1.5">
-              <span className="text-xl font-black text-emerald-600">
-                {totalLentRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} zł
-              </span>
-              <span className="text-[11px] text-slate-400">
-                / {totalLentInitial.toLocaleString('pl-PL', { maximumFractionDigits: 0 })} zł
-              </span>
-            </div>
-            <div>
-              <div className="flex justify-between text-[10px] text-slate-500 mb-1">
-                <span>Odzyskano: {totalLentRecovered.toLocaleString('pl-PL', { maximumFractionDigits: 0 })} zł</span>
-                <span className="font-bold text-emerald-600">{lentRecoveredPercent.toFixed(1)}%</span>
-              </div>
-              <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-                <div
-                  className="h-2 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full"
-                  style={{ width: `${Math.min(100, Math.max(totalLentRecovered > 0 ? 1 : 0, lentRecoveredPercent))}%` }}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Card 3: Miesięczne raty / Oprocentowanie */}
-          <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-2 flex flex-col justify-between">
-            <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                Miesięczne raty kredytów
-              </span>
-              <div className="flex items-baseline space-x-1.5 mt-0.5">
-                <span className={`text-xl font-black ${totalMonthlyInstallments > 0 ? 'text-slate-900' : 'text-emerald-600'}`}>
-                  {totalMonthlyInstallments.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} zł
-                </span>
-                <span className="text-[11px] text-slate-500">/ mies.</span>
-              </div>
-              <div className="text-[11px] text-slate-600 space-y-0.5 pt-1">
-                {totalMonthlyInstallments <= 0 && totalBorrowedRemaining <= 0 && totalBorrowedInitial > 0 ? (
-                  <p className="text-[11px] font-bold text-emerald-600 flex items-center gap-1">
-                    <span>Wszystkie raty spłacone</span>
-                  </p>
-                ) : activeBankDebt?.interestRate ? (
-                  <p className="text-[11px] text-slate-500">
-                    Oprocentowanie: <strong className="text-amber-600">{activeBankDebt.interestRate}%</strong>
-                    {activeBankDebt?.loanTermYears && (
-                      <span> ({activeBankDebt.loanTermYears} lat)</span>
-                    )}
-                  </p>
-                ) : (
-                  <p className="text-[11px] text-slate-400">
-                    {totalMonthlyInstallments > 0 ? 'Stałe raty z harmonogramów' : 'Brak aktywnych rat'}
-                  </p>
-                )}
-              </div>
-            </div>
-            <button
+        {isDebtsExpanded && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 animate-in fade-in duration-150">
+            {/* Card 1: Ile muszę oddać */}
+            <div
               onClick={() => onNavigate('debts')}
-              className="text-xs font-bold text-indigo-700 hover:text-indigo-900 flex items-center space-x-1 mt-2 group cursor-pointer"
+              className="p-4 rounded-xl bg-slate-50 hover:bg-rose-50/40 border border-slate-100 hover:border-rose-200 transition-all cursor-pointer space-y-2 group"
+              title="Kliknij, aby otworzyć listę zobowiązań do spłaty"
             >
-              <span>Szczegóły, kalkulator & historia</span>
-              <span className="group-hover:translate-x-0.5 transition-transform">→</span>
-            </button>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-rose-600 flex items-center justify-between">
+                <span className="group-hover:translate-x-0.5 transition-transform flex items-center gap-1">
+                  <span>Ile muszę oddać</span>
+                  <span className="text-slate-400">→</span>
+                </span>
+                <span className="text-slate-500 font-medium">({borrowedDebts.length} poz.)</span>
+              </span>
+              <div className="flex items-baseline space-x-1.5">
+                <span className="text-xl font-black text-rose-600">
+                  {totalBorrowedRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} zł
+                </span>
+                <span className="text-[11px] text-slate-400">
+                  / {totalBorrowedInitial.toLocaleString('pl-PL', { maximumFractionDigits: 0 })} zł
+                </span>
+              </div>
+              <div>
+                <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+                  <span>Spłacono: {totalBorrowedPaid.toLocaleString('pl-PL', { maximumFractionDigits: 0 })} zł</span>
+                  <span className="font-bold text-rose-600">{borrowedPaidPercent.toFixed(1)}%</span>
+                </div>
+                <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                  <div
+                    className="h-2 bg-gradient-to-r from-rose-500 to-amber-500 rounded-full"
+                    style={{ width: `${Math.min(100, Math.max(totalBorrowedPaid > 0 ? 1 : 0, borrowedPaidPercent))}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Card 2: Ile ktoś musi mi oddać */}
+            <div
+              onClick={() => onNavigate('debts')}
+              className="p-4 rounded-xl bg-slate-50 hover:bg-emerald-50/40 border border-slate-100 hover:border-emerald-200 transition-all cursor-pointer space-y-2 group"
+              title="Kliknij, aby otworzyć listę pożyczek udzielonych innym"
+            >
+              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 flex items-center justify-between">
+                <span className="group-hover:translate-x-0.5 transition-transform flex items-center gap-1">
+                  <span>Ile ktoś musi mi oddać</span>
+                  <span className="text-slate-400">→</span>
+                </span>
+                <span className="text-slate-500 font-medium">({lentDebts.length} poz.)</span>
+              </span>
+              <div className="flex items-baseline space-x-1.5">
+                <span className="text-xl font-black text-emerald-600">
+                  {totalLentRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} zł
+                </span>
+                <span className="text-[11px] text-slate-400">
+                  / {totalLentInitial.toLocaleString('pl-PL', { maximumFractionDigits: 0 })} zł
+                </span>
+              </div>
+              <div>
+                <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+                  <span>Odzyskano: {totalLentRecovered.toLocaleString('pl-PL', { maximumFractionDigits: 0 })} zł</span>
+                  <span className="font-bold text-emerald-600">{lentRecoveredPercent.toFixed(1)}%</span>
+                </div>
+                <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                  <div
+                    className="h-2 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full"
+                    style={{ width: `${Math.min(100, Math.max(totalLentRecovered > 0 ? 1 : 0, lentRecoveredPercent))}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Card 3: Miesięczne raty / Oprocentowanie */}
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-2 flex flex-col justify-between">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                  Miesięczne raty kredytów
+                </span>
+                <div className="flex items-baseline space-x-1.5 mt-0.5">
+                  <span className={`text-xl font-black ${totalMonthlyInstallments > 0 ? 'text-slate-900' : 'text-emerald-600'}`}>
+                    {totalMonthlyInstallments.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} zł
+                  </span>
+                  <span className="text-[11px] text-slate-500">/ mies.</span>
+                </div>
+                <div className="text-[11px] text-slate-600 space-y-0.5 pt-1">
+                  {totalMonthlyInstallments <= 0 && totalBorrowedRemaining <= 0 && totalBorrowedInitial > 0 ? (
+                    <p className="text-[11px] font-bold text-emerald-600 flex items-center gap-1">
+                      <span>Wszystkie raty spłacone</span>
+                    </p>
+                  ) : activeBankDebt?.interestRate ? (
+                    <p className="text-[11px] text-slate-500">
+                      Oprocentowanie: <strong className="text-amber-600">{activeBankDebt.interestRate}%</strong>
+                      {activeBankDebt?.loanTermYears && (
+                        <span> ({activeBankDebt.loanTermYears} lat)</span>
+                      )}
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-slate-400">
+                      {totalMonthlyInstallments > 0 ? 'Stałe raty z harmonogramów' : 'Brak aktywnych rat'}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => onNavigate('debts')}
+                className="text-xs font-bold text-indigo-700 hover:text-indigo-900 flex items-center space-x-1 mt-2 group cursor-pointer"
+              >
+                <span>Szczegóły, kalkulator & historia</span>
+                <span className="group-hover:translate-x-0.5 transition-transform">→</span>
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* 5. Sekcja Limitów Wydatków (Pomiędzy kredytem a asystentem AI) */}

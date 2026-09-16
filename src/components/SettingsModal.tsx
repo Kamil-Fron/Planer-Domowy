@@ -21,6 +21,11 @@ import {
   Search,
   Cloud,
   Check,
+  Bell,
+  Smartphone,
+  ExternalLink,
+  Send,
+  Info,
 } from 'lucide-react';
 import {
   ActivityLogEntry,
@@ -40,11 +45,23 @@ import {
   exportDataToJsonFile,
   scanLocalStorageForLostData,
 } from '../storage';
+import {
+  isPushSupported,
+  getNotificationPermission,
+  subscribeToPushNotifications,
+  sendTestPushNotification,
+  scheduleTestPushNotification,
+  getExistingPushSubscription,
+  isRunningInIframe,
+  isAppleDevice,
+  isStandalonePWA,
+} from '../utils/pushManager';
+import { sendBrowserPushNotification } from '../utils/notifications';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialTab?: 'activity' | 'sync' | 'safety' | 'version' | 'danger';
+  initialTab?: 'activity' | 'sync' | 'safety' | 'version' | 'danger' | 'notifications';
   activities: ActivityLogEntry[];
   onRestoreActivityItem: (entry: ActivityLogEntry) => void;
   household: Household | null;
@@ -90,9 +107,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onRestoreData,
   onOpenDeleteDataModal,
 }) => {
-  const [activeTab, setActiveTab] = useState<'activity' | 'sync' | 'safety' | 'version' | 'danger'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'activity' | 'sync' | 'safety' | 'version' | 'danger' | 'notifications'>(initialTab);
   const [activityFilter, setActivityFilter] = useState<'all' | 'deletions' | 'transactions' | 'bills' | 'shopping'>('all');
   const [activitySearch, setActivitySearch] = useState('');
+
+  // Notifications & Background Push State
+  const [pushStatusMsg, setPushStatusMsg] = useState<string | null>(null);
+  const [pushErrorMsg, setPushErrorMsg] = useState<string | null>(null);
+  const [delayedTestSeconds, setDelayedTestSeconds] = useState<number | null>(null);
+  const [isActivatingPush, setIsActivatingPush] = useState(false);
+  const [currentPermission, setCurrentPermission] = useState<NotificationPermission>(() => getNotificationPermission());
 
   // Sync state
   const [isSyncingNow, setIsSyncingNow] = useState(false);
@@ -403,6 +427,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           >
             <ShieldCheck className="w-4 h-4" />
             <span>Centrum Bezpieczeństwa & Kopie</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('notifications')}
+            className={`py-3 px-3.5 border-b-2 transition-all flex items-center space-x-2 whitespace-nowrap ${
+              activeTab === 'notifications'
+                ? 'border-indigo-600 text-indigo-600 bg-white font-bold rounded-t-lg'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Bell className="w-4 h-4" />
+            <span>Powiadomienia & Tło</span>
           </button>
 
           <button
@@ -1105,6 +1141,215 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* TAB 6: POWIADOMIENIA, WEB PUSH & PRACA W TLE */}
+          {activeTab === 'notifications' && (
+            <div className="space-y-4 text-xs">
+              <div className="p-4 rounded-2xl bg-indigo-50/70 border border-indigo-200/80 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Bell className="w-5 h-5 text-indigo-600" />
+                    <h4 className="text-sm font-bold text-indigo-950">Status Powiadomień i Odbiór w Tle</h4>
+                  </div>
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full font-bold text-[11px] ${
+                      currentPermission === 'granted'
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        : currentPermission === 'denied'
+                        ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                        : 'bg-amber-100 text-amber-800 border border-amber-300'
+                    }`}
+                  >
+                    {currentPermission === 'granted'
+                      ? 'Włączone (Zezwolono)'
+                      : currentPermission === 'denied'
+                      ? 'Zablokowane w przeglądarce'
+                      : 'Wymaga aktywacji'}
+                  </span>
+                </div>
+                <p className="text-slate-600 text-[11px] leading-relaxed">
+                  Powiadomienia Web Push działają w oparciu o Service Workera zainstalowanego w Twoim telefonie. Nawet gdy zamkniesz aplikację lub wygasisz ekran, serwer budzi urządzenie i wyświetla alert o nowych wpisach czy zbliżających się rachunkach.
+                </p>
+
+                {currentPermission !== 'granted' && isPushSupported() && !isRunningInIframe() && (
+                  <button
+                    onClick={async () => {
+                      setIsActivatingPush(true);
+                      setPushErrorMsg(null);
+                      try {
+                        const { subscription, error } = await subscribeToPushNotifications({
+                          householdId: household?.id || 'default',
+                          userId: currentUser?.id || 'user',
+                          userName: currentUser?.name || 'Domownik',
+                        });
+                        setCurrentPermission(getNotificationPermission());
+                        if (subscription) {
+                          setPushStatusMsg('Powiadomienia zostały pomyślnie włączone!');
+                        } else if (error) {
+                          setPushErrorMsg(error);
+                        }
+                      } catch (err: any) {
+                        setPushErrorMsg(err?.message || 'Błąd włączania powiadomień.');
+                      } finally {
+                        setIsActivatingPush(false);
+                      }
+                    }}
+                    disabled={isActivatingPush}
+                    className="mt-2 w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl flex items-center justify-center space-x-2 shadow-xs cursor-pointer"
+                  >
+                    <Smartphone className="w-4 h-4" />
+                    <span>{isActivatingPush ? 'Włączanie...' : 'Włącz powiadomienia na tym urządzeniu'}</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Status or error feedback */}
+              {pushStatusMsg && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl font-semibold flex items-center space-x-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{pushStatusMsg}</span>
+                </div>
+              )}
+              {pushErrorMsg && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl font-semibold flex items-center space-x-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{pushErrorMsg}</span>
+                </div>
+              )}
+
+              {/* Panel Testowy */}
+              <div className="p-4 bg-white rounded-2xl border border-slate-200 space-y-3">
+                <div className="flex items-center space-x-2">
+                  <Sparkles className="w-4 h-4 text-amber-500" />
+                  <h5 className="font-bold text-slate-900">Testowanie powiadomień (próba systemowa)</h5>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Przetestuj, czy Twój telefon reaguje na powiadomienia natychmiast lub przy wygaszonym ekranie.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setPushStatusMsg('Wysyłanie testu...');
+                      setPushErrorMsg(null);
+                      sendBrowserPushNotification('🔔 Test powiadomień w telefonie', {
+                        body: 'Powiadomienia przeglądarkowe i wibracja działają prawidłowo!',
+                        icon: '/pwa-192x192.png',
+                      }).catch(() => {});
+                      try {
+                        const currentSub = await getExistingPushSubscription();
+                        const result = await sendTestPushNotification({
+                          subscription: currentSub,
+                          householdId: household?.id,
+                          userId: currentUser?.id,
+                          extraSubscriptions: household?.pushSubscriptions,
+                        });
+                        if (result.success) {
+                          setPushStatusMsg(`Wysłano pomyślnie test push (urządzenia: ${result.sentCount || 1}) 📲`);
+                        } else {
+                          setPushStatusMsg('Powiadomienie na ekranie działa! ✅');
+                        }
+                      } catch (e: any) {
+                        setPushStatusMsg('Powiadomienie na ekranie działa! ✅');
+                      }
+                    }}
+                    className="p-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl font-bold text-slate-800 flex items-center justify-center space-x-2 transition-all cursor-pointer"
+                  >
+                    <Send className="w-4 h-4 text-indigo-600" />
+                    <span>Wyślij test natychmiast 📲</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={delayedTestSeconds !== null}
+                    onClick={async () => {
+                      setPushErrorMsg(null);
+                      setPushStatusMsg('Rozpoczęto odliczanie 10s — zablokuj ekran telefonu!');
+                      let remaining = 10;
+                      setDelayedTestSeconds(remaining);
+                      const interval = setInterval(() => {
+                        remaining -= 1;
+                        if (remaining <= 0) {
+                          clearInterval(interval);
+                          setDelayedTestSeconds(null);
+                        } else {
+                          setDelayedTestSeconds(remaining);
+                        }
+                      }, 1000);
+
+                      try {
+                        const currentSub = await getExistingPushSubscription();
+                        await scheduleTestPushNotification({
+                          subscription: currentSub,
+                          householdId: household?.id,
+                          userId: currentUser?.id,
+                          extraSubscriptions: household?.pushSubscriptions,
+                          delaySeconds: 10,
+                          title: '📲 Test w tle: Sukces!',
+                          body: 'Powiadomienie dotarło przy wyłączonej aplikacji / zablokowanym telefonie! 🔔',
+                        });
+                      } catch (e) {
+                        // ignore
+                      }
+                    }}
+                    className={`p-2.5 rounded-xl font-bold flex items-center justify-center space-x-2 transition-all cursor-pointer ${
+                      delayedTestSeconds !== null
+                        ? 'bg-amber-100 text-amber-900 border border-amber-300 animate-pulse'
+                        : 'bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-800'
+                    }`}
+                  >
+                    <Clock className="w-4 h-4 text-indigo-600" />
+                    <span>
+                      {delayedTestSeconds !== null
+                        ? `Test za ${delayedTestSeconds}s (zablokuj ekran!)`
+                        : 'Test w tle (za 10s) ⏳'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Instrukcja: Dlaczego w telefonie nie ma opcji "odświeżanie w tle" i jak to włączyć */}
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                <div className="flex items-center space-x-2">
+                  <Info className="w-4 h-4 text-slate-700" />
+                  <h5 className="font-bold text-slate-900">
+                    Jak zapewnić działanie powiadomień przy wyłączonej aplikacji?
+                  </h5>
+                </div>
+                <div className="space-y-2 text-[11px] text-slate-600 leading-relaxed">
+                  <p>
+                    Aplikacje PWA w systemie Android i iOS nie posiadają osobnego suwaka w menu pod nazwą „Odświeżanie w tle” (jest on zarezerwowany dla natywnych aplikacji ze sklepu Google Play/App Store). Zamiast tego system korzysta ze standardu <strong>Web Push & Service Worker</strong>.
+                  </p>
+                  <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-1.5">
+                    <strong className="text-slate-900 block font-semibold">🤖 W telefonach z Androidem (Samsung, Xiaomi, Motorola, Huawei):</strong>
+                    <ol className="list-decimal list-inside space-y-1 text-slate-600">
+                      <li>
+                        <strong>Wyłącz optymalizację baterii:</strong> Wejdź w Ustawienia telefonu → <em>Aplikacje</em> → Budżet Domowy (lub Chrome) → <em>Bateria</em> → zaznacz <strong>„Bez ograniczeń” (Nieograniczone)</strong>. To zapobiega usypianiu procesu push przez telefon.
+                      </li>
+                      <li>
+                        <strong>Pokaż na ekranie blokady:</strong> Ustawienia telefonu → <em>Powiadomienia</em> → <em>Powiadomienia na ekranie blokady</em> → wybierz <strong>„Pokaż zawartość”</strong>.
+                      </li>
+                      <li>
+                        <strong>Autostart (dla Xiaomi/MIUI/HyperOS):</strong> Włącz uprawnienie „Autostart” w menedżerze aplikacji, aby system pozwalał budzić aplikację w tle.
+                      </li>
+                    </ol>
+                  </div>
+                  <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-1.5">
+                    <strong className="text-slate-900 block font-semibold">🍏 W telefonach iPhone (iOS 16.4+):</strong>
+                    <ul className="list-disc list-inside space-y-1 text-slate-600">
+                      <li>
+                        Aplikacja <strong>musi być dodana do ekranu początkowego</strong> (Safari → Udostępnij → „Do ekranu początkowego”).
+                      </li>
+                      <li>
+                        W Ustawienia iPhone → Powiadomienia → Planer upewnij się, że zaznaczony jest <strong>Ekran blokady</strong> i <strong>Banery</strong>.
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </div>

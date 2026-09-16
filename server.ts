@@ -904,7 +904,6 @@ app.post("/api/sync-household-bills", (req, res) => {
 
 async function checkUpcomingBillsBackground(filterHouseholdId?: string) {
   const todayStr = new Date().toISOString().split("T")[0];
-  const now = new Date();
 
   const householdsToCheck = filterHouseholdId
     ? [filterHouseholdId]
@@ -912,15 +911,33 @@ async function checkUpcomingBillsBackground(filterHouseholdId?: string) {
 
   for (const hId of householdsToCheck) {
     const bills = householdBillsMap[hId] || [];
-    const targets = pushSubscriptions.filter((s) => s.householdId === hId && s.subscription);
-    if (targets.length === 0) continue;
+    // Zbierz wszystkie zarejestrowane urządzenia przypisane do danego domu lub domyślne
+    const matchingTargets = pushSubscriptions.filter(
+      (s) => s.subscription && (s.householdId === hId || s.householdId === "default" || !s.householdId)
+    );
+    if (matchingTargets.length === 0) continue;
+
+    // Deduplikacja urządzeń (jedno powiadomienie na unikalny endpoint)
+    const seenEndpoints = new Set<string>();
+    const targets = matchingTargets.filter((t) => {
+      const ep = t.subscription?.endpoint;
+      if (!ep || seenEndpoints.has(ep)) return false;
+      seenEndpoints.add(ep);
+      return true;
+    });
 
     for (const bill of bills) {
       if (bill.status === "paid") continue;
       if (!bill.dueDate) continue;
 
-      const due = new Date(bill.dueDate);
-      const diffDays = Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      let diffDays: number;
+      try {
+        const d1 = new Date(bill.dueDate.split("T")[0] + "T00:00:00Z");
+        const d2 = new Date(todayStr + "T00:00:00Z");
+        diffDays = Math.round((d1.getTime() - d2.getTime()) / (1000 * 60 * 60 * 24));
+      } catch {
+        continue;
+      }
 
       if (diffDays <= 2 && diffDays >= -14) {
         const notifyKey = `${hId}:${bill.id}:${todayStr}:${diffDays <= 0 ? 'due_today' : 'upcoming'}`;

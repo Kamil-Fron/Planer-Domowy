@@ -1095,6 +1095,21 @@ export default function App() {
     }
   }, [bills, pushEnabled]);
 
+  // 6. Synchronizuj rachunki z serwerem, aby demon w tle mógł wysyłać Web Push 24/7 przy wyłączonej aplikacji
+  useEffect(() => {
+    const targetHouseholdId = household?.id || 'default';
+    if (bills.length > 0) {
+      fetch('/api/sync-household-bills', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          householdId: targetHouseholdId,
+          bills,
+        }),
+      }).catch((err) => console.warn('Błąd synchronizacji rachunków z serwerem:', err));
+    }
+  }, [household?.id, bills]);
+
   // Handlers for Transactions
   const handleAddTransaction = (
     transactionData: Omit<Transaction, 'id' | 'createdAt'> & { id?: string }

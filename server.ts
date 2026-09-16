@@ -530,8 +530,26 @@ app.post("/api/send-push-notification", async (req, res) => {
             subscription: sub,
             userId: s.userId,
           });
+
+          // Also persist into server's pushSubscriptions cache for automated bill checks
+          const existingIdx = pushSubscriptions.findIndex(
+            (p) => p.subscription && p.subscription.endpoint === sub.endpoint
+          );
+          const record: StoredPushSubscription = {
+            subscription: sub,
+            householdId: householdId || "default",
+            userId: s.userId || "",
+            userName: s.userName || "Domownik",
+            updatedAt: new Date().toISOString(),
+          };
+          if (existingIdx >= 0) {
+            pushSubscriptions[existingIdx] = record;
+          } else {
+            pushSubscriptions.push(record);
+          }
         }
       });
+      saveSubscriptions();
     }
 
     // Include all registered subscriptions in the household (self-notifications are enabled as requested by user)
@@ -786,49 +804,53 @@ app.post("/api/schedule-test-push", async (req, res) => {
 
     const effectiveDelay = Math.min(60, Math.max(3, Number(delaySeconds) || 10));
 
-    res.json({
-      success: true,
-      delaySeconds: effectiveDelay,
-      message: `Powiadomienie zaplanowane na za ${effectiveDelay} sekund! Zablokuj telefon lub zamknij aplikację teraz.`,
+    // Wait during active HTTP request so Cloud Run container CPU stays 100% active
+    await new Promise((resolve) => setTimeout(resolve, effectiveDelay * 1000));
+
+    const payload = JSON.stringify({
+      title: title || "🔔 Test w tle: Sukces!",
+      body: body || "Powiadomienie dotarło przy wyłączonej aplikacji i zablokowanym telefonie! System działa w 100% w tle.",
+      icon: "/pwa-192x192.png",
+      badge: "/pwa-192x192.png",
+      data: {
+        url: "/",
+        targetTab: "dashboard",
+        timestamp: Date.now(),
+      },
     });
 
-    setTimeout(async () => {
-      const payload = JSON.stringify({
-        title: title || "🔔 Test w tle: Sukces!",
-        body: body || "Powiadomienie dotarło przy wyłączonej aplikacji i zablokowanym telefonie! System działa w 100% w tle.",
-        icon: "/pwa-192x192.png",
-        badge: "/pwa-192x192.png",
-        data: {
-          url: "/",
-          targetTab: "dashboard",
-          timestamp: Date.now(),
-        },
-      });
-
-      for (const sub of targetSubs) {
-        try {
-          const endpoint = sub.endpoint || "";
-          const isApple = endpoint.includes("push.apple.com");
-          const pushOptions: any = {
-            TTL: 86400,
-            urgency: "high",
+    let sentCount = 0;
+    for (const sub of targetSubs) {
+      try {
+        const endpoint = sub.endpoint || "";
+        const isApple = endpoint.includes("push.apple.com");
+        const pushOptions: any = {
+          TTL: 86400,
+          urgency: "high",
+        };
+        if (isApple) {
+          pushOptions.headers = {
+            "apns-push-type": "alert",
+            "apns-priority": "10",
           };
-          if (isApple) {
-            pushOptions.headers = {
-              "apns-push-type": "alert",
-              "apns-priority": "10",
-            };
-          }
-          await webpush.sendNotification(sub, payload, pushOptions);
-        } catch (e: any) {
-          console.warn("Błąd dostarczenia zaplanowanego testu push:", e?.message);
-          if (e?.statusCode === 410 || e?.statusCode === 404) {
-            pushSubscriptions = pushSubscriptions.filter((s) => s.subscription?.endpoint !== sub.endpoint);
-            saveSubscriptions();
-          }
+        }
+        await webpush.sendNotification(sub, payload, pushOptions);
+        sentCount++;
+      } catch (e: any) {
+        console.warn("Błąd dostarczenia zaplanowanego testu push:", e?.message);
+        if (e?.statusCode === 410 || e?.statusCode === 404) {
+          pushSubscriptions = pushSubscriptions.filter((s) => s.subscription?.endpoint !== sub.endpoint);
+          saveSubscriptions();
         }
       }
-    }, effectiveDelay * 1000);
+    }
+
+    return res.json({
+      success: true,
+      delaySeconds: effectiveDelay,
+      sentCount,
+      message: `Powiadomienie w tle wysłane po ${effectiveDelay} sekundach!`,
+    });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message || "Błąd planowania push." });
   }

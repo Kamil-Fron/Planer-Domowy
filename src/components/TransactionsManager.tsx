@@ -581,14 +581,39 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
         ) : (
           filtered.map((item) => {
             const isIncome = item.type === 'income';
+
+            // Calculate loan interest / principal split if applicable
+            const linkedDebt = item.debtId ? debts.find((d) => d.id === item.debtId) : null;
+            const hasInterest = linkedDebt && isInterestBearingDebt(linkedDebt);
+            let pAmt = item.principalAmount;
+            let iAmt = item.interestAmount;
+            if ((pAmt === undefined || iAmt === undefined) && linkedDebt && hasInterest) {
+              const autoSplit = calculateSuggestedLoanSplit({
+                debt: linkedDebt,
+                paymentAmount: item.amount,
+                paymentDate: item.date,
+                paymentType: 'regular',
+              });
+              if (pAmt === undefined) pAmt = autoSplit.suggestedPrincipal;
+              if (iAmt === undefined) iAmt = autoSplit.suggestedInterest;
+            }
+
+            const hasAnyBadges =
+              item.isBalanceRollover ||
+              item.debtId ||
+              item.isRecurring ||
+              (item.receiptItems && item.receiptItems.length > 0);
+
             return (
               <div
                 key={item.id}
-                className="p-3.5 sm:p-4 flex items-center justify-between gap-3 hover:bg-slate-50/80 transition-colors max-w-full overflow-hidden"
+                className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 sm:gap-4 hover:bg-slate-50/80 transition-colors w-full overflow-hidden"
               >
-                <div className="flex items-center space-x-3 min-w-0 flex-1">
+                {/* Main Content Area */}
+                <div className="flex items-start space-x-3 min-w-0 flex-1">
+                  {/* Direction Arrow Icon */}
                   <div
-                    className={`p-2 rounded-xl shrink-0 ${
+                    className={`p-2 rounded-xl shrink-0 mt-0.5 sm:mt-0 ${
                       isIncome ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
                     }`}
                   >
@@ -599,96 +624,144 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                     )}
                   </div>
 
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-                      <h3 className="font-bold text-xs sm:text-sm text-slate-900 truncate">
-                        {item.title}
-                      </h3>
-                      <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 shrink-0 truncate max-w-[120px]">
-                        {item.category}
-                      </span>
-                      {item.isBalanceRollover && (
+                  {/* Text & Badges Details */}
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    {/* Header Row: Title, Category & (Mobile-only) Amount */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <h3 className="font-bold text-xs sm:text-sm text-slate-900 leading-snug break-words">
+                            {item.title}
+                          </h3>
+                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 shrink-0">
+                            {item.category}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Amount on Mobile (< sm) */}
+                      <div className="text-right sm:hidden shrink-0 pl-1">
                         <span
-                          className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200 flex items-center space-x-1 shrink-0"
-                          title={`Przeniesienie bilansu z ${item.rolloverFromMonth || 'poprzedniego miesiąca'}`}
+                          className={`text-sm font-black whitespace-nowrap block ${
+                            isIncome ? 'text-emerald-600' : 'text-slate-900'
+                          }`}
                         >
-                          <Sparkles className="w-3 h-3 text-violet-600" />
-                          <span>Przeniesienie bilansu</span>
+                          {isIncome ? '+' : '-'}
+                          {item.amount.toFixed(2)} zł
                         </span>
-                      )}
-                      {item.debtId && (() => {
-                        const linkedDebt = debts.find((d) => d.id === item.debtId);
-                        const hasInterest = linkedDebt && isInterestBearingDebt(linkedDebt);
-                        let pAmt = item.principalAmount;
-                        let iAmt = item.interestAmount;
-                        if ((pAmt === undefined || iAmt === undefined) && linkedDebt && hasInterest) {
-                          const autoSplit = calculateSuggestedLoanSplit({
-                            debt: linkedDebt,
-                            paymentAmount: item.amount,
-                            paymentDate: item.date,
-                            paymentType: 'regular',
-                          });
-                          if (pAmt === undefined) pAmt = autoSplit.suggestedPrincipal;
-                          if (iAmt === undefined) iAmt = autoSplit.suggestedInterest;
-                        }
-
-                        return (
-                          <div className="flex items-center gap-1.5 flex-wrap shrink-0">
-                            <span
-                              className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center space-x-1 shrink-0"
-                              title={linkedDebt ? `Spłata dla: ${linkedDebt.name}` : 'Powiązano ze zobowiązaniem'}
-                            >
-                              <Landmark className="w-3 h-3 text-indigo-600" />
-                              <span>{linkedDebt ? `Zobowiązanie: ${linkedDebt.name}` : 'Zobowiązanie'}</span>
-                            </span>
-
-                            {hasInterest && (pAmt !== undefined || iAmt !== undefined) && (
-                              <span
-                                className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-900 border border-amber-200 flex items-center space-x-1 shrink-0"
-                                title="Podział wpłaty na ratę kapitałową i odsetkową"
-                              >
-                                <Percent className="w-3 h-3 text-amber-600" />
-                                <span>Kapitał: {(pAmt ?? item.amount).toFixed(2)} zł • Odsetki: {(iAmt ?? 0).toFixed(2)} zł</span>
-                              </span>
-                            )}
-                          </div>
-                        );
-                      })()}
-                      {item.isRecurring && (
-                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100 flex items-center space-x-0.5 shrink-0" title="Cykliczny">
-                          <Repeat className="w-3 h-3" />
-                        </span>
-                      )}
-                      {item.receiptItems && item.receiptItems.length > 0 && (
-                        <button
-                          onClick={() => setSelectedReceiptDetails(item)}
-                          className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100 hover:bg-indigo-100 transition-colors flex items-center space-x-1 shrink-0"
-                          title="Pokaż pozycje z paragonu"
-                        >
-                          <Receipt className="w-3 h-3" />
-                          <span>{item.receiptItems.length} poz.</span>
-                        </button>
-                      )}
+                      </div>
                     </div>
 
-                    {item.comment && item.comment.trim() !== item.title.trim() && (
-                      <div className="mt-1 flex items-center space-x-1 text-[11px] text-slate-500 truncate max-w-full">
-                        <MessageSquare className="w-3 h-3 text-slate-400 shrink-0" />
-                        <span className="truncate italic">{item.comment}</span>
+                    {/* Labels / Badges Row (dedicated container, full-width wrapping, never overlapping amount) */}
+                    {hasAnyBadges && (
+                      <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                        {item.isBalanceRollover && (
+                          <span
+                            className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200 flex items-center space-x-1 shrink-0"
+                            title={`Przeniesienie bilansu z ${item.rolloverFromMonth || 'poprzedniego miesiąca'}`}
+                          >
+                            <Sparkles className="w-3 h-3 text-violet-600 shrink-0" />
+                            <span>Przeniesienie bilansu</span>
+                          </span>
+                        )}
+
+                        {item.debtId && (
+                          <span
+                            className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center space-x-1 max-w-full"
+                            title={linkedDebt ? `Spłata dla: ${linkedDebt.name}` : 'Powiązano ze zobowiązaniem'}
+                          >
+                            <Landmark className="w-3 h-3 text-indigo-600 shrink-0" />
+                            <span className="truncate max-w-[200px] sm:max-w-xs">
+                              {linkedDebt ? `Zobowiązanie: ${linkedDebt.name}` : 'Zobowiązanie'}
+                            </span>
+                          </span>
+                        )}
+
+                        {item.debtId && hasInterest && (pAmt !== undefined || iAmt !== undefined) && (
+                          <span
+                            className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-900 border border-amber-200 flex items-center space-x-1 max-w-full"
+                            title="Podział wpłaty na ratę kapitałową i odsetkową"
+                          >
+                            <Percent className="w-3 h-3 text-amber-600 shrink-0" />
+                            <span className="break-normal">
+                              Kapitał: {(pAmt ?? item.amount).toFixed(2)} zł • Odsetki: {(iAmt ?? 0).toFixed(2)} zł
+                            </span>
+                          </span>
+                        )}
+
+                        {item.isRecurring && (
+                          <span
+                            className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100 flex items-center space-x-0.5 shrink-0"
+                            title="Płatność cykliczna"
+                          >
+                            <Repeat className="w-3 h-3 text-blue-600 shrink-0" />
+                            <span>Cykliczna</span>
+                          </span>
+                        )}
+
+                        {item.receiptItems && item.receiptItems.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedReceiptDetails(item)}
+                            className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100 hover:bg-indigo-100 active:bg-indigo-200 transition-colors flex items-center space-x-1 shrink-0 cursor-pointer"
+                            title="Pokaż pozycje z paragonu"
+                          >
+                            <Receipt className="w-3 h-3 text-indigo-600 shrink-0" />
+                            <span>{item.receiptItems.length} poz. paragonu</span>
+                          </button>
+                        )}
                       </div>
                     )}
 
-                    <div className="flex items-center space-x-3 text-[11px] text-slate-400 mt-1 truncate">
-                      <span className="flex items-center space-x-1 shrink-0">
-                        <Calendar className="w-3 h-3" />
-                        <span>{item.date}</span>
-                      </span>
-                      {item.receiptStoreName && <span className="truncate">Sklep: {item.receiptStoreName}</span>}
+                    {/* Note / Comment (if present) */}
+                    {item.comment && item.comment.trim() !== item.title.trim() && (
+                      <div className="flex items-start space-x-1.5 text-[11px] text-slate-500 bg-slate-50/70 p-1.5 rounded-lg border border-slate-100/80 max-w-full">
+                        <MessageSquare className="w-3 h-3 text-slate-400 shrink-0 mt-0.5" />
+                        <span className="italic break-words">{item.comment}</span>
+                      </div>
+                    )}
+
+                    {/* Date, Store and (on mobile) Action Buttons */}
+                    <div className="flex items-center justify-between gap-2 text-[11px] text-slate-400 pt-0.5">
+                      <div className="flex items-center space-x-3 shrink-0 flex-wrap">
+                        <span className="flex items-center space-x-1 font-medium text-slate-500">
+                          <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span className="whitespace-nowrap">{item.date}</span>
+                        </span>
+                        {item.receiptStoreName && (
+                          <span className="text-slate-600 font-medium truncate max-w-[150px] sm:max-w-xs">
+                            Sklep: {item.receiptStoreName}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Mobile Actions: Edit & Delete buttons */}
+                      <div className="flex items-center space-x-1 sm:hidden shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditModal(item)}
+                          className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 active:bg-indigo-100 transition-colors rounded-lg touch-manipulation"
+                          title="Edytuj transakcję"
+                          aria-label="Edytuj"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDeleteTransaction(item.id)}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 active:bg-rose-100 transition-colors rounded-lg touch-manipulation"
+                          title="Usuń transakcję"
+                          aria-label="Usuń"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="flex items-center space-x-3 shrink-0">
+                {/* Desktop Amount & Actions (sm and up) */}
+                <div className="hidden sm:flex items-center space-x-3 shrink-0 pl-2">
                   <div className="text-right">
                     <span
                       className={`text-sm sm:text-base font-black whitespace-nowrap block ${
@@ -698,43 +771,26 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                       {isIncome ? '+' : '-'}
                       {item.amount.toFixed(2)} zł
                     </span>
-                    {item.debtId && (() => {
-                      const linkedDebt = debts.find((d) => d.id === item.debtId);
-                      const hasInterest = linkedDebt && isInterestBearingDebt(linkedDebt);
-                      let pAmt = item.principalAmount;
-                      let iAmt = item.interestAmount;
-                      if ((pAmt === undefined || iAmt === undefined) && linkedDebt && hasInterest) {
-                        const autoSplit = calculateSuggestedLoanSplit({
-                          debt: linkedDebt,
-                          paymentAmount: item.amount,
-                          paymentDate: item.date,
-                          paymentType: 'regular',
-                        });
-                        if (pAmt === undefined) pAmt = autoSplit.suggestedPrincipal;
-                        if (iAmt === undefined) iAmt = autoSplit.suggestedInterest;
-                      }
-                      if (hasInterest && (pAmt !== undefined || iAmt !== undefined)) {
-                        return (
-                          <span className="text-[10px] font-semibold text-slate-500 block whitespace-nowrap">
-                            kap. {(pAmt ?? item.amount).toFixed(2)} zł / ods. {(iAmt ?? 0).toFixed(2)} zł
-                          </span>
-                        );
-                      }
-                      return null;
-                    })()}
+                    {hasInterest && (pAmt !== undefined || iAmt !== undefined) && (
+                      <span className="text-[10px] font-semibold text-slate-500 block whitespace-nowrap">
+                        kap. {(pAmt ?? item.amount).toFixed(2)} zł / ods. {(iAmt ?? 0).toFixed(2)} zł
+                      </span>
+                    )}
                   </div>
 
                   <button
+                    type="button"
                     onClick={() => handleOpenEditModal(item)}
-                    className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors rounded-lg"
+                    className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors rounded-lg cursor-pointer"
                     title="Edytuj transakcję"
                   >
                     <Pencil className="w-4 h-4" />
                   </button>
 
                   <button
+                    type="button"
                     onClick={() => onDeleteTransaction(item.id)}
-                    className="p-1.5 text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-colors rounded-lg"
+                    className="p-1.5 text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-colors rounded-lg cursor-pointer"
                     title="Usuń"
                   >
                     <Trash2 className="w-4 h-4" />

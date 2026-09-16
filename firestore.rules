@@ -17,12 +17,16 @@ service cloud.firestore {
 
     // User Profile synchronization
     match /users/{userId} {
-      allow read, write: if isValidId(userId);
+      allow get: if isValidId(userId);
+      allow list: if true;
+      allow write: if isValidId(userId);
     }
 
     // Households synchronization
     match /households/{householdId} {
-      allow read, write: if isValidId(householdId);
+      allow get: if isValidId(householdId);
+      allow list: if true;
+      allow write: if isValidId(householdId);
     }
   }
 }

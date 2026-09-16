@@ -269,6 +269,18 @@ export const Navbar: React.FC<NavbarProps> = ({
         }
       }
 
+      let remaining = 10;
+      setScheduledDelayCountdown(remaining);
+      const timer = setInterval(() => {
+        remaining -= 1;
+        if (remaining <= 0) {
+          clearInterval(timer);
+          setScheduledDelayCountdown(null);
+        } else {
+          setScheduledDelayCountdown(remaining);
+        }
+      }, 1000);
+
       const res = await scheduleTestPushNotification({
         subscription: currentSub,
         householdId: household?.id,
@@ -276,27 +288,20 @@ export const Navbar: React.FC<NavbarProps> = ({
         extraSubscriptions: household?.pushSubscriptions,
         delaySeconds: 10,
         title: '📲 Test w tle: Sukces!',
-        body: 'Powiadomienie dotarło przy wyłączonej aplikacji / zablokowanym telefonie!',
+        body: 'Powiadomienie dotarło przy wygaszonym ekranie / wyłączonej aplikacji! 🔔',
       });
 
+      clearInterval(timer);
+      setScheduledDelayCountdown(null);
+
       if (res.success) {
-        let remaining = res.delaySeconds || 10;
-        setScheduledDelayCountdown(remaining);
-        const timer = setInterval(() => {
-          remaining -= 1;
-          if (remaining <= 0) {
-            clearInterval(timer);
-            setScheduledDelayCountdown(null);
-            setTestPushMsg('Wysłano w tle! 🔔');
-            setTimeout(() => setTestPushMsg(null), 4000);
-          } else {
-            setScheduledDelayCountdown(remaining);
-          }
-        }, 1000);
+        setTestPushMsg('Wysłano w tle! 🔔');
+        setTimeout(() => setTestPushMsg(null), 5000);
       } else {
         setPushErrorMsg(res.error || 'Nie udało się zaplanować testu w tle.');
       }
     } catch (err: any) {
+      setScheduledDelayCountdown(null);
       setPushErrorMsg(err?.message || 'Błąd planowania testu push');
     }
   };
@@ -764,23 +769,37 @@ export const Navbar: React.FC<NavbarProps> = ({
                               </button>
 
                               {isBackgroundGuideOpen && (
-                                <div className="mt-2 p-2 bg-white/95 border border-emerald-200 rounded-lg text-[10px] text-slate-700 space-y-2 leading-relaxed">
+                                <div className="mt-2 p-2.5 bg-white/95 border border-emerald-200 rounded-lg text-[10px] text-slate-700 space-y-2.5 leading-relaxed shadow-xs">
                                   <div>
-                                    <strong className="text-slate-900 block">🤖 Android (Chrome / Aplikacja PWA):</strong>
-                                    <ol className="list-decimal list-inside space-y-0.5 mt-0.5 text-slate-600">
-                                      <li>Zainstaluj aplikację na ekranie (menu przeglądarki ⋮ → <em>Zainstaluj aplikację</em>).</li>
-                                      <li>W Ustawieniach telefonu → Aplikacje → Budżet Domowy → <strong>Zużycie baterii</strong>: wybierz <strong>„Bez ograniczeń”</strong> (wyłącz optymalizację baterii).</li>
-                                      <li>W telefonach Xiaomi/Samsung/Huawei: włącz uprawnienie <strong>„Autostart”</strong> lub „Uruchamianie w tle”.</li>
+                                    <strong className="text-slate-900 block font-semibold">🤖 Android (aby powiadomienia budziły telefon i ekran):</strong>
+                                    <ol className="list-decimal list-inside space-y-1 mt-1 text-slate-600">
+                                      <li>
+                                        <strong>Wyłącz optymalizację baterii:</strong> Ustawienia telefonu → Aplikacje → Budżet Domowy (lub Chrome) → <em>Bateria</em> → zaznacz <strong>„Bez ograniczeń” (Nieograniczone)</strong>. Dzięki temu telefon nie uśpi powiadomień przy wygaszonym ekranie.
+                                      </li>
+                                      <li>
+                                        <strong>Włącz na ekranie blokady:</strong> Ustawienia telefonu → Powiadomienia → <em>Powiadomienia na ekranie blokady</em> → wybierz <strong>„Pokaż zawartość”</strong>.
+                                      </li>
+                                      <li>
+                                        <strong>Dla Xiaomi / Samsung / Motorola / Huawei:</strong> W szczegółach aplikacji włącz uprawnienie <strong>„Autostart”</strong> oraz upewnij się, że kategoria powiadomień nie jest ustawiona na „Ciche”.
+                                      </li>
                                     </ol>
                                   </div>
                                   <div>
-                                    <strong className="text-slate-900 block">🍏 iPhone / iPad (iOS):</strong>
-                                    <p className="text-slate-600 mt-0.5">
-                                      Na iOS powiadomienia w tle wymagają dodania do pulpitu: w Safari kliknij ikonę <strong>Udostępnij (kwadrat ze strzałką)</strong> → <strong>„Do ekranu początkowego”</strong>, otwórz z ikony na pulpicie i włącz powiadomienia.
-                                    </p>
+                                    <strong className="text-slate-900 block font-semibold">🍏 iPhone / iPad (iOS 16.4+):</strong>
+                                    <ul className="list-disc list-inside space-y-0.5 mt-0.5 text-slate-600">
+                                      <li>
+                                        Musisz dodać aplikację do ekranu: w Safari kliknij ikonę <strong>Udostępnij</strong> → <strong>„Do ekranu początkowego”</strong>.
+                                      </li>
+                                      <li>
+                                        Uruchom aplikację z ikony na pulpicie i w Ustawienia iOS → Powiadomienia upewnij się, że zaznaczony jest <strong>„Ekran blokady”</strong>.
+                                      </li>
+                                      <li>
+                                        Wyłącz <em>Tryb niskiego zużycia energii</em> (żółta bateria), gdyż wstrzymuje on budzenie systemu przez Web Push.
+                                      </li>
+                                    </ul>
                                   </div>
-                                  <div className="text-[9px] text-slate-500 pt-1 border-t border-slate-100">
-                                    💡 <em>Serwer co 30 minut sprawdza Twoje rachunki i wysyła przypomnienia w tle, nawet gdy aplikacja jest wyłączona.</em>
+                                  <div className="text-[9px] text-slate-500 pt-1.5 border-t border-slate-100 flex items-center justify-between">
+                                    <span>💡 Serwer monitoruje rachunki i budzi urządzenia domowników 24/7.</span>
                                   </div>
                                 </div>
                               )}

@@ -8,7 +8,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(clients.claim());
 });
 
-// Background Push Notification Event (fires even when the app is closed!)
+// Background Push Notification Event (fires even when the app is closed or screen is off!)
 self.addEventListener('push', (event) => {
   let data = {};
   if (event.data) {
@@ -23,12 +23,12 @@ self.addEventListener('push', (event) => {
   const notifData = data.data || {};
   const targetUrl = notifData.url || '/';
 
-  // Build clean options for maximum cross-platform compatibility (iOS WebKit + Android Chrome + Desktop)
-  const options = {
-    body: data.body || 'Nowe powiadomienie od domownika',
+  // Primary options object
+  const primaryOptions = {
+    body: data.body || 'Nowe powiadomienie z Twojego budżetu domowego',
     icon: data.icon || '/pwa-192x192.png',
     badge: data.badge || '/pwa-192x192.png',
-    vibrate: [180, 80, 180],
+    vibrate: [200, 100, 200],
     tag: data.tag || `push-${Date.now()}`,
     renotify: true,
     data: {
@@ -38,9 +38,45 @@ self.addEventListener('push', (event) => {
   };
 
   event.waitUntil(
-    self.registration.showNotification(title, options).catch((err) => {
-      console.error('Błąd showNotification w Service Workerze:', err);
-    })
+    (async () => {
+      try {
+        // Attempt full options
+        await self.registration.showNotification(title, primaryOptions);
+      } catch (err) {
+        console.warn('Pierwsza próba showNotification nie powiodła się, ponawiam z bezpiecznymi opcjami podstawowymi:', err);
+        try {
+          // Minimalist fallback (avoids issues with vibrate/renotify on iOS WebKit)
+          await self.registration.showNotification(title, {
+            body: data.body || 'Nowe powiadomienie',
+            icon: '/pwa-192x192.png',
+            data: {
+              ...notifData,
+              url: targetUrl,
+            },
+          });
+        } catch (fatalErr) {
+          console.error('Krytyczny błąd showNotification w Service Workerze:', fatalErr);
+        }
+      }
+    })()
+  );
+});
+
+// Automatic resubscription if browser rotates push subscription in background
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(
+    self.registration.pushManager
+      .subscribe(event.oldSubscription?.options || { userVisibleOnly: true })
+      .then((newSubscription) => {
+        return fetch('/api/push-subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subscription: newSubscription.toJSON() }),
+        });
+      })
+      .catch((err) => {
+        console.warn('Ostrzeżenie przy pushsubscriptionchange:', err);
+      })
   );
 });
 

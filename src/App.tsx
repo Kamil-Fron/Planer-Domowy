@@ -310,9 +310,7 @@ export default function App() {
               setHousehold((prev) => {
                 if (!prev) return null;
                 const existingSubs = prev.pushSubscriptions || [];
-                if (existingSubs.some((s) => s.endpoint === subJson.endpoint)) {
-                  return prev;
-                }
+                const filteredSubs = existingSubs.filter((s) => s.endpoint !== subJson.endpoint);
                 const newSub = {
                   endpoint: subJson.endpoint,
                   keys: {
@@ -326,7 +324,7 @@ export default function App() {
                 };
                 const updatedHousehold = {
                   ...prev,
-                  pushSubscriptions: [...existingSubs, newSub],
+                  pushSubscriptions: [...filteredSubs, newSub],
                 };
                 if (isFirebaseConfigured() && prev.id) {
                   saveHouseholdToFirestore(prev.id, {
@@ -811,6 +809,7 @@ export default function App() {
                   createdAt: cloudHousehold.createdAt,
                   createdBy: cloudHousehold.createdBy,
                   members: updatedMembers,
+                  pushSubscriptions: cloudHousehold.pushSubscriptions || [],
                   syncStatus: 'synced',
                   cloudProvider: 'firebase',
                 });
@@ -965,15 +964,15 @@ export default function App() {
           saveDebts(cloudDebts);
         }
 
-        if (cloudData.members && Array.isArray(cloudData.members)) {
+        if (cloudData.members || cloudData.pushSubscriptions) {
           setHousehold((prev) =>
             prev
               ? {
                   ...prev,
                   name: cloudData.name || prev.name,
-                  members: cloudData.members,
+                  members: cloudData.members || prev.members,
                   inviteCode: cloudData.inviteCode || prev.inviteCode,
-                  pushSubscriptions: cloudData.pushSubscriptions || prev.pushSubscriptions,
+                  pushSubscriptions: cloudData.pushSubscriptions || prev.pushSubscriptions || [],
                 }
               : null
           );
@@ -2197,6 +2196,7 @@ export default function App() {
               createdAt: cloudH.createdAt,
               createdBy: cloudH.createdBy,
               members: cloudH.members || [],
+              pushSubscriptions: cloudH.pushSubscriptions || [],
               syncStatus: 'synced',
               cloudProvider: 'firebase',
             });
@@ -2390,6 +2390,7 @@ export default function App() {
         createdAt: cloudHousehold.createdAt,
         createdBy: cloudHousehold.createdBy,
         members: updatedMembers,
+        pushSubscriptions: cloudHousehold.pushSubscriptions || [],
         syncStatus: 'synced',
         cloudProvider: 'firebase',
       };
@@ -2446,9 +2447,22 @@ export default function App() {
       return { success: true };
     } catch (err: any) {
       console.error('Błąd dołączania do domu:', err);
+      let userMsg = 'Wystąpił błąd podczas dołączania do gospodarstwa domowego.';
+      if (err?.message) {
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed?.error) {
+            userMsg = `Błąd Firestore: ${parsed.error}`;
+          } else {
+            userMsg = err.message;
+          }
+        } catch {
+          userMsg = err.message;
+        }
+      }
       return {
         success: false,
-        message: err?.message || 'Wystąpił błąd podczas dołączania do gospodarstwa domowego.',
+        message: userMsg,
       };
     }
   };
@@ -2598,14 +2612,15 @@ export default function App() {
         setNotifications(cloudNotifs);
         saveNotifications(cloudNotifs);
 
-        if (cloudHousehold.members && Array.isArray(cloudHousehold.members)) {
+        if (cloudHousehold.members || cloudHousehold.pushSubscriptions) {
           setHousehold((prev) =>
             prev
               ? {
                   ...prev,
                   name: cloudHousehold.name || prev.name,
-                  members: cloudHousehold.members,
+                  members: cloudHousehold.members || prev.members,
                   inviteCode: cloudHousehold.inviteCode || prev.inviteCode,
+                  pushSubscriptions: cloudHousehold.pushSubscriptions || prev.pushSubscriptions || [],
                 }
               : null
           );

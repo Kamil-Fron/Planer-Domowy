@@ -505,19 +505,26 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
           </div>
         </div>
 
-        {/* Plus button to open product entry */}
+        {/* Standardized header button consistent with other views */}
         <div className="flex items-center space-x-2 shrink-0">
           <button
             onClick={() => setIsAddFormOpen((prev) => !prev)}
-            className={`h-11 w-11 sm:h-10 sm:w-10 rounded-xl flex items-center justify-center transition-all shadow-xs cursor-pointer ${
-              isAddFormOpen
-                ? 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-                : 'bg-slate-900 hover:bg-slate-800 text-white'
-            }`}
+            className="flex items-center space-x-1.5 px-3 sm:px-4 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-xl text-xs sm:text-sm font-semibold transition-all shadow-xs shrink-0 cursor-pointer"
             title={isAddFormOpen ? 'Zamknij formularz dodawania' : 'Dodaj produkt do listy'}
             aria-label="Dodaj produkt"
           >
-            {isAddFormOpen ? <X className="w-5 h-5" /> : <Plus className="w-5 h-5 stroke-[2.5]" />}
+            {isAddFormOpen ? (
+              <>
+                <X className="w-4 h-4" />
+                <span>Zamknij</span>
+              </>
+            ) : (
+              <>
+                <Plus className="w-4 h-4 stroke-[2.5]" />
+                <span className="hidden sm:inline">Dodaj produkt</span>
+                <span className="sm:hidden">Dodaj</span>
+              </>
+            )}
           </button>
         </div>
       </div>

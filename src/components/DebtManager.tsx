@@ -613,39 +613,31 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
   return (
     <div className="space-y-6 max-w-7xl mx-auto px-2 sm:px-4 pb-16">
       {/* Header Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-6 sm:p-8 rounded-3xl shadow-xl relative overflow-hidden">
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="space-y-2 max-w-2xl">
-            <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-xs font-semibold backdrop-blur-xs border border-indigo-400/20">
-              <Scale className="w-3.5 h-3.5" />
-              <span>Centrum Zarządzania Zobowiązaniami</span>
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+      <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex flex-row items-center justify-between gap-4">
+        <div className="flex items-center space-x-3">
+          <div className="p-2.5 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-100 shrink-0">
+            <Scale className="w-5 h-5" />
+          </div>
+          <div>
+            <h1 className="text-lg sm:text-xl font-bold text-slate-900">
               Zadłużenia, Kredyty i Pożyczki
             </h1>
-            <p className="text-slate-300 text-sm leading-relaxed">
-              Śledź swoje długi do spłaty (kredyty bankowe, pożyczki od rodziny) oraz pieniądze pożyczone innym.
-              Rozliczaj wpłaty i zwroty bezpośrednio z transakcji w budżecie.
+            <p className="text-xs text-slate-500">
+              {stats.totalBorrowedCount + stats.totalLentCount} {stats.totalBorrowedCount + stats.totalLentCount === 1 ? 'zobowiązanie' : 'zobowiązań'} • {stats.activeLoansCount} aktywnych
             </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              onClick={() => {
-                resetForm();
-                setIsAddModalOpen(true);
-              }}
-              className="flex items-center space-x-2 px-5 py-3 rounded-2xl bg-indigo-500 hover:bg-indigo-600 active:scale-95 text-white font-bold text-sm shadow-lg shadow-indigo-500/25 transition-all"
-            >
-              <Plus className="w-4 h-4 stroke-[2.5]" />
-              <span>Dodaj zadłużenie</span>
-            </button>
           </div>
         </div>
 
-        {/* Decorative background glow */}
-        <div className="absolute -right-12 -bottom-12 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute left-1/3 -top-12 w-48 h-48 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
+        <button
+          onClick={() => {
+            resetForm();
+            setIsAddModalOpen(true);
+          }}
+          className="px-3.5 py-2 sm:px-4 sm:py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center space-x-1.5 shrink-0 cursor-pointer active:scale-95"
+        >
+          <Plus className="w-4 h-4 stroke-[2.5]" />
+          <span>Dodaj zadłużenie</span>
+        </button>
       </div>
 
       {/* Overview Balance Cards */}
@@ -1057,30 +1049,37 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs p-2.5 sm:p-4 md:py-8 flex min-h-full items-start justify-center">
           <div className="my-auto w-full max-w-xl rounded-3xl shadow-2xl border border-slate-100 flex flex-col max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-hidden bg-white animate-in fade-in zoom-in-95">
             {/* Header (sticky at top) */}
-            <div className="p-5 sm:p-6 pb-4 border-b border-slate-100 flex items-center justify-between shrink-0">
-              <div className="flex items-center space-x-3">
-                <div className="p-2.5 sm:p-3 bg-indigo-50 text-indigo-600 rounded-2xl shrink-0">
-                  <Scale className="w-5 h-5 sm:w-6 sm:h-6" />
+            <div className="p-4 sm:p-5 pb-3 sm:pb-4 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
+              <div className="flex items-center space-x-3 min-w-0">
+                <div className="p-2 sm:p-2.5 bg-indigo-50 text-indigo-600 rounded-xl shrink-0">
+                  <Scale className="w-5 h-5" />
                 </div>
-                <div>
-                  <h2 className="text-base sm:text-lg font-black text-slate-900">
+                <div className="min-w-0">
+                  <h2 className="text-sm sm:text-base font-bold text-slate-900 truncate">
                     Nowe zadłużenie / pożyczka
                   </h2>
-                  <p className="text-xs text-slate-500">
-                    Wprowadź pożyczkę od kogoś lub pieniądze pożyczone innej osobie
-                  </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setIsAddModalOpen(false)}
-                className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors shrink-0"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center space-x-2 shrink-0">
+                <button
+                  type="submit"
+                  form="add-debt-form"
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center space-x-1 cursor-pointer"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Zapisz</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsAddModalOpen(false)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
-            <form onSubmit={handleSaveNewDebt} className="flex flex-col flex-1 min-h-0">
+            <form id="add-debt-form" onSubmit={handleSaveNewDebt} className="flex flex-col flex-1 min-h-0">
               <div className="p-5 sm:p-6 overflow-y-auto flex-1 space-y-4">
               {/* Krok 1: Wybór kierunku (Duże kafelki) */}
               <div className="space-y-1.5">
@@ -1657,19 +1656,29 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
           <div className="bg-white w-full max-w-md rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6 border border-slate-100 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-lg font-black text-slate-900">
+                <h2 className="text-base sm:text-lg font-bold text-slate-900">
                   {selectedDebtForPayment.type === 'borrowed' ? 'Spłać zadłużenie' : 'Zarejestruj zwrot'}
                 </h2>
                 <p className="text-xs text-slate-500">
                   {selectedDebtForPayment.name} ({selectedDebtForPayment.counterparty})
                 </p>
               </div>
-              <button
-                onClick={() => setSelectedDebtForPayment(null)}
-                className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="submit"
+                  form="quick-payment-form"
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center space-x-1 cursor-pointer"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Zapisz</span>
+                </button>
+                <button
+                  onClick={() => setSelectedDebtForPayment(null)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             {(() => {
@@ -1740,7 +1749,7 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                     </div>
                   )}
 
-                  <form onSubmit={handleSubmitPayment} className="space-y-4">
+                  <form id="quick-payment-form" onSubmit={handleSubmitPayment} className="space-y-4">
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-slate-700">Kwota wpłaty (zł):</label>
                       <input
@@ -2565,30 +2574,37 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs p-2.5 sm:p-4 md:py-8 flex min-h-full items-start justify-center">
           <div className="my-auto w-full max-w-xl rounded-3xl shadow-2xl border border-slate-100 flex flex-col max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-hidden bg-white animate-in fade-in zoom-in-95">
             {/* Header (sticky at top) */}
-            <div className="p-5 sm:p-6 pb-4 border-b border-slate-100 flex items-center justify-between shrink-0">
-              <div className="flex items-center space-x-3">
-                <div className="p-2.5 sm:p-3 bg-indigo-50 text-indigo-600 rounded-2xl shrink-0">
-                  <Pencil className="w-5 h-5 sm:w-6 sm:h-6" />
+            <div className="p-4 sm:p-5 pb-3 sm:pb-4 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
+              <div className="flex items-center space-x-3 min-w-0">
+                <div className="p-2 sm:p-2.5 bg-indigo-50 text-indigo-600 rounded-xl shrink-0">
+                  <Pencil className="w-5 h-5" />
                 </div>
-                <div>
-                  <h2 className="text-base sm:text-lg font-black text-slate-900">
+                <div className="min-w-0">
+                  <h2 className="text-sm sm:text-base font-bold text-slate-900 truncate">
                     Edycja zadłużenia / pożyczki
                   </h2>
-                  <p className="text-xs text-slate-500">
-                    Zmień kwoty, warunki spłaty lub zaawansowane parametry kredytu
-                  </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setSelectedDebtForEdit(null)}
-                className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors shrink-0"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center space-x-2 shrink-0">
+                <button
+                  type="submit"
+                  form="edit-debt-form"
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center space-x-1 cursor-pointer"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Zapisz</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedDebtForEdit(null)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
-            <form onSubmit={handleSaveEditDebt} className="flex flex-col flex-1 min-h-0">
+            <form id="edit-debt-form" onSubmit={handleSaveEditDebt} className="flex flex-col flex-1 min-h-0">
               <div className="p-5 sm:p-6 overflow-y-auto flex-1 space-y-4">
               {/* Kierunek */}
               <div className="space-y-1.5">

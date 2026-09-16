@@ -94,6 +94,21 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
 
   useEffect(() => {
     refreshAiStatus();
+
+    // W widoku mobilnym uruchom aparat do zdjęcia od razu po wejściu
+    const isMobile =
+      typeof window !== 'undefined' &&
+      (window.innerWidth < 768 || /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent));
+    if (isMobile && !selectedFile && !scanResult) {
+      const timer = setTimeout(() => {
+        try {
+          cameraInputRef.current?.click();
+        } catch (err) {
+          console.log('Aparat wymaga bezpośredniej interakcji:', err);
+        }
+      }, 350);
+      return () => clearTimeout(timer);
+    }
   }, []);
 
   const handleSaveKey = () => {
@@ -594,7 +609,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
             <span className="p-2 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-100">
               <Receipt className="w-5 h-5" />
             </span>
-            <h1 className="text-xl font-bold text-slate-900">Inteligentny Skaner Paragonów AI</h1>
+            <h1 className="text-xl font-bold text-slate-900">Skaner Paragonów AI</h1>
             <button
               onClick={() => setIsKeyModalOpen(true)}
               className={`px-2.5 py-1 rounded-full text-xs font-semibold border flex items-center space-x-1.5 transition-all cursor-pointer ${
@@ -821,38 +836,77 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
               </div>
             </div>
           ) : (
-            <div className="max-w-lg mx-auto py-8">
-              <div className="w-16 h-16 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center mx-auto mb-4 border border-indigo-100">
-                <Upload className="w-7 h-7" />
-              </div>
-              <h3 className="text-lg font-bold text-slate-900">Wgraj paragon, fakturę lub wyciąg PDF</h3>
-              <p className="text-sm text-slate-500 mt-1 max-w-sm mx-auto">
-                Obsługiwane: <strong>pliki PDF (wyciągi, faktury)</strong> oraz zdjęcia <strong>JPG, PNG, WEBP</strong>. Możesz przeciągnąć plik lub wkleić ze schowka.
-              </p>
-
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mt-6">
+            <div className="max-w-lg mx-auto py-3 sm:py-6">
+              {/* WIDOK MOBILNY (< sm): Centralny przycisk aparatu + na dole po lewej wybór z dysku, po prawej wklej ze schowka */}
+              <div className="block sm:hidden space-y-4">
                 <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-full sm:w-auto px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-semibold rounded-xl flex items-center justify-center space-x-2 transition-colors shadow-xs cursor-pointer"
-                >
-                  <Upload className="w-4 h-4" />
-                  <span>Wybierz plik z dysku</span>
-                </button>
-                <button
-                  onClick={handlePasteFromClipboardClick}
-                  className="w-full sm:w-auto px-4 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs sm:text-sm font-semibold rounded-xl flex items-center justify-center space-x-2 transition-colors shadow-2xs cursor-pointer"
-                  title="Wklej zrzut ekranu lub plik ze schowka (lub naciśnij Ctrl+V)"
-                >
-                  <Clipboard className="w-4 h-4 text-indigo-600" />
-                  <span>Wklej ze schowka (Ctrl+V)</span>
-                </button>
-                <button
+                  type="button"
                   onClick={() => cameraInputRef.current?.click()}
-                  className="w-full sm:w-auto px-4 py-2.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs sm:text-sm font-semibold rounded-xl flex items-center justify-center space-x-2 transition-colors shadow-xs cursor-pointer"
+                  className="w-full py-8 px-4 rounded-2xl bg-indigo-50/70 border-2 border-dashed border-indigo-300 active:bg-indigo-100/80 active:scale-[0.99] transition-all flex flex-col items-center justify-center space-y-3 cursor-pointer shadow-xs"
                 >
-                  <Camera className="w-4 h-4 text-slate-500" />
-                  <span>Aparat</span>
+                  <div className="w-16 h-16 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md">
+                    <Camera className="w-8 h-8" />
+                  </div>
+                  <div className="text-center">
+                    <span className="text-base font-bold text-slate-900 block">Zrób zdjęcie paragonu</span>
+                    <span className="text-xs text-indigo-700 font-medium mt-0.5 block">Dotknij, aby włączyć aparat</span>
+                  </div>
                 </button>
+
+                <div className="grid grid-cols-2 gap-2.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="p-3 bg-white active:bg-slate-100 border border-slate-200 rounded-xl flex items-center justify-center space-x-2 text-slate-700 shadow-2xs cursor-pointer"
+                  >
+                    <Upload className="w-4 h-4 text-slate-600 shrink-0" />
+                    <span className="text-xs font-bold truncate">Z dysku</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handlePasteFromClipboardClick}
+                    className="p-3 bg-white active:bg-indigo-50 border border-indigo-200 rounded-xl flex items-center justify-center space-x-2 text-indigo-700 shadow-2xs cursor-pointer"
+                  >
+                    <Clipboard className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <span className="text-xs font-bold truncate">Ze schowka</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* WIDOK DESKTOP (sm+): Klasyczny ergonomiczny dropzone */}
+              <div className="hidden sm:block">
+                <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center mx-auto mb-3 border border-indigo-100">
+                  <Upload className="w-6 h-6" />
+                </div>
+                <h3 className="text-base sm:text-lg font-bold text-slate-900">Wgraj paragon, fakturę lub wyciąg PDF</h3>
+                <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                  Przeciągnij plik PDF / zdjęcie tutaj lub wybierz jedną z opcji poniżej:
+                </p>
+
+                <div className="flex items-center justify-center gap-2.5 mt-5">
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl flex items-center justify-center space-x-2 transition-colors shadow-xs cursor-pointer"
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span>Wybierz z dysku</span>
+                  </button>
+                  <button
+                    onClick={handlePasteFromClipboardClick}
+                    className="px-4 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-semibold rounded-xl flex items-center justify-center space-x-2 transition-colors shadow-2xs cursor-pointer"
+                    title="Wklej zrzut ekranu lub plik ze schowka (lub naciśnij Ctrl+V)"
+                  >
+                    <Clipboard className="w-4 h-4 text-indigo-600" />
+                    <span>Wklej ze schowka (Ctrl+V)</span>
+                  </button>
+                  <button
+                    onClick={() => cameraInputRef.current?.click()}
+                    className="px-4 py-2.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold rounded-xl flex items-center justify-center space-x-2 transition-colors shadow-xs cursor-pointer"
+                  >
+                    <Camera className="w-4 h-4 text-slate-500" />
+                    <span>Aparat</span>
+                  </button>
+                </div>
               </div>
             </div>
           )}

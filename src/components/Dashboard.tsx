@@ -99,6 +99,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [loadingAdvice, setLoadingAdvice] = useState(false);
   const [adviceError, setAdviceError] = useState<string | null>(null);
   const [isDebtsExpanded, setIsDebtsExpanded] = useState<boolean>(false);
+  const [isLimitsExpanded, setIsLimitsExpanded] = useState<boolean>(false);
+  const [isAiExpanded, setIsAiExpanded] = useState<boolean>(false);
 
   // Mobile swipe gesture between months on budget tile
   const { touchHandlers, swipeFeedback } = useMonthSwipe({
@@ -233,6 +235,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // Fetch AI Financial Advice
   const fetchAdvice = async () => {
     try {
+      setIsAiExpanded(true);
       setLoadingAdvice(true);
       setAdviceError(null);
       const advice = await getFinancialAdviceWithAI({
@@ -872,134 +875,202 @@ export const Dashboard: React.FC<DashboardProps> = ({
       </div>
 
       {/* 5. Sekcja Limitów Wydatków (Pomiędzy kredytem a asystentem AI) */}
-      <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200 shadow-xs space-y-4">
-        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-          <div className="flex items-center space-x-2">
-            <div className="p-2 rounded-lg bg-slate-100 text-slate-700">
-              <Target className="w-4 h-4" />
+      <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200 shadow-xs transition-all">
+        <div
+          onClick={() => setIsLimitsExpanded((prev) => !prev)}
+          className={`flex items-center justify-between gap-3 cursor-pointer select-none group ${
+            isLimitsExpanded ? 'pb-3 border-b border-slate-100 mb-4' : ''
+          }`}
+          title={isLimitsExpanded ? 'Kliknij, aby zwinąć limity wydatków' : 'Kliknij, aby odkryć limity wydatków'}
+        >
+          <div className="flex items-center space-x-3 min-w-0">
+            <div className="p-2.5 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-700 group-hover:bg-indigo-100 transition-colors shrink-0">
+              <Target className="w-5 h-5" />
             </div>
-            <div>
-              <h3 className="font-bold text-sm sm:text-base text-slate-900">Limity Wydatków</h3>
-              <p className="text-xs text-slate-500">Miesięczna kontrola budżetu w kluczowych kategoriach.</p>
+            <div className="min-w-0">
+              <h3 className="font-bold text-sm sm:text-base text-slate-900 group-hover:text-indigo-600 transition-colors flex items-center gap-1.5">
+                <span>Limity Wydatków</span>
+                <ChevronDown
+                  className={`w-4 h-4 text-slate-400 group-hover:text-indigo-600 transition-transform duration-200 ${
+                    isLimitsExpanded ? 'rotate-180 text-indigo-600' : ''
+                  }`}
+                />
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5 truncate">
+                {budgetLimits.length > 0
+                  ? `${budgetLimits.length} kategorii pod kontrolą • kliknij, aby ${isLimitsExpanded ? 'zwinąć' : 'rozwinąć'}`
+                  : 'Brak zdefiniowanych limitów'}
+              </p>
             </div>
           </div>
-          <button
-            onClick={() => onNavigate('limits')}
-            className="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50/70 hover:bg-indigo-100/70 px-3 py-1.5 rounded-xl border border-indigo-100 transition-colors flex items-center space-x-1 cursor-pointer"
-          >
-            <span>Wszystkie limity ({budgetLimits.length})</span>
-            <span>→</span>
-          </button>
+          <div className="flex items-center space-x-2 shrink-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onNavigate('limits');
+              }}
+              className="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50/70 hover:bg-indigo-100/70 px-3 py-1.5 rounded-xl border border-indigo-100 transition-colors flex items-center space-x-1 cursor-pointer"
+            >
+              <span className="hidden sm:inline">Wszystkie limity ({budgetLimits.length})</span>
+              <span className="sm:hidden">Wszystkie</span>
+              <span>→</span>
+            </button>
+            <div className="p-1.5 rounded-lg text-slate-400 group-hover:text-indigo-600 transition-colors">
+              <ChevronDown
+                className={`w-4 h-4 transition-transform duration-200 ${
+                  isLimitsExpanded ? 'rotate-180 text-indigo-600' : ''
+                }`}
+              />
+            </div>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-          {budgetLimits.slice(0, 4).map((limit) => {
-            const spent = settledMonthTransactions
-              .filter((t) => t.category === limit.category && t.type === 'expense')
-              .reduce((s, t) => s + t.amount, 0);
-            const futureSpent = futureMonthTransactions
-              .filter((t) => t.category === limit.category && t.type === 'expense')
-              .reduce((s, t) => s + t.amount, 0);
-            const percent = limit.monthlyLimit > 0 ? (spent / limit.monthlyLimit) * 100 : 0;
+        {isLimitsExpanded && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 animate-in fade-in duration-150">
+            {budgetLimits.slice(0, 4).map((limit) => {
+              const spent = settledMonthTransactions
+                .filter((t) => t.category === limit.category && t.type === 'expense')
+                .reduce((s, t) => s + t.amount, 0);
+              const futureSpent = futureMonthTransactions
+                .filter((t) => t.category === limit.category && t.type === 'expense')
+                .reduce((s, t) => s + t.amount, 0);
+              const percent = limit.monthlyLimit > 0 ? (spent / limit.monthlyLimit) * 100 : 0;
 
-            return (
-              <div
-                key={limit.id}
-                onClick={() => onNavigate('limits', { limitCategory: limit.category })}
-                className="p-3.5 rounded-xl bg-slate-50 hover:bg-indigo-50/60 border border-slate-100 hover:border-indigo-200 cursor-pointer transition-all space-y-2 group active:scale-[0.99]"
-                title={`Kliknij, aby przejść do limitu dla: ${limit.category}`}
-              >
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-slate-800 group-hover:text-indigo-900 truncate">
-                    {limit.category}
-                  </span>
-                  <span className="font-black text-slate-900 shrink-0">
-                    {spent.toFixed(0)} / {limit.monthlyLimit.toFixed(0)} zł
-                  </span>
+              return (
+                <div
+                  key={limit.id}
+                  onClick={() => onNavigate('limits', { limitCategory: limit.category })}
+                  className="p-3.5 rounded-xl bg-slate-50 hover:bg-indigo-50/60 border border-slate-100 hover:border-indigo-200 cursor-pointer transition-all space-y-2 group active:scale-[0.99]"
+                  title={`Kliknij, aby przejść do limitu dla: ${limit.category}`}
+                >
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-slate-800 group-hover:text-indigo-900 truncate">
+                      {limit.category}
+                    </span>
+                    <span className="font-black text-slate-900 shrink-0">
+                      {spent.toFixed(0)} / {limit.monthlyLimit.toFixed(0)} zł
+                    </span>
+                  </div>
+                  <div className="w-full bg-slate-200/80 h-2 rounded-full overflow-hidden">
+                    <div
+                      className={`h-2 rounded-full transition-all ${
+                        percent >= 100
+                          ? 'bg-rose-500'
+                          : percent >= 80
+                          ? 'bg-amber-500'
+                          : 'bg-indigo-600'
+                      }`}
+                      style={{ width: `${Math.min(percent, 100)}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between items-center text-[10px] text-slate-400">
+                    <span className={percent >= 100 ? 'text-rose-600 font-bold' : percent >= 80 ? 'text-amber-600 font-bold' : ''}>
+                      {percent.toFixed(0)}% wykorzystane
+                      {futureSpent > 0 && (
+                        <span className="text-indigo-600 font-normal ml-1">
+                          (+{futureSpent.toFixed(0)} zł plan)
+                        </span>
+                      )}
+                    </span>
+                    <span className="opacity-0 group-hover:opacity-100 text-indigo-600 font-semibold transition-opacity">
+                      edytuj →
+                    </span>
+                  </div>
                 </div>
-                <div className="w-full bg-slate-200/80 h-2 rounded-full overflow-hidden">
-                  <div
-                    className={`h-2 rounded-full transition-all ${
-                      percent >= 100
-                        ? 'bg-rose-500'
-                        : percent >= 80
-                        ? 'bg-amber-500'
-                        : 'bg-indigo-600'
-                    }`}
-                    style={{ width: `${Math.min(percent, 100)}%` }}
-                  />
-                </div>
-                <div className="flex justify-between items-center text-[10px] text-slate-400">
-                  <span className={percent >= 100 ? 'text-rose-600 font-bold' : percent >= 80 ? 'text-amber-600 font-bold' : ''}>
-                    {percent.toFixed(0)}% wykorzystane
-                    {futureSpent > 0 && (
-                      <span className="text-indigo-600 font-normal ml-1">
-                        (+{futureSpent.toFixed(0)} zł plan)
-                      </span>
-                    )}
-                  </span>
-                  <span className="opacity-0 group-hover:opacity-100 text-indigo-600 font-semibold transition-opacity">
-                    edytuj →
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      {/* 4. AI Financial Advisor Card (At the very end of the dashboard) */}
-      <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-xs border border-slate-800">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-center space-x-3">
-            <span className="p-2.5 rounded-xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-              <Sparkles className="w-4 h-4" />
-            </span>
-            <div>
-              <h3 className="font-bold text-sm sm:text-base text-white">Asystent finansowy AI</h3>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Automatycznie analizuje wydatki, rachunki i limity, sugerując oszczędności na podstawie danych.
+      {/* 6. AI Financial Advisor Card (Spójne jasne tło, bez zbędnego tekstu, zwijana sekcja) */}
+      <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200 shadow-xs transition-all">
+        <div
+          onClick={() => {
+            if (aiAdvice) {
+              setIsAiExpanded((prev) => !prev);
+            }
+          }}
+          className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
+            aiAdvice ? 'cursor-pointer select-none group' : ''
+          } ${isAiExpanded && aiAdvice ? 'pb-3 border-b border-slate-100 mb-4' : ''}`}
+        >
+          <div className="flex items-center space-x-3 min-w-0">
+            <div className="p-2.5 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-100 shrink-0">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="font-bold text-sm sm:text-base text-slate-900 group-hover:text-indigo-600 transition-colors flex items-center gap-1.5">
+                <span>Asystent finansowy AI</span>
+                {aiAdvice && (
+                  <ChevronDown
+                    className={`w-4 h-4 text-slate-400 group-hover:text-indigo-600 transition-transform duration-200 ${
+                      isAiExpanded ? 'rotate-180 text-indigo-600' : ''
+                    }`}
+                  />
+                )}
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {aiAdvice ? (
+                  isAiExpanded ? 'Analiza aktywna • kliknij, aby zwinąć' : 'Analiza gotowa • kliknij, aby zobaczyć rekomendacje'
+                ) : (
+                  'Rekomendacje budżetowe i analiza oszczędności'
+                )}
               </p>
             </div>
           </div>
 
-          <button
-            onClick={fetchAdvice}
-            disabled={loadingAdvice}
-            className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold rounded-xl transition-all shadow-xs flex items-center space-x-1.5 whitespace-nowrap"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>{loadingAdvice ? 'Generowanie wskazówek...' : 'Uzyskaj analizę AI'}</span>
-          </button>
+          <div className="flex items-center space-x-2 shrink-0 w-full sm:w-auto justify-end">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                fetchAdvice();
+              }}
+              disabled={loadingAdvice}
+              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:opacity-50 text-white text-xs font-semibold rounded-xl transition-all shadow-xs flex items-center space-x-1.5 whitespace-nowrap cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>{loadingAdvice ? 'Generowanie...' : aiAdvice ? 'Odśwież analizę' : 'Uzyskaj analizę AI'}</span>
+            </button>
+            {aiAdvice && (
+              <div className="p-1.5 rounded-lg text-slate-400 group-hover:text-indigo-600 transition-colors hidden sm:block">
+                <ChevronDown
+                  className={`w-4 h-4 transition-transform duration-200 ${
+                    isAiExpanded ? 'rotate-180 text-indigo-600' : ''
+                  }`}
+                />
+              </div>
+            )}
+          </div>
         </div>
 
         {adviceError && (
-          <div className="mt-4 p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-xs sm:text-sm text-rose-200 flex items-center justify-between gap-3 animate-in fade-in">
+          <div className="mt-3 p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-xs sm:text-sm text-rose-800 flex items-center justify-between gap-3 animate-in fade-in">
             <span>{adviceError}</span>
             <button
               onClick={fetchAdvice}
-              className="px-2.5 py-1 bg-rose-800 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold shrink-0"
+              className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold shrink-0 cursor-pointer"
             >
               Spróbuj ponownie
             </button>
           </div>
         )}
 
-        {aiAdvice && typeof aiAdvice === 'object' && (
-          <div className="mt-5 space-y-4 p-5 rounded-2xl bg-slate-800/80 border border-slate-700 text-slate-200 animate-in fade-in">
+        {isAiExpanded && aiAdvice && typeof aiAdvice === 'object' && (
+          <div className="space-y-4 p-4 sm:p-5 rounded-2xl bg-slate-50 border border-slate-200 text-slate-800 animate-in fade-in">
             {/* Health & Savings Rate Header */}
-            <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-700/80">
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-200">
               <div className="flex items-center space-x-2">
-                <span className="text-xs text-slate-400">Kondycja finansowa:</span>
+                <span className="text-xs font-medium text-slate-600">Kondycja finansowa:</span>
                 <span
                   className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${
                     aiAdvice.financialHealth === 'Doskonała'
-                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
                       : aiAdvice.financialHealth === 'Dobra'
-                      ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+                      ? 'bg-blue-100 text-blue-800 border-blue-300'
                       : aiAdvice.financialHealth === 'Umiarkowana'
-                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                      : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                      ? 'bg-amber-100 text-amber-800 border-amber-300'
+                      : 'bg-rose-100 text-rose-800 border-rose-300'
                   }`}
                 >
                   {aiAdvice.financialHealth}
@@ -1007,29 +1078,29 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </div>
 
               {typeof aiAdvice.savingsRatePercent === 'number' && (
-                <span className="text-xs font-semibold px-2.5 py-1 rounded-xl bg-slate-700 text-slate-300">
-                  Wskaźnik oszczędności: <strong className="text-white">{aiAdvice.savingsRatePercent}%</strong>
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-xl bg-white border border-slate-200 text-slate-700 shadow-2xs">
+                  Wskaźnik oszczędności: <strong className="text-slate-900">{aiAdvice.savingsRatePercent}%</strong>
                 </span>
               )}
             </div>
 
             {/* Summary sentence */}
             {aiAdvice.summary && (
-              <p className="text-sm text-slate-100 font-medium italic border-l-2 border-indigo-400 pl-3">
+              <p className="text-xs sm:text-sm text-slate-800 font-medium italic border-l-4 border-indigo-600 pl-3">
                 „{aiAdvice.summary}”
               </p>
             )}
 
             {/* Alerts */}
             {aiAdvice.alerts && aiAdvice.alerts.length > 0 && (
-              <div className="space-y-1.5">
-                <span className="text-xs font-bold uppercase tracking-wider text-amber-400 block">
+              <div className="space-y-1.5 p-3 rounded-xl bg-amber-50/80 border border-amber-200 text-amber-950">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800 block">
                   Uwagi i alerty budżetowe
                 </span>
                 <div className="space-y-1">
                   {aiAdvice.alerts.map((alert, idx) => (
-                    <div key={idx} className="flex items-start space-x-2 text-xs text-slate-300">
-                      <span className="text-amber-400 font-bold">•</span>
+                    <div key={idx} className="flex items-start space-x-2 text-xs text-amber-900">
+                      <span className="text-amber-600 font-bold">•</span>
                       <span>{alert}</span>
                     </div>
                   ))}
@@ -1039,17 +1110,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
             {/* Actionable Tips */}
             {aiAdvice.actionableTips && aiAdvice.actionableTips.length > 0 && (
-              <div className="space-y-1.5 pt-2 border-t border-slate-700/60">
-                <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 block">
+              <div className="space-y-2 pt-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-900 block">
                   Praktyczne rekomendacje oszczędnościowe
                 </span>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-2">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                   {aiAdvice.actionableTips.map((tip, idx) => (
                     <div
                       key={idx}
-                      className="p-3 rounded-xl bg-slate-900/60 border border-slate-700/50 text-xs text-slate-300 flex items-start space-x-2"
+                      className="p-3 rounded-xl bg-white border border-slate-200 shadow-2xs text-xs text-slate-700 flex items-start space-x-2"
                     >
-                      <span className="font-bold text-indigo-400 shrink-0">{idx + 1}.</span>
+                      <span className="font-bold text-indigo-600 shrink-0">{idx + 1}.</span>
                       <span className="leading-relaxed">{tip}</span>
                     </div>
                   ))}
@@ -1059,8 +1130,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
         )}
 
-        {aiAdvice && typeof aiAdvice === 'string' && (
-          <div className="mt-4 p-4 rounded-xl bg-slate-800/80 border border-slate-700 text-xs sm:text-sm text-slate-200 leading-relaxed animate-in fade-in">
+        {isAiExpanded && aiAdvice && typeof aiAdvice === 'string' && (
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs sm:text-sm text-slate-800 leading-relaxed animate-in fade-in">
             <p className="whitespace-pre-line">{aiAdvice}</p>
           </div>
         )}

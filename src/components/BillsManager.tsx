@@ -35,6 +35,7 @@ import {
   Landmark,
   Link2,
   Percent,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { Bill, UtilityServiceType, Transaction, BillPricingType, BillPaymentHistoryItem, DebtItem } from '../types';
 import {
@@ -194,6 +195,8 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   const [editMeterPrev, setEditMeterPrev] = useState('');
   const [editMeterCurr, setEditMeterCurr] = useState('');
   const [editMeterUnit, setEditMeterUnit] = useState('kWh');
+  const [showAddAdvanced, setShowAddAdvanced] = useState(false);
+  const [showEditAdvanced, setShowEditAdvanced] = useState(false);
 
   const handleOpenEditBill = (b: Bill) => {
     setEditingBill(b);
@@ -206,6 +209,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
     setEditBillingCycle(b.billingCycle);
     setEditNotes(b.notes || '');
     setEditSelectedDebtId(b.debtId || '');
+    setShowEditAdvanced(Boolean(b.notes || b.debtId || b.meterReading || (b.billingCycle && b.billingCycle !== 'miesięcznie')));
     if (b.meterReading) {
       setEditHasMeterReading(true);
       setEditMeterPrev(
@@ -1144,6 +1148,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
     setHasMeterReading(false);
     setMeterPrev('');
     setMeterCurr('');
+    setShowAddAdvanced(false);
     setShowAddModal(false);
   };
 
@@ -3066,86 +3071,30 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
 
       {/* Add Bill Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 border border-slate-200 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-lg text-slate-900">Dodaj nowy rachunek domowy</h3>
-              <button
-                onClick={() => setShowAddModal(false)}
-                className="text-slate-400 hover:text-slate-600 text-sm font-bold"
-              >
-                ✕
-              </button>
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-5 sm:p-6 border border-slate-200 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="font-bold text-base sm:text-lg text-slate-900">Dodaj nowy rachunek</h3>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="submit"
+                  form="add-bill-form"
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs flex items-center space-x-1 cursor-pointer"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Zapisz</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 font-bold"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
-            <form onSubmit={handleSubmitBill} className="space-y-3.5">
-              {/* Debt Link Section */}
-              {debts && debts.filter((d) => d.status !== 'settled' && d.currentRemaining > 0).length > 0 && (
-                <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-xl space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
-                      <Landmark className="w-4 h-4 text-indigo-600" />
-                      <span>Cykliczna płatność za zobowiązanie / kredyt (opcjonalnie)</span>
-                    </label>
-                    {selectedDebtId && (
-                      <button
-                        type="button"
-                        onClick={() => setSelectedDebtId('')}
-                        className="text-[11px] text-indigo-600 hover:text-indigo-800 underline"
-                      >
-                        Odłącz
-                      </button>
-                    )}
-                  </div>
-                  <select
-                    value={selectedDebtId}
-                    onChange={(e) => {
-                      const dId = e.target.value;
-                      setSelectedDebtId(dId);
-                      if (dId) {
-                        const targetDebt = debts.find((d) => d.id === dId);
-                        if (targetDebt) {
-                          if (!name || name === 'Nowy rachunek') {
-                            setName(`Rata: ${targetDebt.name}`);
-                          }
-                          if (!provider) {
-                            setProvider(targetDebt.counterparty || targetDebt.bankName || targetDebt.name);
-                          }
-                          if (targetDebt.monthlyPayment) {
-                            setAmount(String(targetDebt.monthlyPayment));
-                          } else if (targetDebt.currentRemaining) {
-                            setAmount(String(targetDebt.currentRemaining));
-                          }
-                          setServiceType('kredyt');
-                          setPricingType('fixed');
-                          setBillingCycle('miesięcznie');
-                          if (targetDebt.paymentDayOfMonth) {
-                            const now = new Date();
-                            const y = now.getFullYear();
-                            const m = String(now.getMonth() + 1).padStart(2, '0');
-                            const day = String(Math.min(targetDebt.paymentDayOfMonth, 28)).padStart(2, '0');
-                            setDueDate(`${y}-${m}-${day}`);
-                          }
-                        }
-                      }
-                    }}
-                    className="w-full px-3 py-2 text-xs font-semibold bg-white border border-indigo-200 rounded-lg text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
-                  >
-                    <option value="">-- Zwykły rachunek domowy (bez powiązania) --</option>
-                    {debts.filter((d) => d.status !== 'settled' && d.currentRemaining > 0).map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.type === 'borrowed' ? '🏦 Kredyt / Zobowiązanie' : '🤝 Pożyczka'}: {d.name} ({d.counterparty}) — do spłaty: {d.currentRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł
-                      </option>
-                    ))}
-                  </select>
-                  {selectedDebtId && (
-                    <p className="text-[11px] text-indigo-800 leading-relaxed">
-                      💡 <strong>Płatność cykliczna za zobowiązanie</strong>: Każde opłacenie tego rachunku automatycznie zaksięguje wydatek w <em>Zobowiązaniach i pożyczkach</em>, pomniejszy saldo kredytu oraz doda wpis w historii spłat.
-                    </p>
-                  )}
-                </div>
-              )}
-
+            <form id="add-bill-form" onSubmit={handleSubmitBill} className="space-y-3.5">
               {/* Pricing Type Selection: Fixed vs Variable */}
               <div>
                 <label className="block text-xs font-bold text-slate-800 mb-1.5">
@@ -3155,7 +3104,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                   <button
                     type="button"
                     onClick={() => setPricingType('fixed')}
-                    className={`p-3 rounded-xl border text-left flex flex-col transition-all ${
+                    className={`p-2.5 sm:p-3 rounded-xl border text-left flex flex-col transition-all cursor-pointer ${
                       pricingType === 'fixed'
                         ? 'border-indigo-600 bg-indigo-50/70 text-indigo-950 font-bold'
                         : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
@@ -3165,14 +3114,14 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                       <span>🔒 Opłata stała</span>
                     </span>
                     <span className="text-[11px] text-slate-500 font-normal mt-0.5">
-                      Czynsz, internet, śmieci (jednakowa kwota co miesiąc)
+                      Czynsz, internet, abonamenty
                     </span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setPricingType('variable')}
-                    className={`p-3 rounded-xl border text-left flex flex-col transition-all ${
+                    className={`p-2.5 sm:p-3 rounded-xl border text-left flex flex-col transition-all cursor-pointer ${
                       pricingType === 'variable'
                         ? 'border-amber-600 bg-amber-50/70 text-amber-950 font-bold'
                         : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
@@ -3182,7 +3131,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                       <span>⚡ Opłata zmienna</span>
                     </span>
                     <span className="text-[11px] text-slate-500 font-normal mt-0.5">
-                      Prąd, gaz, woda (zmienna kwota lub licznik co cykl)
+                      Prąd, gaz, woda, ogrzewanie
                     </span>
                   </button>
                 </div>
@@ -3199,7 +3148,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                     required
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="np. Tauron Prąd, Czynsz wrzesień, Internet..."
+                    placeholder="np. Tauron Prąd, Czynsz..."
                     className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-emerald-500 focus:outline-hidden"
                   />
                 </div>
@@ -3222,7 +3171,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
               </div>
 
               {/* Service Type & Due Date */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Rodzaj usługi *
@@ -3236,14 +3185,14 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                       if (val === 'prąd') setMeterUnit('kWh');
                       if (val === 'ogrzewanie') setMeterUnit('GJ');
                     }}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-emerald-500 focus:outline-hidden font-medium"
+                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-emerald-500 focus:outline-hidden font-medium cursor-pointer"
                   >
-                    <option value="kredyt">🏦 Rata kredytu / Pożyczka</option>
                     <option value="prąd">⚡ Prąd elektryczny</option>
                     <option value="gaz">🔥 Gaz ziemny</option>
                     <option value="woda">💧 Woda i ścieki</option>
                     <option value="czynsz">🏢 Czynsz administracyjny</option>
                     <option value="internet">🌐 Internet / TV</option>
+                    <option value="kredyt">🏦 Rata kredytu / Pożyczka</option>
                     <option value="ogrzewanie">🌡️ Ogrzewanie CO</option>
                     <option value="śmieci">🗑️ Wywóz śmieci</option>
                     <option value="telefon">📱 Telefon / GSM</option>
@@ -3266,33 +3215,16 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Cykliczność rachunku
-                </label>
-                <select
-                  value={billingCycle}
-                  onChange={(e) => setBillingCycle(e.target.value as any)}
-                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-emerald-500 focus:outline-hidden font-medium"
-                >
-                  <option value="miesięcznie">Miesięcznie</option>
-                  <option value="co 2 miesiące">Co 2 miesiące</option>
-                  <option value="kwartalnie">Kwartalnie</option>
-                  <option value="rocznie">Rocznie</option>
-                  <option value="jednorazowo">Jednorazowo</option>
-                </select>
-              </div>
-
               {/* Initial Status & Auto-expense choice */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Status przy dodaniu rachunku
+                  Status przy dodaniu
                 </label>
                 <div className="grid grid-cols-2 gap-2.5">
                   <button
                     type="button"
                     onClick={() => setInitialStatus('pending')}
-                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                    className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
                       initialStatus === 'pending'
                         ? 'border-amber-500 bg-amber-50/80 text-amber-950 font-bold shadow-xs'
                         : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
@@ -3300,17 +3232,17 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                   >
                     <div className="flex items-center space-x-1.5 text-xs font-bold text-amber-700">
                       <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                      <span>Do zapłaty (Oczekujący)</span>
+                      <span>Do zapłaty</span>
                     </div>
                     <p className="text-[11px] text-slate-500 font-normal mt-0.5">
-                      Przypomnij w terminie ({dueDate})
+                      Przypomnij ({dueDate})
                     </p>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setInitialStatus('paid')}
-                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                    className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
                       initialStatus === 'paid'
                         ? 'border-emerald-600 bg-emerald-50/80 text-emerald-950 font-bold shadow-xs'
                         : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
@@ -3321,7 +3253,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                       <span>Już opłacony</span>
                     </div>
                     <p className="text-[11px] text-slate-500 font-normal mt-0.5">
-                      Wpisz od razu do Wydatków
+                      Zaksięguj w wydatkach
                     </p>
                   </button>
                 </div>
@@ -3341,93 +3273,190 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                     onChange={(e) => setPaidDate(e.target.value)}
                     className="w-full px-3 py-2 text-xs font-bold bg-white border border-emerald-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:outline-hidden text-slate-900"
                   />
-                  <p className="text-[11px] text-emerald-700">
-                    Transakcja wydatku w budżecie domowym zostanie zaksięgowana z tą wybraną datą.
-                  </p>
                 </div>
               )}
 
-              {/* Meter Readings Option */}
+              {/* Collapsible Advanced Options */}
               <div className="pt-2 border-t border-slate-100">
-                <label className="flex items-center space-x-2 cursor-pointer mb-2">
-                  <input
-                    type="checkbox"
-                    checked={hasMeterReading}
-                    onChange={(e) => setHasMeterReading(e.target.checked)}
-                    className="rounded-sm text-emerald-600 focus:ring-emerald-500"
-                  />
-                  <span className="text-xs font-semibold text-slate-700">
-                    Rejestruj odczyt licznika (prąd, woda, gaz, ciepło)
-                  </span>
-                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowAddAdvanced((prev) => !prev)}
+                  className="w-full flex items-center justify-between p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-xs font-semibold text-slate-700 transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center space-x-2">
+                    <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Więcej opcji (kredyt, cykl, licznik, notatki)</span>
+                  </div>
+                  <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showAddAdvanced ? 'rotate-180 text-indigo-600' : ''}`} />
+                </button>
 
-                {hasMeterReading && (
-                  <div className="grid grid-cols-3 gap-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                {showAddAdvanced && (
+                  <div className="mt-3 space-y-3 p-3.5 bg-slate-50/80 border border-slate-200/80 rounded-2xl animate-in fade-in">
+                    {/* Debt Link */}
+                    {debts && debts.filter((d) => d.status !== 'settled' && d.currentRemaining > 0).length > 0 && (
+                      <div className="p-2.5 bg-indigo-50/70 border border-indigo-200 rounded-xl space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                            <Landmark className="w-3.5 h-3.5 text-indigo-600" />
+                            <span>Płatność za zobowiązanie / kredyt:</span>
+                          </label>
+                          {selectedDebtId && (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedDebtId('')}
+                              className="text-[11px] text-indigo-600 hover:text-indigo-800 underline"
+                            >
+                              Odłącz
+                            </button>
+                          )}
+                        </div>
+                        <select
+                          value={selectedDebtId}
+                          onChange={(e) => {
+                            const dId = e.target.value;
+                            setSelectedDebtId(dId);
+                            if (dId) {
+                              const targetDebt = debts.find((d) => d.id === dId);
+                              if (targetDebt) {
+                                if (!name || name === 'Nowy rachunek') {
+                                  setName(`Rata: ${targetDebt.name}`);
+                                }
+                                if (!provider) {
+                                  setProvider(targetDebt.counterparty || targetDebt.bankName || targetDebt.name);
+                                }
+                                if (targetDebt.monthlyPayment) {
+                                  setAmount(String(targetDebt.monthlyPayment));
+                                } else if (targetDebt.currentRemaining) {
+                                  setAmount(String(targetDebt.currentRemaining));
+                                }
+                                setServiceType('kredyt');
+                                setPricingType('fixed');
+                                setBillingCycle('miesięcznie');
+                                if (targetDebt.paymentDayOfMonth) {
+                                  const now = new Date();
+                                  const y = now.getFullYear();
+                                  const m = String(now.getMonth() + 1).padStart(2, '0');
+                                  const day = String(Math.min(targetDebt.paymentDayOfMonth, 28)).padStart(2, '0');
+                                  setDueDate(`${y}-${m}-${day}`);
+                                }
+                              }
+                            }
+                          }}
+                          className="w-full px-2.5 py-1.5 text-xs font-semibold bg-white border border-indigo-200 rounded-lg text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                        >
+                          <option value="">-- Zwykły rachunek (bez powiązania) --</option>
+                          {debts.filter((d) => d.status !== 'settled' && d.currentRemaining > 0).map((d) => (
+                            <option key={d.id} value={d.id}>
+                              {d.type === 'borrowed' ? '🏦 Kredyt' : '🤝 Pożyczka'}: {d.name} ({d.currentRemaining.toFixed(2)} zł)
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Billing Cycle */}
                     <div>
-                      <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                        Poprzedni stan
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Cykliczność rachunku
                       </label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={meterPrev}
-                        onChange={(e) => setMeterPrev(e.target.value)}
-                        placeholder="np. 1420"
-                        className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg"
-                      />
+                      <select
+                        value={billingCycle}
+                        onChange={(e) => setBillingCycle(e.target.value as any)}
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:ring-1 focus:ring-emerald-500 focus:outline-hidden font-medium"
+                      >
+                        <option value="miesięcznie">Miesięcznie</option>
+                        <option value="co 2 miesiące">Co 2 miesiące</option>
+                        <option value="kwartalnie">Kwartalnie</option>
+                        <option value="rocznie">Rocznie</option>
+                        <option value="jednorazowo">Jednorazowo</option>
+                      </select>
                     </div>
+
+                    {/* Meter Readings Option */}
                     <div>
-                      <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                        Bieżący stan
+                      <label className="flex items-center space-x-2 cursor-pointer mb-2">
+                        <input
+                          type="checkbox"
+                          checked={hasMeterReading}
+                          onChange={(e) => setHasMeterReading(e.target.checked)}
+                          className="rounded-sm text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <span className="text-xs font-semibold text-slate-700">
+                          Rejestruj odczyt licznika (prąd, woda, gaz, ciepło)
+                        </span>
                       </label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={meterCurr}
-                        onChange={(e) => setMeterCurr(e.target.value)}
-                        placeholder="np. 1565"
-                        className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg"
-                      />
+
+                      {hasMeterReading && (
+                        <div className="grid grid-cols-3 gap-2 p-2.5 bg-white rounded-xl border border-slate-200">
+                          <div>
+                            <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                              Poprzedni stan
+                            </label>
+                            <input
+                              type="number"
+                              step="0.1"
+                              value={meterPrev}
+                              onChange={(e) => setMeterPrev(e.target.value)}
+                              placeholder="np. 1420"
+                              className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                              Bieżący stan
+                            </label>
+                            <input
+                              type="number"
+                              step="0.1"
+                              value={meterCurr}
+                              onChange={(e) => setMeterCurr(e.target.value)}
+                              placeholder="np. 1565"
+                              className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                              Jednostka
+                            </label>
+                            <input
+                              type="text"
+                              value={meterUnit}
+                              onChange={(e) => setMeterUnit(e.target.value)}
+                              className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg"
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
+
+                    {/* Notes */}
                     <div>
-                      <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                        Jednostka
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Notatki (opcjonalnie)
                       </label>
                       <input
                         type="text"
-                        value={meterUnit}
-                        onChange={(e) => setMeterUnit(e.target.value)}
-                        className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg"
+                        value={notes}
+                        onChange={(e) => setNotes(e.target.value)}
+                        placeholder="np. nr konta, automatyczne zlecenie"
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:ring-1 focus:ring-emerald-500 focus:outline-hidden"
                       />
                     </div>
                   </div>
                 )}
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Notatki (np. nr konta, zlecenie stałe)
-                </label>
-                <input
-                  type="text"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="np. automatyczny przelew 10 dnia miesiąca"
-                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-emerald-500 focus:outline-hidden"
-                />
-              </div>
-
               <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
                 >
                   Anuluj
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs"
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer"
                 >
                   Zapisz rachunek
                 </button>
@@ -3439,69 +3468,45 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
 
       {/* Edit Bill Modal (z możliwością zmiany ze stałej na zmienną) */}
       {editingBill && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 border border-slate-200 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-5 sm:p-6 border border-slate-200 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div>
-                <h3 className="font-bold text-lg text-slate-900">Edycja rachunku</h3>
-                <p className="text-xs text-slate-500 mt-0.5">
+                <h3 className="font-bold text-base sm:text-lg text-slate-900">Edycja rachunku</h3>
+                <p className="text-[11px] text-slate-500">
                   Edytuj szczegóły oraz typ opłaty (stała / zmienna)
                 </p>
               </div>
-              <button
-                onClick={() => setEditingBill(null)}
-                className="text-slate-400 hover:text-slate-600 text-sm font-bold p-1 rounded-lg hover:bg-slate-100"
-              >
-                ✕
-              </button>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="submit"
+                  form="edit-bill-form"
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center space-x-1 cursor-pointer"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Zapisz</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingBill(null)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 font-bold"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
-            <form onSubmit={handleSaveEditBill} className="space-y-4">
-              {/* Debt Link Section in Edit */}
-              {debts && debts.filter((d) => d.id === editSelectedDebtId || (d.status !== 'settled' && d.currentRemaining > 0)).length > 0 && (
-                <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-xl space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
-                      <Landmark className="w-4 h-4 text-indigo-600" />
-                      <span>Powiązanie ze zobowiązaniem / kredytem</span>
-                    </label>
-                    {editSelectedDebtId && (
-                      <button
-                        type="button"
-                        onClick={() => setEditSelectedDebtId('')}
-                        className="text-[11px] text-indigo-600 hover:text-indigo-800 underline"
-                      >
-                        Odłącz
-                      </button>
-                    )}
-                  </div>
-                  <select
-                    value={editSelectedDebtId}
-                    onChange={(e) => setEditSelectedDebtId(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-semibold bg-white border border-indigo-200 rounded-lg text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
-                  >
-                    <option value="">-- Brak powiązania (zwykły rachunek) --</option>
-                    {debts
-                      .filter((d) => d.id === editSelectedDebtId || (d.status !== 'settled' && d.currentRemaining > 0))
-                      .map((d) => (
-                        <option key={d.id} value={d.id}>
-                          {d.type === 'borrowed' ? '🏦 Kredyt / Zobowiązanie' : '🤝 Pożyczka'}: {d.name} ({d.counterparty}) — do spłaty: {d.currentRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł
-                        </option>
-                      ))}
-                  </select>
-                </div>
-              )}
-
+            <form id="edit-bill-form" onSubmit={handleSaveEditBill} className="space-y-4">
               {/* Pricing Type Selection: Fixed vs Variable */}
               <div>
                 <label className="block text-xs font-bold text-slate-800 mb-1.5">
-                  Charakter opłaty (zmień ze stałej na zmienną lub odwrotnie) *
+                  Charakter opłaty *
                 </label>
                 <div className="grid grid-cols-2 gap-2.5">
                   <button
                     type="button"
                     onClick={() => setEditPricingType('fixed')}
-                    className={`p-3 rounded-xl border text-left flex flex-col transition-all cursor-pointer ${
+                    className={`p-2.5 sm:p-3 rounded-xl border text-left flex flex-col transition-all cursor-pointer ${
                       editPricingType === 'fixed'
                         ? 'border-indigo-600 bg-indigo-50/90 text-indigo-950 font-bold ring-2 ring-indigo-300 shadow-xs'
                         : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
@@ -3510,15 +3515,15 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                     <span className="text-xs font-bold flex items-center space-x-1.5 text-indigo-900">
                       <span>🔒 Opłata stała</span>
                     </span>
-                    <span className="text-[11px] text-slate-500 font-normal mt-1 leading-snug">
-                      Jednakowa kwota w każdym cyklu (np. abonament, czynsz, śmieci)
+                    <span className="text-[11px] text-slate-500 font-normal mt-0.5 leading-snug">
+                      Czynsz, internet, abonamenty
                     </span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setEditPricingType('variable')}
-                    className={`p-3 rounded-xl border text-left flex flex-col transition-all cursor-pointer ${
+                    className={`p-2.5 sm:p-3 rounded-xl border text-left flex flex-col transition-all cursor-pointer ${
                       editPricingType === 'variable'
                         ? 'border-amber-600 bg-amber-50/90 text-amber-950 font-bold ring-2 ring-amber-300 shadow-xs'
                         : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
@@ -3527,8 +3532,8 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                     <span className="text-xs font-bold flex items-center space-x-1.5 text-amber-900">
                       <span>⚡ Opłata zmienna</span>
                     </span>
-                    <span className="text-[11px] text-slate-500 font-normal mt-1 leading-snug">
-                      Zmienna kwota lub odczyt licznika (np. prąd, woda, gaz, ciepło)
+                    <span className="text-[11px] text-slate-500 font-normal mt-0.5 leading-snug">
+                      Prąd, woda, gaz, ogrzewanie
                     </span>
                   </button>
                 </div>
@@ -3536,9 +3541,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                   <div className="mt-2 p-2 rounded-lg bg-indigo-50/80 border border-indigo-200 text-[11px] text-indigo-900 flex items-center space-x-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
                     <span>
-                      Zmieniasz charakter rachunku z{' '}
-                      <strong>{editingBill.pricingType === 'fixed' ? 'stałej' : 'zmiennej'}</strong> na{' '}
-                      <strong>{editPricingType === 'fixed' ? 'stałą' : 'zmienną'}</strong>.
+                      Zmieniasz ze <strong>{editingBill.pricingType === 'fixed' ? 'stałej' : 'zmiennej'}</strong> na <strong>{editPricingType === 'fixed' ? 'stałą' : 'zmienną'}</strong>.
                     </span>
                   </div>
                 )}
@@ -3575,22 +3578,8 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                 </div>
               </div>
 
-              {/* Provider */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Dostawca / Odbiorca płatności
-                </label>
-                <input
-                  type="text"
-                  value={editProvider}
-                  onChange={(e) => setEditProvider(e.target.value)}
-                  placeholder="np. Tauron, PGNiG, Wspólnota Mieszkaniowa..."
-                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
-                />
-              </div>
-
               {/* Service Type & Due Date */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Rodzaj usługi *
@@ -3604,14 +3593,14 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                       if (val === 'prąd') setEditMeterUnit('kWh');
                       if (val === 'ogrzewanie') setEditMeterUnit('GJ');
                     }}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-indigo-500 focus:outline-hidden font-medium"
+                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-indigo-500 focus:outline-hidden font-medium cursor-pointer"
                   >
-                    <option value="kredyt">🏦 Rata kredytu / Pożyczka</option>
                     <option value="prąd">⚡ Prąd elektryczny</option>
                     <option value="gaz">🔥 Gaz ziemny</option>
                     <option value="woda">💧 Woda i ścieki</option>
                     <option value="czynsz">🏢 Czynsz administracyjny</option>
                     <option value="internet">🌐 Internet / TV</option>
+                    <option value="kredyt">🏦 Rata kredytu / Pożyczka</option>
                     <option value="ogrzewanie">🌡️ Ogrzewanie CO</option>
                     <option value="śmieci">🗑️ Wywóz śmieci</option>
                     <option value="telefon">📱 Telefon / GSM</option>
@@ -3634,107 +3623,175 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                 </div>
               </div>
 
-              {/* Billing Cycle */}
+              {/* Provider */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Cykliczność rachunku
+                  Dostawca / Odbiorca płatności (opcjonalnie)
                 </label>
-                <select
-                  value={editBillingCycle}
-                  onChange={(e) => setEditBillingCycle(e.target.value as any)}
-                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-indigo-500 focus:outline-hidden font-medium"
-                >
-                  <option value="miesięcznie">Miesięcznie</option>
-                  <option value="co 2 miesiące">Co 2 miesiące</option>
-                  <option value="kwartalnie">Kwartalnie</option>
-                  <option value="rocznie">Rocznie</option>
-                  <option value="jednorazowo">Jednorazowo</option>
-                </select>
+                <input
+                  type="text"
+                  value={editProvider}
+                  onChange={(e) => setEditProvider(e.target.value)}
+                  placeholder="np. Tauron, PGNiG, Wspólnota Mieszkaniowa..."
+                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
+                />
               </div>
 
-              {/* Meter Readings (for variable or fixed with meter) */}
+              {/* Collapsible Advanced Section */}
               <div className="pt-2 border-t border-slate-100">
-                <label className="flex items-center space-x-2 cursor-pointer mb-2">
-                  <input
-                    type="checkbox"
-                    checked={editHasMeterReading}
-                    onChange={(e) => setEditHasMeterReading(e.target.checked)}
-                    className="rounded-sm text-indigo-600 focus:ring-indigo-500"
-                  />
-                  <span className="text-xs font-semibold text-slate-700">
-                    Rejestruj odczyt licznika (prąd, woda, gaz, ciepło)
-                  </span>
-                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowEditAdvanced((prev) => !prev)}
+                  className="w-full flex items-center justify-between p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-xs font-semibold text-slate-700 transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center space-x-2">
+                    <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Więcej opcji (kredyt, cykl, licznik, notatki)</span>
+                  </div>
+                  <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showEditAdvanced ? 'rotate-180 text-indigo-600' : ''}`} />
+                </button>
 
-                {editHasMeterReading && (
-                  <div className="grid grid-cols-3 gap-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                {showEditAdvanced && (
+                  <div className="mt-3 space-y-3 p-3.5 bg-slate-50/80 border border-slate-200/80 rounded-2xl animate-in fade-in">
+                    {/* Debt Link Section in Edit */}
+                    {debts && debts.filter((d) => d.id === editSelectedDebtId || (d.status !== 'settled' && d.currentRemaining > 0)).length > 0 && (
+                      <div className="p-2.5 bg-indigo-50/70 border border-indigo-200 rounded-xl space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                            <Landmark className="w-3.5 h-3.5 text-indigo-600" />
+                            <span>Powiązanie ze zobowiązaniem / kredytem:</span>
+                          </label>
+                          {editSelectedDebtId && (
+                            <button
+                              type="button"
+                              onClick={() => setEditSelectedDebtId('')}
+                              className="text-[11px] text-indigo-600 hover:text-indigo-800 underline"
+                            >
+                              Odłącz
+                            </button>
+                          )}
+                        </div>
+                        <select
+                          value={editSelectedDebtId}
+                          onChange={(e) => setEditSelectedDebtId(e.target.value)}
+                          className="w-full px-2.5 py-1.5 text-xs font-semibold bg-white border border-indigo-200 rounded-lg text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                        >
+                          <option value="">-- Brak powiązania (zwykły rachunek) --</option>
+                          {debts
+                            .filter((d) => d.id === editSelectedDebtId || (d.status !== 'settled' && d.currentRemaining > 0))
+                            .map((d) => (
+                              <option key={d.id} value={d.id}>
+                                {d.type === 'borrowed' ? '🏦 Kredyt' : '🤝 Pożyczka'}: {d.name} ({d.currentRemaining.toFixed(2)} zł)
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Billing Cycle */}
                     <div>
-                      <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                        Poprzedni stan
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Cykliczność rachunku
                       </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={editMeterPrev}
-                        onChange={(e) => setEditMeterPrev(e.target.value)}
-                        placeholder="0.00"
-                        className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
-                      />
+                      <select
+                        value={editBillingCycle}
+                        onChange={(e) => setEditBillingCycle(e.target.value as any)}
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:ring-1 focus:ring-indigo-500 focus:outline-hidden font-medium"
+                      >
+                        <option value="miesięcznie">Miesięcznie</option>
+                        <option value="co 2 miesiące">Co 2 miesiące</option>
+                        <option value="kwartalnie">Kwartalnie</option>
+                        <option value="rocznie">Rocznie</option>
+                        <option value="jednorazowo">Jednorazowo</option>
+                      </select>
                     </div>
+
+                    {/* Meter Readings (for variable or fixed with meter) */}
                     <div>
-                      <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                        Bieżący stan
+                      <label className="flex items-center space-x-2 cursor-pointer mb-2">
+                        <input
+                          type="checkbox"
+                          checked={editHasMeterReading}
+                          onChange={(e) => setEditHasMeterReading(e.target.checked)}
+                          className="rounded-sm text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span className="text-xs font-semibold text-slate-700">
+                          Rejestruj odczyt licznika (prąd, woda, gaz, ciepło)
+                        </span>
                       </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={editMeterCurr}
-                        onChange={(e) => setEditMeterCurr(e.target.value)}
-                        placeholder="0.00"
-                        className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
-                      />
+
+                      {editHasMeterReading && (
+                        <div className="grid grid-cols-3 gap-2 p-2.5 bg-white rounded-xl border border-slate-200">
+                          <div>
+                            <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                              Poprzedni stan
+                            </label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={editMeterPrev}
+                              onChange={(e) => setEditMeterPrev(e.target.value)}
+                              placeholder="0.00"
+                              className="w-full px-2 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                              Bieżący stan
+                            </label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={editMeterCurr}
+                              onChange={(e) => setEditMeterCurr(e.target.value)}
+                              placeholder="0.00"
+                              className="w-full px-2 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                              Jednostka
+                            </label>
+                            <input
+                              type="text"
+                              value={editMeterUnit}
+                              onChange={(e) => setEditMeterUnit(e.target.value)}
+                              placeholder="kWh, m³"
+                              className="w-full px-2 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
+
+                    {/* Notes */}
                     <div>
-                      <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                        Jednostka
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Notatki (np. nr konta, zlecenie stałe)
                       </label>
                       <input
                         type="text"
-                        value={editMeterUnit}
-                        onChange={(e) => setEditMeterUnit(e.target.value)}
-                        placeholder="kWh, m³"
-                        className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
+                        value={editNotes}
+                        onChange={(e) => setEditNotes(e.target.value)}
+                        placeholder="np. automatyczny przelew 10 dnia miesiąca"
+                        className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
                       />
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* Notes */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Notatki (np. nr konta, zlecenie stałe)
-                </label>
-                <input
-                  type="text"
-                  value={editNotes}
-                  onChange={(e) => setEditNotes(e.target.value)}
-                  placeholder="np. automatyczny przelew 10 dnia miesiąca"
-                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
-                />
-              </div>
-
               <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setEditingBill(null)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
                 >
                   Anuluj
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs"
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer"
                 >
                   Zapisz zmiany
                 </button>

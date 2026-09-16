@@ -26,6 +26,10 @@ import {
   ExternalLink,
   Send,
   Info,
+  Cpu,
+  Shield,
+  Zap,
+  Filter,
 } from 'lucide-react';
 import {
   ActivityLogEntry,
@@ -61,7 +65,7 @@ import { sendBrowserPushNotification } from '../utils/notifications';
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialTab?: 'activity' | 'sync' | 'safety' | 'version' | 'danger' | 'notifications';
+  initialTab?: 'activity' | 'safety' | 'notifications' | 'version';
   activities: ActivityLogEntry[];
   onRestoreActivityItem: (entry: ActivityLogEntry) => void;
   household: Household | null;
@@ -107,9 +111,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onRestoreData,
   onOpenDeleteDataModal,
 }) => {
-  const [activeTab, setActiveTab] = useState<'activity' | 'sync' | 'safety' | 'version' | 'danger' | 'notifications'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'activity' | 'safety' | 'notifications' | 'version'>(() => {
+    if ((initialTab as string) === 'sync' || (initialTab as string) === 'danger') return 'safety';
+    return initialTab;
+  });
   const [activityFilter, setActivityFilter] = useState<'all' | 'deletions' | 'transactions' | 'bills' | 'shopping'>('all');
   const [activitySearch, setActivitySearch] = useState('');
+  const [changelogFilter, setChangelogFilter] = useState<'all' | 'new' | 'mobile' | 'security'>('all');
 
   // Notifications & Background Push State
   const [pushStatusMsg, setPushStatusMsg] = useState<string | null>(null);
@@ -391,7 +399,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
         </div>
 
-        {/* Tab Navigation */}
+        {/* Tab Navigation (4 Consolidated Logical Sections) */}
         <div className="flex border-b border-slate-200 bg-slate-50 px-4 text-xs font-semibold overflow-x-auto scrollbar-none">
           <button
             onClick={() => setActiveTab('activity')}
@@ -406,18 +414,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
 
           <button
-            onClick={() => setActiveTab('sync')}
-            className={`py-3 px-3.5 border-b-2 transition-all flex items-center space-x-2 whitespace-nowrap ${
-              activeTab === 'sync'
-                ? 'border-indigo-600 text-indigo-600 bg-white font-bold rounded-t-lg'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Cloud className="w-4 h-4" />
-            <span>Synchronizacja</span>
-          </button>
-
-          <button
             onClick={() => setActiveTab('safety')}
             className={`py-3 px-3.5 border-b-2 transition-all flex items-center space-x-2 whitespace-nowrap ${
               activeTab === 'safety'
@@ -426,7 +422,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }`}
           >
             <ShieldCheck className="w-4 h-4" />
-            <span>Centrum Bezpieczeństwa & Kopie</span>
+            <span>Chmura, Kopie & Bezpieczeństwo</span>
           </button>
 
           <button
@@ -450,19 +446,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }`}
           >
             <Sparkles className="w-4 h-4" />
-            <span>Opis wersji & UX</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('danger')}
-            className={`py-3 px-3.5 border-b-2 transition-all flex items-center space-x-2 whitespace-nowrap ${
-              activeTab === 'danger'
-                ? 'border-rose-600 text-rose-600 bg-white font-bold rounded-t-lg'
-                : 'border-transparent text-slate-600 hover:text-rose-600'
-            }`}
-          >
-            <Trash2 className="w-4 h-4" />
-            <span>Kosz & Reset</span>
+            <span>Wersja & Diagnostyka</span>
           </button>
         </div>
 
@@ -672,14 +656,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           )}
 
-          {/* TAB 2: SYNCHRONIZACJA Z CHMURĄ */}
-          {activeTab === 'sync' && (
-            <div className="space-y-4">
-              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-3">
+          {/* TAB 2: CHMURA, KOPIE & BEZPIECZEŃSTWO (POŁĄCZONE: SYNCHRONIZACJA, KOPIE, SKANER I KOSZ) */}
+          {activeTab === 'safety' && (
+            <div className="space-y-6">
+              {/* Feedback toast for snapshots actions */}
+              {snapshotActionSuccess && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold rounded-xl flex items-center space-x-2 animate-in fade-in">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{snapshotActionSuccess}</span>
+                </div>
+              )}
+
+              {/* SEKCJA 1: SYNCHRONIZACJA Z CHMURĄ FIRESTORE */}
+              <div className="bg-slate-50/80 rounded-2xl p-4 sm:p-5 border border-slate-200 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2.5">
                     <Cloud className="w-5 h-5 text-indigo-600" />
-                    <span className="text-sm font-bold text-slate-900">Stan połączenia z bazą chmurową</span>
+                    <span className="text-sm font-bold text-slate-900">Synchronizacja Chmurowa w Czasie Rzeczywistym</span>
                   </div>
                   <span
                     className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full flex items-center space-x-1 ${
@@ -741,48 +734,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     {syncErrorMessage}
                   </div>
                 )}
+
+                <button
+                  onClick={handleManualSync}
+                  disabled={isSyncingNow || syncStatus === 'saving'}
+                  className="w-full mt-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-50 text-white rounded-xl font-bold text-xs transition-all flex items-center justify-center space-x-2 shadow-xs cursor-pointer"
+                >
+                  <RefreshCw className={`w-4 h-4 ${isSyncingNow ? 'animate-spin' : ''}`} />
+                  <span>
+                    {isSyncingNow
+                      ? 'Trwa synchronizacja z Firestore...'
+                      : 'Wymuś natychmiastowy zapis i synchronizację z chmurą'}
+                  </span>
+                </button>
+
+                {syncFeedback && (
+                  <div
+                    className={`p-2.5 rounded-xl text-xs font-semibold text-center border animate-in fade-in ${
+                      syncFeedback.startsWith('Sukces')
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                        : 'bg-rose-50 border-rose-200 text-rose-800'
+                    }`}
+                  >
+                    {syncFeedback}
+                  </div>
+                )}
               </div>
 
-              {/* Force Sync button */}
-              <button
-                onClick={handleManualSync}
-                disabled={isSyncingNow || syncStatus === 'saving'}
-                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-50 text-white rounded-xl font-bold text-xs transition-all flex items-center justify-center space-x-2 shadow-xs"
-              >
-                <RefreshCw className={`w-4 h-4 ${isSyncingNow ? 'animate-spin' : ''}`} />
-                <span>
-                  {isSyncingNow
-                    ? 'Trwa synchronizacja z Firestore...'
-                    : 'Wymuś natychmiastowy zapis i synchronizację z chmurą'}
-                </span>
-              </button>
-
-              {syncFeedback && (
-                <div
-                  className={`p-3 rounded-xl text-xs font-semibold text-center border animate-in fade-in ${
-                    syncFeedback.startsWith('Sukces')
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                      : 'bg-rose-50 border-rose-200 text-rose-800'
-                  }`}
-                >
-                  {syncFeedback}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* TAB 3: CENTRUM BEZPIECZEŃSTWA & KOPIE DANYCH (IMPROVED READABILITY) */}
-          {activeTab === 'safety' && (
-            <div className="space-y-6">
-              {/* Feedback toast for snapshots actions */}
-              {snapshotActionSuccess && (
-                <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold rounded-xl flex items-center space-x-2 animate-in fade-in">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>{snapshotActionSuccess}</span>
-                </div>
-              )}
-
-              {/* SECTION 1: MIGAWEK HISTORII */}
+              {/* SEKCJA 2: MIGAWKI HISTORII */}
               <div className="bg-slate-50/80 rounded-2xl p-4 sm:p-5 border border-slate-200 space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div>
@@ -807,7 +786,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       setSnapshotActionSuccess('Utworzono nową ręczną migawkę stanu danych.');
                       setTimeout(() => setSnapshotActionSuccess(null), 3000);
                     }}
-                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-2xs transition-colors flex items-center space-x-1.5 self-start sm:self-auto"
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-2xs transition-colors flex items-center space-x-1.5 self-start sm:self-auto cursor-pointer"
                   >
                     <PlusCircle className="w-3.5 h-3.5" />
                     <span>Utwórz migawkę teraz</span>
@@ -847,7 +826,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <div className="flex items-center space-x-1.5 shrink-0">
                           <button
                             onClick={() => setSnapshotToRestore(snap)}
-                            className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs rounded-lg transition-colors flex items-center space-x-1"
+                            className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs rounded-lg transition-colors flex items-center space-x-1 cursor-pointer"
                             title="Przywróć tę migawkę"
                           >
                             <RotateCcw className="w-3 h-3" />
@@ -855,7 +834,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           </button>
                           <button
                             onClick={() => setSnapshotToDelete(snap)}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                             title="Usuń tę migawkę"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -867,7 +846,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 )}
               </div>
 
-              {/* SECTION 2: EKSPORT & IMPORT DANYCH (JSON) WITH 2-STEP CONFIRMATION */}
+              {/* SEKCJA 3: EKSPORT & IMPORT DANYCH (JSON) */}
               <div className="bg-slate-50/80 rounded-2xl p-4 sm:p-5 border border-slate-200 space-y-4">
                 <div>
                   <h4 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
@@ -890,7 +869,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                     <button
                       onClick={handleExportJson}
-                      className="w-full py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl transition-colors flex items-center justify-center space-x-1.5"
+                      className="w-full py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl transition-colors flex items-center justify-center space-x-1.5 cursor-pointer"
                     >
                       <Download className="w-3.5 h-3.5" />
                       <span>Eksportuj do JSON</span>
@@ -979,13 +958,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <div className="flex items-center justify-end space-x-2 pt-1">
                       <button
                         onClick={() => setImportedFilePayload(null)}
-                        className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 rounded-xl transition-colors"
+                        className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 rounded-xl transition-colors cursor-pointer"
                       >
                         Anuluj
                       </button>
                       <button
                         onClick={handleConfirmImport}
-                        className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center space-x-1.5"
+                        className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center space-x-1.5 cursor-pointer"
                       >
                         <Check className="w-3.5 h-3.5" />
                         <span>Zatwierdź i wgraj dane do aplikacji</span>
@@ -1009,7 +988,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 )}
               </div>
 
-              {/* SECTION 3: SKANER PAMIĘCI LOKALNEJ */}
+              {/* SEKCJA 4: SKANER PAMIĘCI LOKALNEJ */}
               <div className="bg-slate-50/80 rounded-2xl p-4 sm:p-5 border border-slate-200 space-y-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div>
@@ -1023,7 +1002,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                   <button
                     onClick={handleRunScanner}
-                    className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs rounded-xl transition-colors flex items-center space-x-1.5 self-start sm:self-auto"
+                    className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs rounded-xl transition-colors flex items-center space-x-1.5 self-start sm:self-auto cursor-pointer"
                   >
                     <Search className="w-3.5 h-3.5" />
                     <span>Uruchom skaner</span>
@@ -1038,7 +1017,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     {(scannerResult.recoveredTransactions.length > 0 || scannerResult.recoveredBills.length > 0) && (
                       <button
                         onClick={handleMergeScannedData}
-                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg transition-colors"
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg transition-colors cursor-pointer"
                       >
                         Scal odnalezione pozycje z obecną bazą
                       </button>
@@ -1046,84 +1025,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 )}
               </div>
-            </div>
-          )}
 
-          {/* TAB 4: OPIS WERSJI & UX */}
-          {activeTab === 'version' && (
-            <div className="space-y-4">
-              <div className="bg-indigo-50/60 rounded-2xl p-4 border border-indigo-100 flex items-start space-x-3">
-                <Sparkles className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
-                <div>
-                  <div className="flex items-center space-x-2">
-                    <h3 className="text-sm font-bold text-slate-900">Planer Budżetu Domowego • Wersja 2.7.0</h3>
-                    <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-full">
-                      Autor: bobEKam
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                    Nowoczesny system zarządzania finansami domowymi zsynchronizowany z chmurą Google Cloud Firestore.
-                    Aplikacja zapewnia pełną kontrolę nad wydatkami, rachunkami, listami zakupów oraz kredytem hipotecznym.
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
-                  <span className="font-bold text-slate-900 block">Separacja Powiadomień i Aktywności</span>
-                  <p className="text-slate-600 text-[11px] leading-relaxed">
-                    Aktywności domowników są archiwizowane w osobnym dzienniku w ustawieniach z możliwością cofania usunięć. Powiadomienia w menu skupiają się wyłącznie na aktualnych zadaniach i alertach.
-                  </p>
-                </div>
-                <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
-                  <span className="font-bold text-slate-900 block">Wielopoziomowe Bezpieczeństwo Danych</span>
-                  <p className="text-slate-600 text-[11px] leading-relaxed">
-                    Automatyczne tworzenie migawek przy każdej edycji, weryfikacja zapisu w chmurze Firestore oraz dwuetapowy import plików z potwierdzeniem.
-                  </p>
-                </div>
-                <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
-                  <span className="font-bold text-slate-900 block">Zarządzanie Domownikami</span>
-                  <p className="text-slate-600 text-[11px] leading-relaxed">
-                    Bezpieczne dołączanie kodem z zatwierdzaniem przez administratora gospodarstwa domowego. Ochrona przed nieuprawnionym kasowaniem danych.
-                  </p>
-                </div>
-                <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
-                  <span className="font-bold text-slate-900 block">Mobilne i Desktopowe Powiadomienia</span>
-                  <p className="text-slate-600 text-[11px] leading-relaxed">
-                    Wyskakujące banery stylizowane na natywne powiadomienia smartfona z płynnym gestem odrzucenia i bezpośrednim przejściem do szczegółów wpisu.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 5: KOSZ & RESET DANYCH */}
-          {activeTab === 'danger' && (
-            <div className="space-y-4">
-              <div className="bg-rose-50/70 rounded-2xl p-4 border border-rose-200 space-y-2">
+              {/* SEKCJA 5: ZARZĄDZANIE DANYMI & KOSZ (RESET) */}
+              <div className="bg-rose-50/50 rounded-2xl p-4 sm:p-5 border border-rose-200 space-y-3">
                 <div className="flex items-center space-x-2">
                   <AlertTriangle className="w-5 h-5 text-rose-600" />
                   <h4 className="text-sm font-bold text-rose-950">Zarządzanie Danymi i Czyszczenie Bazy</h4>
                 </div>
                 <p className="text-xs text-rose-800 leading-relaxed">
-                  Operacje w tej sekcji trwale modyfikują zawartość bazy danych. Przed wykonaniem jakiejkolwiek akcji automatycznie tworzona jest migawka bezpieczeństwa.
+                  Operacje w tej sekcji modyfikują zawartość bazy danych. Przed wykonaniem jakiejkolwiek akcji automatycznie tworzona jest migawka bezpieczeństwa.
                 </p>
-              </div>
 
-              {!isHouseholdAdmin ? (
-                <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 text-xs text-amber-900 font-semibold space-y-1">
-                  <p>⚠️ Ograniczenie uprawnień:</p>
-                  <p className="font-normal text-amber-800">
-                    Jesteś członkiem gospodarstwa domowego. Zbiorcze usuwanie danych i resetowanie bazy jest zastrzeżone wyłącznie dla właściciela/administratora tego domu.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between">
+                {!isHouseholdAdmin ? (
+                  <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 font-semibold space-y-1">
+                    <p>⚠️ Ograniczenie uprawnień:</p>
+                    <p className="font-normal text-amber-800">
+                      Jesteś członkiem gospodarstwa domowego. Zbiorcze usuwanie danych i resetowanie bazy jest zastrzeżone wyłącznie dla właściciela/administratora tego domu.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="p-4 bg-white rounded-xl border border-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
                       <span className="text-xs font-bold text-slate-900 block">Usuń wybrane kategorie danych...</span>
                       <span className="text-[11px] text-slate-500">
-                        Otwiera kreator selektywnego usuwania (same wydatki, same rachunki lub same listy zakupów)
+                        Kreator selektywnego usuwania (same wydatki, same rachunki lub same listy zakupów).
                       </span>
                     </div>
                     {onOpenDeleteDataModal && (
@@ -1132,19 +1057,340 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           onClose();
                           onOpenDeleteDataModal();
                         }}
-                        className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-2xs transition-colors flex items-center space-x-1.5"
+                        className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-bold text-xs rounded-xl shadow-2xs transition-colors flex items-center justify-center space-x-1.5 shrink-0 cursor-pointer"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                         <span>Kreator usuwania</span>
                       </button>
                     )}
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           )}
 
-          {/* TAB 6: POWIADOMIENIA, WEB PUSH & PRACA W TLE */}
+          {/* TAB 4: OPIS WERSJI & UX (v3.0.0 + INTERAKTYWNY DZIENNIK ZMIAN + DIAGNOSTYKA) */}
+          {activeTab === 'version' && (
+            <div className="space-y-4">
+              {/* Header: Wersja 3.0.0 */}
+              <div className="bg-indigo-50/70 rounded-2xl p-4 border border-indigo-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-start space-x-3">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <h3 className="text-sm sm:text-base font-bold text-slate-900">
+                        Planer Budżetu Domowego
+                      </h3>
+                      <span className="text-xs font-extrabold text-indigo-700 bg-indigo-100 px-2.5 py-0.5 rounded-full border border-indigo-200 shadow-2xs">
+                        v3.0.0 Ultimate
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">
+                      Nowoczesny ekosystem domowych finansów: Skaner Paragonów AI, Chmura Firestore, Web Push i PWA.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-2 shrink-0 self-start sm:self-auto">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-100/90 text-emerald-800 font-bold text-[11px] border border-emerald-300">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    Aktualna wersja
+                  </span>
+                  <span className="text-[11px] font-semibold text-slate-500 bg-white px-2 py-1 rounded-lg border border-slate-200">
+                    Autor: bobEKam
+                  </span>
+                </div>
+              </div>
+
+              {/* KAFELKI DIAGNOSTYCZNE ŚRODOWISKA / PWA */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
+                {/* 1. Tryb PWA */}
+                <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-1">
+                  <div className="flex items-center justify-between text-slate-500">
+                    <span className="font-semibold text-[11px]">Środowisko / PWA</span>
+                    <Smartphone className="w-4 h-4 text-indigo-600" />
+                  </div>
+                  <p className="font-bold text-slate-900 text-xs">
+                    {isStandalonePWA() ? 'Aplikacja PWA (Zainstalowana)' : 'Przeglądarka WWW'}
+                  </p>
+                  <span className="text-[10px] text-slate-500 block">
+                    {isStandalonePWA() ? 'Działa jak aplikacja natywna' : 'Można dodać do ekranu głównego'}
+                  </span>
+                </div>
+
+                {/* 2. Baza Danych Firestore */}
+                <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-1">
+                  <div className="flex items-center justify-between text-slate-500">
+                    <span className="font-semibold text-[11px]">Baza Danych</span>
+                    <Cloud className="w-4 h-4 text-emerald-600" />
+                  </div>
+                  <p className="font-bold text-slate-900 text-xs">Cloud Firestore</p>
+                  <span className="text-[10px] text-emerald-600 font-medium block">
+                    {syncStatus === 'synced' ? '● Synchronizacja Live' : '● Tryb Offline First'}
+                  </span>
+                </div>
+
+                {/* 3. Pamięć podręczna & Kopie */}
+                <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-1">
+                  <div className="flex items-center justify-between text-slate-500">
+                    <span className="font-semibold text-[11px]">Pamięć Lokalna</span>
+                    <HardDrive className="w-4 h-4 text-amber-600" />
+                  </div>
+                  <p className="font-bold text-slate-900 text-xs">
+                    {snapshots.length} {snapshots.length === 1 ? 'migawka' : 'migawek'} bezpiecz.
+                  </p>
+                  <span className="text-[10px] text-slate-500 block">
+                    Automatyczna ochrona danych
+                  </span>
+                </div>
+
+                {/* 4. Model AI */}
+                <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-1">
+                  <div className="flex items-center justify-between text-slate-500">
+                    <span className="font-semibold text-[11px]">Silnik AI</span>
+                    <Cpu className="w-4 h-4 text-indigo-600" />
+                  </div>
+                  <p className="font-bold text-slate-900 text-xs">Gemini 2.5 Flash</p>
+                  <span className="text-[10px] text-indigo-600 font-medium block">
+                    Skaner OCR & Doradca finansowy
+                  </span>
+                </div>
+              </div>
+
+              {/* INTERAKTYWNY DZIENNIK ZMIAN (CHANGELOG) Z FILTROWANIEM */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3.5 shadow-2xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2.5 border-b border-slate-100">
+                  <div className="flex items-center space-x-2">
+                    <Clock className="w-4 h-4 text-indigo-600" />
+                    <h4 className="text-xs sm:text-sm font-bold text-slate-900">
+                      Dziennik Zmian & Historia Wersji
+                    </h4>
+                  </div>
+
+                  {/* Filtry changeloga */}
+                  <div className="flex items-center space-x-1 overflow-x-auto text-[11px] font-semibold bg-slate-100 p-1 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => setChangelogFilter('all')}
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                        changelogFilter === 'all'
+                          ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Wszystkie
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setChangelogFilter('new')}
+                      className={`px-2.5 py-1 rounded-lg transition-all flex items-center space-x-1 cursor-pointer ${
+                        changelogFilter === 'new'
+                          ? 'bg-indigo-50 text-indigo-700 shadow-2xs font-bold'
+                          : 'text-slate-600 hover:text-indigo-700'
+                      }`}
+                    >
+                      <Sparkles className="w-3 h-3 text-indigo-600" />
+                      <span>Nowości</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setChangelogFilter('mobile')}
+                      className={`px-2.5 py-1 rounded-lg transition-all flex items-center space-x-1 cursor-pointer ${
+                        changelogFilter === 'mobile'
+                          ? 'bg-indigo-50 text-indigo-700 shadow-2xs font-bold'
+                          : 'text-slate-600 hover:text-indigo-700'
+                      }`}
+                    >
+                      <Smartphone className="w-3 h-3 text-indigo-600" />
+                      <span>Usprawnienia mobilne</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setChangelogFilter('security')}
+                      className={`px-2.5 py-1 rounded-lg transition-all flex items-center space-x-1 cursor-pointer ${
+                        changelogFilter === 'security'
+                          ? 'bg-indigo-50 text-indigo-700 shadow-2xs font-bold'
+                          : 'text-slate-600 hover:text-indigo-700'
+                      }`}
+                    >
+                      <Shield className="w-3 h-3 text-indigo-600" />
+                      <span>Bezpieczeństwo</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Timeline wydań */}
+                <div className="space-y-4 pt-1 max-h-[42vh] overflow-y-auto pr-1">
+                  {[
+                    {
+                      version: '3.0.0',
+                      badge: 'Wydanie Główne',
+                      date: 'Wrzesień 2026',
+                      isLatest: true,
+                      items: [
+                        {
+                          category: 'new' as const,
+                          title: 'Inteligentny Skaner Paragonów AI z automatycznym aparatem',
+                          text: 'Bezpośrednie włączenie kamery w smartfonie po wejściu w moduł skanera oraz zoptymalizowane przyciski wyboru pliku z dysku i wklejania ze schowka.',
+                        },
+                        {
+                          category: 'mobile' as const,
+                          title: 'Kompaktowe i zwijane kafelki na Pulpicie',
+                          text: 'Wprowadzono zwijane panele dla Asystenta Finansowego AI, Limitów Wydatków oraz Kalkulatora Kredytowego w jednolitym jasnym stylu.',
+                        },
+                        {
+                          category: 'mobile' as const,
+                          title: 'Szybki przycisk zapisu w nagłówkach okien',
+                          text: 'Błyskawiczne dodawanie wydatków, rachunków i list bez konieczności przewijania długich formularzy na telefonie.',
+                        },
+                        {
+                          category: 'security' as const,
+                          title: 'Replikacja w chmurze Firestore & Powiadomienia w tle',
+                          text: 'Udoskonalona odporność na brak połączenia internetowego i zsynchronizowany system Web Push dla wszystkich domowników.',
+                        },
+                      ],
+                    },
+                    {
+                      version: '2.7.0',
+                      badge: 'PWA & Web Push',
+                      date: 'Sierpień 2026',
+                      isLatest: false,
+                      items: [
+                        {
+                          category: 'new' as const,
+                          title: 'Centrum Powiadomień Web Push z testem opóźnionym',
+                          text: 'Możliwość przetestowania odbioru powiadomień przy zablokowanym ekranie telefonu oraz dedykowany poradnik ustawień baterii Android i iOS.',
+                        },
+                        {
+                          category: 'security' as const,
+                          title: 'Migaweczki bezpieczeństwa w pamięci podręcznej',
+                          text: 'Automatyczne wykonywanie migawek przed każdą operacją z możliwością szybkiego cofnięcia niepożądanych zmian.',
+                        },
+                        {
+                          category: 'mobile' as const,
+                          title: 'Gest przeciągania miesięcy (Swipe Gesture)',
+                          text: 'Płynne przełączanie okresów rozliczeniowych gestem palca w lewo i prawo na kafelku budżetowym.',
+                        },
+                      ],
+                    },
+                    {
+                      version: '2.6.0',
+                      badge: 'Media & Rachunki',
+                      date: 'Lipiec 2026',
+                      isLatest: false,
+                      items: [
+                        {
+                          category: 'new' as const,
+                          title: 'Kalkulator zużycia liczników mediów',
+                          text: 'Rejestracja odczytów prądu, wody i gazu ze stawkami za jednostkę i prognozą kosztów.',
+                        },
+                        {
+                          category: 'new' as const,
+                          title: 'Powiązanie spłaty kredytu z rachunkami cyklicznymi',
+                          text: 'Opłacenie rachunku kredytowego automatycznie redukuje saldo zadłużenia w kalkulatorze.',
+                        },
+                        {
+                          category: 'security' as const,
+                          title: 'Dziennik Aktywności z możliwością przywracania usuniętych',
+                          text: 'Kosz i rejestr zdarzeń domowników z ochroną przed przypadkowym skasowaniem.',
+                        },
+                      ],
+                    },
+                    {
+                      version: '2.0.0',
+                      badge: 'Multi-User Cloud',
+                      date: 'Czerwiec 2026',
+                      isLatest: false,
+                      items: [
+                        {
+                          category: 'new' as const,
+                          title: 'Wielodostępowe Gospodarstwa Domowe',
+                          text: 'Dołączanie do wspólnego budżetu za pomocą bezpiecznego kodu gospodarstwa z akceptacją administratora.',
+                        },
+                        {
+                          category: 'security' as const,
+                          title: 'Pełna integracja z Google Cloud Firestore',
+                          text: 'Replikacja danych w czasie rzeczywistym z obsługą pracy offline.',
+                        },
+                      ],
+                    },
+                  ]
+                    .map((release) => {
+                      const filteredItems = release.items.filter(
+                        (item) => changelogFilter === 'all' || item.category === changelogFilter
+                      );
+                      return { ...release, filteredItems };
+                    })
+                    .filter((release) => release.filteredItems.length > 0)
+                    .map((release) => (
+                      <div key={release.version} className="relative pl-6 border-l-2 border-slate-200 space-y-2">
+                        {/* Dot indicator */}
+                        <span
+                          className={`absolute -left-[7px] top-1 w-3 h-3 rounded-full border-2 border-white shadow-2xs ${
+                            release.isLatest ? 'bg-indigo-600 ring-2 ring-indigo-200' : 'bg-slate-400'
+                          }`}
+                        />
+
+                        {/* Release header */}
+                        <div className="flex items-center space-x-2 flex-wrap gap-1">
+                          <span className="font-extrabold text-xs text-slate-900">
+                            Wersja {release.version}
+                          </span>
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              release.isLatest
+                                ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                                : 'bg-slate-100 text-slate-600'
+                            }`}
+                          >
+                            {release.badge}
+                          </span>
+                          <span className="text-[11px] text-slate-400 font-medium">
+                            • {release.date}
+                          </span>
+                        </div>
+
+                        {/* Release items */}
+                        <div className="space-y-1.5 pt-0.5">
+                          {release.filteredItems.map((item, idx) => (
+                            <div
+                              key={idx}
+                              className="p-2.5 bg-slate-50/70 hover:bg-slate-100/70 rounded-xl border border-slate-100 transition-colors text-xs space-y-0.5"
+                            >
+                              <div className="flex items-center space-x-1.5">
+                                {item.category === 'new' && (
+                                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-indigo-100 text-indigo-700 shrink-0">
+                                    NOWOŚĆ
+                                  </span>
+                                )}
+                                {item.category === 'mobile' && (
+                                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-100 text-amber-800 shrink-0">
+                                    MOBILNE
+                                  </span>
+                                )}
+                                {item.category === 'security' && (
+                                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800 shrink-0">
+                                    BEZPIECZEŃSTWO
+                                  </span>
+                                )}
+                                <span className="font-bold text-slate-900">{item.title}</span>
+                              </div>
+                              <p className="text-[11px] text-slate-600 leading-relaxed pl-1">
+                                {item.text}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: POWIADOMIENIA, WEB PUSH & PRACA W TLE */}
           {activeTab === 'notifications' && (
             <div className="space-y-4 text-xs">
               <div className="p-4 rounded-2xl bg-indigo-50/70 border border-indigo-200/80 space-y-2">

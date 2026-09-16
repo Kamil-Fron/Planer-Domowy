@@ -49,10 +49,10 @@ export const VersionInfoModal: React.FC<VersionInfoModalProps> = ({ isOpen, onCl
               </h2>
               <div className="flex items-center space-x-2 text-xs text-slate-500 font-medium">
                 <span className="bg-indigo-100 text-indigo-800 font-bold px-2 py-0.5 rounded-md">
-                  Wersja v2.7.1
+                  Wersja v3.0.0
                 </span>
                 <span>•</span>
-                <span>Kompletne Selektywne Usuwanie & Reaktywny Pulpit Zobowiązań</span>
+                <span>Skaner Paragonów AI & Kompaktowe Panele UX</span>
               </div>
             </div>
           </div>

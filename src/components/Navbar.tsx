@@ -35,8 +35,11 @@ import {
   ExternalLink,
   Scale,
   UserPlus,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { Bill, BudgetLimit, TabType, Transaction, Household, UserProfile, AppNotification } from '../types';
+import { PowerUserSettings } from '../storage';
 import { generateAutomatedNotifications, sendBrowserPushNotification } from '../utils/notifications';
 import { getAvailableMonthOptions } from '../utils/rollover';
 import {
@@ -67,7 +70,7 @@ interface NavbarProps {
   onTriggerSync?: () => Promise<void> | void;
   isSyncing?: boolean;
   onOpenHouseholdModal: () => void;
-  onOpenSettings?: (tab?: 'activity' | 'sync' | 'safety' | 'version' | 'danger') => void;
+  onOpenSettings?: (tab?: 'general' | 'activity' | 'sync' | 'safety' | 'version' | 'danger' | 'notifications') => void;
   onOpenDeleteDataModal?: () => void;
   onOpenDataSafetyModal?: () => void;
   onOpenQuickAdd?: () => void;
@@ -77,6 +80,8 @@ interface NavbarProps {
   onLogout?: () => void;
   onOpenMobileLauncher?: () => void;
   onShowNotificationBanner?: (notification: AppNotification) => void;
+  powerSettings?: PowerUserSettings;
+  onTogglePrivacyMode?: () => void;
   onNavigate?: (
     tab: TabType,
     options?: {
@@ -117,6 +122,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onLogout,
   onOpenMobileLauncher,
   onShowNotificationBanner,
+  powerSettings,
+  onTogglePrivacyMode,
   onNavigate,
 }) => {
   const [isActionMenuOpen, setIsActionMenuOpen] = useState(false);
@@ -541,6 +548,30 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
             </button>
 
+            {/* Quick Privacy Mode Toggle (Power User Feature) */}
+            {onTogglePrivacyMode && (
+              <button
+                type="button"
+                onClick={onTogglePrivacyMode}
+                className={`p-2 rounded-xl border transition-all text-xs font-semibold flex items-center justify-center cursor-pointer active:scale-95 ${
+                  powerSettings?.privacyMode
+                    ? 'border-amber-400 bg-amber-50 text-amber-800 shadow-2xs'
+                    : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900 shadow-xs'
+                }`}
+                title={
+                  powerSettings?.privacyMode
+                    ? 'Tryb prywatności: WŁĄCZONY (kwoty ukryte). Kliknij, aby odkryć kwoty.'
+                    : 'Tryb prywatności: WYŁĄCZONY. Kliknij, aby ukryć kwoty na ekranie.'
+                }
+              >
+                {powerSettings?.privacyMode ? (
+                  <EyeOff className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                ) : (
+                  <Eye className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                )}
+              </button>
+            )}
+
             {/* Right Action Menu: Single Consolidated Button */}
             <div className="relative flex-shrink-0">
               <button
@@ -955,7 +986,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                         <button
                           onClick={() => {
                             setIsActionMenuOpen(false);
-                            onOpenSettings('activity');
+                            onOpenSettings('general');
                           }}
                           className="w-full text-left p-2.5 rounded-xl text-xs font-bold text-slate-800 hover:bg-white hover:text-indigo-600 transition-all flex items-center justify-between border border-transparent hover:border-slate-200 shadow-2xs"
                         >

@@ -44,6 +44,9 @@ import {
   saveBackupSnapshot,
   scanLocalStorageForLostData,
   clearAllBackupSnapshots,
+  loadPowerUserSettings,
+  savePowerUserSettings,
+  PowerUserSettings,
 } from './storage';
 import {
   subscribeToFirebaseAuthState,
@@ -96,7 +99,16 @@ import { calculatePreviousDueDate } from './utils/billCycle';
 import { calculateSuggestedLoanSplit, isInterestBearingDebt } from './utils/loanCalculation';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<TabType>('dashboard');
+  // Power User Settings (Density, Privacy Mode, Default Start View, Pruning)
+  const [powerSettings, setPowerSettings] = useState<PowerUserSettings>(loadPowerUserSettings);
+
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    try {
+      const ps = loadPowerUserSettings();
+      if (ps && ps.defaultView) return ps.defaultView;
+    } catch {}
+    return 'dashboard';
+  });
   const [selectedMonth, setSelectedMonth] = useState<string>('2026-09');
 
   // Core Data States loaded from Storage
@@ -121,7 +133,7 @@ export default function App() {
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  const [settingsModalTab, setSettingsModalTab] = useState<'activity' | 'sync' | 'safety' | 'version' | 'danger'>('activity');
+  const [settingsModalTab, setSettingsModalTab] = useState<'general' | 'safety' | 'activity' | 'notifications' | 'version' | 'sync' | 'danger'>('general');
   const [activities, setActivities] = useState<ActivityLogEntry[]>(loadActivities);
   const [bannerNotification, setBannerNotification] = useState<AppNotification | null>(null);
   const [toastFeedback, setToastFeedback] = useState<ToastData | null>(null);
@@ -262,6 +274,39 @@ export default function App() {
   // Track known notification IDs to detect notifications created by other household members
   const knownNotificationIds = useRef<Set<string>>(new Set(notifications.map((n) => n.id)));
   const isInitialFirestoreLoad = useRef<boolean>(true);
+
+  // Power User Display Mode Classes (Compact Density & Privacy Mode)
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      if (powerSettings.compactDensity) {
+        document.documentElement.classList.add('compact-density');
+      } else {
+        document.documentElement.classList.remove('compact-density');
+      }
+
+      if (powerSettings.privacyMode) {
+        document.documentElement.classList.add('privacy-mode');
+      } else {
+        document.documentElement.classList.remove('privacy-mode');
+      }
+    }
+  }, [powerSettings.compactDensity, powerSettings.privacyMode]);
+
+  const handleTogglePrivacyMode = () => {
+    setPowerSettings((prev) => {
+      const updated = { ...prev, privacyMode: !prev.privacyMode };
+      savePowerUserSettings(updated);
+      return updated;
+    });
+  };
+
+  const handleUpdatePowerSettings = (updatedPartial: Partial<PowerUserSettings>) => {
+    setPowerSettings((prev) => {
+      const updated = { ...prev, ...updatedPartial };
+      savePowerUserSettings(updated);
+      return updated;
+    });
+  };
 
   // Handle deep navigation from URL query parameters (e.g. when app is opened directly from background push on phone)
   useEffect(() => {
@@ -3126,7 +3171,7 @@ export default function App() {
           setIsHouseholdModalOpen(true);
         }}
         onOpenSettings={(tab) => {
-          setSettingsModalTab(tab || 'activity');
+          setSettingsModalTab(tab || 'general');
           setIsSettingsModalOpen(true);
         }}
         onOpenDeleteDataModal={() => setIsDeleteModalOpen(true)}
@@ -3138,6 +3183,8 @@ export default function App() {
         onLogout={handleLogout}
         onOpenMobileLauncher={() => setIsMobileLauncherOpen(true)}
         onShowNotificationBanner={(notif) => setBannerNotification(notif)}
+        powerSettings={powerSettings}
+        onTogglePrivacyMode={handleTogglePrivacyMode}
         onNavigate={handleDashboardNavigate}
       />
 
@@ -3161,6 +3208,8 @@ export default function App() {
         syncErrorMessage={syncErrorMessage}
         onForceSync={handleForceSync}
         onRestoreData={handleRestoreData}
+        powerSettings={powerSettings}
+        onUpdatePowerSettings={handleUpdatePowerSettings}
         onOpenDeleteDataModal={() => {
           setIsSettingsModalOpen(false);
           setIsDeleteModalOpen(true);

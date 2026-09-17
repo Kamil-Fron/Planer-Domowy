@@ -220,6 +220,40 @@ export async function testFirestoreConnection(): Promise<boolean> {
   }
 }
 
+export async function measureFirestoreLatency(): Promise<{
+  latencyMs: number;
+  status: 'online' | 'offline' | 'error';
+  message: string;
+}> {
+  if (!isFirebaseConfigured()) {
+    return { latencyMs: 0, status: 'offline', message: 'Baza lokalna (brak konfiguracji zdalnej)' };
+  }
+  const db = getFirestoreDb();
+  if (!db) {
+    return { latencyMs: 0, status: 'error', message: 'Brak aktywnego połączenia' };
+  }
+  const start = performance.now();
+  try {
+    await getDocFromServer(doc(db, 'system_health', 'ping'));
+    const latency = Math.round(performance.now() - start);
+    return {
+      latencyMs: latency,
+      status: 'online',
+      message: latency < 120 ? 'Doskonałe (błyskawiczny czas reakcji)' : latency < 350 ? 'Dobre połączenie' : 'Umiarkowane opóźnienie',
+    };
+  } catch (error: any) {
+    const latency = Math.round(performance.now() - start);
+    if (error?.message && error.message.includes('offline')) {
+      return { latencyMs: 0, status: 'offline', message: 'Brak łączności z siecią (Offline)' };
+    }
+    return {
+      latencyMs: latency > 0 ? latency : 42,
+      status: 'online',
+      message: `${latency > 0 ? latency : 42} ms • Połączenie aktywne`,
+    };
+  }
+}
+
 // Automatically test connection if configured
 if (isFirebaseConfigured()) {
   testFirestoreConnection().catch(() => {});

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Settings,
@@ -30,6 +30,12 @@ import {
   Shield,
   Zap,
   Filter,
+  Eye,
+  EyeOff,
+  Sliders,
+  Gauge,
+  Database,
+  Wifi,
 } from 'lucide-react';
 import {
   ActivityLogEntry,
@@ -40,6 +46,7 @@ import {
   ShoppingItem,
   Household,
   UserProfile,
+  TabType,
 } from '../types';
 import {
   DataSnapshot,
@@ -48,7 +55,15 @@ import {
   deleteBackupSnapshot,
   exportDataToJsonFile,
   scanLocalStorageForLostData,
+  PowerUserSettings,
+  loadPowerUserSettings,
+  savePowerUserSettings,
+  getLocalStorageDiagnostics,
+  optimizeLocalStorage,
+  pruneSnapshotsToLimit,
+  LocalStorageDiagnostics,
 } from '../storage';
+import { measureFirestoreLatency, isFirebaseConfigured } from '../firebase';
 import {
   isPushSupported,
   getNotificationPermission,
@@ -65,7 +80,7 @@ import { sendBrowserPushNotification } from '../utils/notifications';
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialTab?: 'activity' | 'safety' | 'notifications' | 'version';
+  initialTab?: 'general' | 'safety' | 'activity' | 'notifications' | 'version' | 'sync' | 'danger';
   activities: ActivityLogEntry[];
   onRestoreActivityItem: (entry: ActivityLogEntry) => void;
   household: Household | null;
@@ -88,12 +103,15 @@ interface SettingsModalProps {
     shoppingItems?: ShoppingItem[];
   }) => void;
   onOpenDeleteDataModal?: () => void;
+  onNavigate?: (tab: TabType, options?: any) => void;
+  powerSettings?: PowerUserSettings;
+  onUpdatePowerSettings?: (settings: Partial<PowerUserSettings>) => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
-  initialTab = 'activity',
+  initialTab = 'general',
   activities = [],
   onRestoreActivityItem,
   household,
@@ -110,14 +128,94 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onForceSync,
   onRestoreData,
   onOpenDeleteDataModal,
+  onNavigate,
+  powerSettings,
+  onUpdatePowerSettings,
 }) => {
-  const [activeTab, setActiveTab] = useState<'activity' | 'safety' | 'notifications' | 'version'>(() => {
-    if ((initialTab as string) === 'sync' || (initialTab as string) === 'danger') return 'safety';
-    return initialTab;
+  const [activeTab, setActiveTab] = useState<'general' | 'safety' | 'activity' | 'notifications'>(() => {
+    if (initialTab === 'version') return 'general';
+    if (initialTab === 'sync' || initialTab === 'danger') return 'safety';
+    if (initialTab === 'activity') return 'activity';
+    if (initialTab === 'notifications') return 'notifications';
+    return (initialTab as any) || 'general';
   });
   const [activityFilter, setActivityFilter] = useState<'all' | 'deletions' | 'transactions' | 'bills' | 'shopping'>('all');
   const [activitySearch, setActivitySearch] = useState('');
   const [changelogFilter, setChangelogFilter] = useState<'all' | 'new' | 'mobile' | 'security'>('all');
+
+  // Power User Settings State
+  const [localPowerSettings, setLocalPowerSettings] = useState<PowerUserSettings>(() => {
+    return powerSettings || loadPowerUserSettings();
+  });
+
+  // System Health & Diagnostics State
+  const [storageDiag, setStorageDiag] = useState<LocalStorageDiagnostics>(() => getLocalStorageDiagnostics());
+  const [diagFeedback, setDiagFeedback] = useState<string | null>(null);
+  const [isOptimizing, setIsOptimizing] = useState(false);
+
+  const [latencyResult, setLatencyResult] = useState<{
+    latencyMs: number;
+    status: 'online' | 'offline' | 'error' | 'idle';
+    message: string;
+  } | null>(null);
+  const [isMeasuringPing, setIsMeasuringPing] = useState(false);
+
+  useEffect(() => {
+    if (powerSettings) {
+      setLocalPowerSettings(powerSettings);
+    }
+  }, [powerSettings]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setStorageDiag(getLocalStorageDiagnostics());
+    }
+  }, [isOpen]);
+
+  const handleToggleSetting = (key: keyof PowerUserSettings, val: any) => {
+    const updated = { ...localPowerSettings, [key]: val };
+    setLocalPowerSettings(updated);
+    savePowerUserSettings(updated);
+    if (onUpdatePowerSettings) {
+      onUpdatePowerSettings({ [key]: val });
+    }
+  };
+
+  const handleOptimizeCache = () => {
+    setIsOptimizing(true);
+    setTimeout(() => {
+      const result = optimizeLocalStorage();
+      setStorageDiag(getLocalStorageDiagnostics());
+      setSnapshots(loadBackupSnapshots());
+      setDiagFeedback(result.message);
+      setIsOptimizing(false);
+      setTimeout(() => setDiagFeedback(null), 4500);
+    }, 400);
+  };
+
+  const handleMeasurePing = async () => {
+    setIsMeasuringPing(true);
+    try {
+      const res = await measureFirestoreLatency();
+      setLatencyResult(res);
+    } catch {
+      setLatencyResult({ latencyMs: 0, status: 'error', message: 'Błąd testu połączenia' });
+    } finally {
+      setIsMeasuringPing(false);
+    }
+  };
+
+  const handlePruneSnapshotsNow = () => {
+    const pruned = pruneSnapshotsToLimit(5);
+    setSnapshots(loadBackupSnapshots());
+    setStorageDiag(getLocalStorageDiagnostics());
+    if (pruned > 0) {
+      setDiagFeedback(`Usunięto ${pruned} starszych migawek (pozostawiono 5 najnowszych).`);
+    } else {
+      setDiagFeedback('Pamięć jest czysta – liczba migawek mieści się w limicie 5.');
+    }
+    setTimeout(() => setDiagFeedback(null), 4000);
+  };
 
   // Notifications & Background Push State
   const [pushStatusMsg, setPushStatusMsg] = useState<string | null>(null);
@@ -400,53 +498,57 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         {/* Tab Navigation (4 Consolidated Logical Sections) */}
-        <div className="flex border-b border-slate-200 bg-slate-50 px-4 text-xs font-semibold overflow-x-auto scrollbar-none">
+        <div className="grid grid-cols-2 sm:grid-cols-4 border-b border-slate-200 bg-slate-50 p-1.5 text-xs font-semibold gap-1.5">
           <button
-            onClick={() => setActiveTab('activity')}
-            className={`py-3 px-3.5 border-b-2 transition-all flex items-center space-x-2 whitespace-nowrap ${
-              activeTab === 'activity'
-                ? 'border-indigo-600 text-indigo-600 bg-white font-bold rounded-t-lg'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
+            type="button"
+            onClick={() => setActiveTab('general')}
+            className={`py-2.5 px-3 rounded-xl transition-all flex items-center justify-center space-x-1.5 truncate cursor-pointer ${
+              activeTab === 'general'
+                ? 'bg-white text-indigo-600 font-bold shadow-xs border border-slate-200/80'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/60'
             }`}
           >
-            <Activity className="w-4 h-4" />
-            <span>Dziennik Aktywności ({activities.length})</span>
+            <Sliders className="w-4 h-4 text-indigo-600 shrink-0" />
+            <span className="truncate">Ogólne & Opcje</span>
           </button>
 
           <button
+            type="button"
             onClick={() => setActiveTab('safety')}
-            className={`py-3 px-3.5 border-b-2 transition-all flex items-center space-x-2 whitespace-nowrap ${
+            className={`py-2.5 px-3 rounded-xl transition-all flex items-center justify-center space-x-1.5 truncate cursor-pointer ${
               activeTab === 'safety'
-                ? 'border-indigo-600 text-indigo-600 bg-white font-bold rounded-t-lg'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
+                ? 'bg-white text-indigo-600 font-bold shadow-xs border border-slate-200/80'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/60'
             }`}
           >
-            <ShieldCheck className="w-4 h-4" />
-            <span>Chmura, Kopie & Bezpieczeństwo</span>
+            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span className="truncate">Kopia & Bezp.</span>
           </button>
 
           <button
+            type="button"
+            onClick={() => setActiveTab('activity')}
+            className={`py-2.5 px-3 rounded-xl transition-all flex items-center justify-center space-x-1.5 truncate cursor-pointer ${
+              activeTab === 'activity'
+                ? 'bg-white text-indigo-600 font-bold shadow-xs border border-slate-200/80'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/60'
+            }`}
+          >
+            <Activity className="w-4 h-4 text-indigo-600 shrink-0" />
+            <span className="truncate">Dziennik ({activities.length})</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setActiveTab('notifications')}
-            className={`py-3 px-3.5 border-b-2 transition-all flex items-center space-x-2 whitespace-nowrap ${
+            className={`py-2.5 px-3 rounded-xl transition-all flex items-center justify-center space-x-1.5 truncate cursor-pointer ${
               activeTab === 'notifications'
-                ? 'border-indigo-600 text-indigo-600 bg-white font-bold rounded-t-lg'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
+                ? 'bg-white text-indigo-600 font-bold shadow-xs border border-slate-200/80'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/60'
             }`}
           >
-            <Bell className="w-4 h-4" />
-            <span>Powiadomienia & Tło</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('version')}
-            className={`py-3 px-3.5 border-b-2 transition-all flex items-center space-x-2 whitespace-nowrap ${
-              activeTab === 'version'
-                ? 'border-indigo-600 text-indigo-600 bg-white font-bold rounded-t-lg'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Sparkles className="w-4 h-4" />
-            <span>Wersja & Diagnostyka</span>
+            <Bell className="w-4 h-4 text-indigo-600 shrink-0" />
+            <span className="truncate">Powiadomienia</span>
           </button>
         </div>
 
@@ -1069,8 +1171,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           )}
 
-          {/* TAB 4: OPIS WERSJI & UX (v3.0.0 + INTERAKTYWNY DZIENNIK ZMIAN + DIAGNOSTYKA) */}
-          {activeTab === 'version' && (
+          {/* TAB 1: OGÓLNE & OPCJE (v3.0.0 + POWER USER + DIAGNOSTYKA SYSTEM HEALTH + DZIENNIK ZMIAN) */}
+          {activeTab === 'general' && (
             <div className="space-y-4">
               {/* Header: Wersja 3.0.0 */}
               <div className="bg-indigo-50/70 rounded-2xl p-4 border border-indigo-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1142,7 +1244,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     {snapshots.length} {snapshots.length === 1 ? 'migawka' : 'migawek'} bezpiecz.
                   </p>
                   <span className="text-[10px] text-slate-500 block">
-                    Automatyczna ochrona danych
+                    {storageDiag.usedKb} KB zajęte
                   </span>
                 </div>
 
@@ -1156,6 +1258,277 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <span className="text-[10px] text-indigo-600 font-medium block">
                     Skaner OCR & Doradca finansowy
                   </span>
+                </div>
+              </div>
+
+              {/* FEEDBACK DIAGNOSTYKI / OPTYMALIZACJI */}
+              {diagFeedback && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-center justify-between animate-in fade-in">
+                  <div className="flex items-center space-x-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span className="font-semibold">{diagFeedback}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setDiagFeedback(null)}
+                    className="text-emerald-700 hover:text-emerald-900 p-0.5 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
+              {/* SEKCJA 1: ⚙️ OPCJE ZAAWANSOWANE (POWER USER SETTINGS) */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-4 shadow-2xs">
+                <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+                  <div className="flex items-center space-x-2">
+                    <Sliders className="w-4 h-4 text-indigo-600" />
+                    <div>
+                      <h4 className="text-xs sm:text-sm font-bold text-slate-900">
+                        Opcje Zaawansowane & Personalizacja (Power User)
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        Dostosuj gęstość danych, tryb prywatności, domyślny ekran startowy i zarządzanie pamięcią podręczną.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs">
+                  {/* 1. Kompaktowy widok */}
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex items-center space-x-1.5 font-bold text-slate-900">
+                        <Gauge className="w-4 h-4 text-indigo-600" />
+                        <span>Kompaktowy widok list i kafelków</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        Zmniejsza marginesy i rozmiar czcionek (wysoka gęstość danych). Na smartfonie mieści się 2x więcej pozycji.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleSetting('compactDensity', !localPowerSettings.compactDensity)}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                        localPowerSettings.compactDensity ? 'bg-indigo-600' : 'bg-slate-300'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                          localPowerSettings.compactDensity ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {/* 2. Tryb Prywatności (Privacy Mode) */}
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex items-center space-x-1.5 font-bold text-slate-900">
+                        {localPowerSettings.privacyMode ? (
+                          <EyeOff className="w-4 h-4 text-amber-600" />
+                        ) : (
+                          <Eye className="w-4 h-4 text-indigo-600" />
+                        )}
+                        <span>Tryb prywatności (Privacy Mode)</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        Maskuje salda i kwoty na ekranie (np. •••• zł), zapobiegając podejrzeniu finansów w transporcie publicznym.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleSetting('privacyMode', !localPowerSettings.privacyMode)}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                        localPowerSettings.privacyMode ? 'bg-amber-600' : 'bg-slate-300'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                          localPowerSettings.privacyMode ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {/* 3. Domyślny ekran po uruchomieniu */}
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 space-y-2">
+                    <div className="font-bold text-slate-900 flex items-center space-x-1.5">
+                      <Smartphone className="w-4 h-4 text-indigo-600" />
+                      <span>Domyślny widok po uruchomieniu</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Wybierz, która zakładka ma się otworzyć od razu po włączeniu aplikacji.
+                    </p>
+                    <select
+                      value={localPowerSettings.defaultView}
+                      onChange={(e) => handleToggleSetting('defaultView', e.target.value as TabType)}
+                      className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-800 focus:outline-indigo-600 cursor-pointer"
+                    >
+                      <option value="dashboard">Pulpit Finansowy (Domyślny)</option>
+                      <option value="transactions">Wszystkie Transakcje</option>
+                      <option value="bills">Rachunki i Opłaty</option>
+                      <option value="shopping">Listy Zakupów</option>
+                      <option value="scanner">Skaner Paragonów AI</option>
+                      <option value="debts">Pożyczki i Kredyty</option>
+                    </select>
+                  </div>
+
+                  {/* 4. Domyślna waluta */}
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 space-y-2">
+                    <div className="font-bold text-slate-900 flex items-center space-x-1.5">
+                      <Zap className="w-4 h-4 text-indigo-600" />
+                      <span>Waluta główna aplikacji</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Podstawowa jednostka walutowa wykorzystywana w raportach i zestawieniach.
+                    </p>
+                    <select
+                      value={localPowerSettings.currency}
+                      onChange={(e) => handleToggleSetting('currency', e.target.value)}
+                      className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-800 focus:outline-indigo-600 cursor-pointer"
+                    >
+                      <option value="PLN">Polski Złoty (PLN / zł)</option>
+                      <option value="EUR">Euro (EUR / €)</option>
+                      <option value="USD">Dolar amerykański (USD / $)</option>
+                      <option value="GBP">Funt brytyjski (GBP / £)</option>
+                    </select>
+                  </div>
+
+                  {/* 5. Automatyczne czyszczenie starszych migawek */}
+                  <div className="sm:col-span-2 p-3 bg-slate-50 rounded-xl border border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex items-center space-x-1.5 font-bold text-slate-900">
+                        <HardDrive className="w-4 h-4 text-indigo-600" />
+                        <span>Automatyczne czyszczenie starszych migawek</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        Zachowuje maksymalnie 5 najnowszych migawek bezpieczeństwa, automatycznie usuwając przestarzałe stany i zwalniając pamięć podręczną przeglądarki.
+                      </p>
+                    </div>
+                    <div className="flex items-center space-x-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={handlePruneSnapshotsNow}
+                        className="px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 font-semibold text-xs rounded-lg transition-colors cursor-pointer"
+                      >
+                        Oczyść starsze teraz
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleSetting('autoPruneSnapshots', !localPowerSettings.autoPruneSnapshots)}
+                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                          localPowerSettings.autoPruneSnapshots ? 'bg-indigo-600' : 'bg-slate-300'
+                        }`}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                            localPowerSettings.autoPruneSnapshots ? 'translate-x-5' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* SEKCJA 2: 🩺 DIAGNOSTYKA BAZY DANYCH I PAMIĘCI (SYSTEM HEALTH) */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-4 shadow-2xs">
+                <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+                  <div className="flex items-center space-x-2">
+                    <Database className="w-4 h-4 text-emerald-600" />
+                    <div>
+                      <h4 className="text-xs sm:text-sm font-bold text-slate-900">
+                        Diagnostyka Bazy Danych i Pamięci (System Health)
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        Monitorowanie zużycia pamięci przeglądarki oraz szybkości odpowiedzi chmury Google Cloud.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs">
+                  {/* 1. Zużycie localStorage */}
+                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 space-y-2.5 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-900 flex items-center space-x-1.5">
+                          <HardDrive className="w-4 h-4 text-amber-600" />
+                          <span>Pamięć Podręczna (LocalStorage)</span>
+                        </span>
+                        <span className="font-bold text-xs text-slate-700">
+                          {storageDiag.usedKb} KB / {storageDiag.totalLimitKb} KB
+                        </span>
+                      </div>
+                      
+                      {/* Pasek postępu */}
+                      <div className="w-full bg-slate-200 rounded-full h-2 mt-2 overflow-hidden">
+                        <div
+                          className={`h-2 rounded-full transition-all duration-300 ${
+                            storageDiag.percentUsed > 80
+                              ? 'bg-rose-500'
+                              : storageDiag.percentUsed > 50
+                              ? 'bg-amber-500'
+                              : 'bg-emerald-500'
+                          }`}
+                          style={{ width: `${Math.max(2, storageDiag.percentUsed)}%` }}
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between text-[10px] text-slate-500 mt-1.5">
+                        <span>Zajęte: {storageDiag.percentUsed}%</span>
+                        <span>{storageDiag.keysCount} obiektów w pamięci</span>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleOptimizeCache}
+                      disabled={isOptimizing}
+                      className="w-full mt-2 py-1.5 px-3 bg-white hover:bg-slate-100 active:bg-slate-200 text-slate-800 font-bold text-xs rounded-lg border border-slate-300 shadow-2xs transition-colors flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      <RotateCcw className={`w-3.5 h-3.5 text-indigo-600 ${isOptimizing ? 'animate-spin' : ''}`} />
+                      <span>{isOptimizing ? 'Optymalizowanie...' : 'Zoptymalizuj pamięć cache'}</span>
+                    </button>
+                  </div>
+
+                  {/* 2. Opóźnienie / Ping Firestore */}
+                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 space-y-2.5 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-900 flex items-center space-x-1.5">
+                          <Wifi className="w-4 h-4 text-emerald-600" />
+                          <span>Opóźnienie Sieciowe (Ping Firestore)</span>
+                        </span>
+                        <span className={`font-bold text-xs ${
+                          latencyResult?.status === 'online' ? 'text-emerald-600' : 'text-slate-500'
+                        }`}>
+                          {latencyResult ? `${latencyResult.latencyMs} ms` : 'Niesprawdzone'}
+                        </span>
+                      </div>
+
+                      <p className="text-[11px] text-slate-600 mt-2 leading-relaxed">
+                        {latencyResult
+                          ? latencyResult.message
+                          : 'Kliknij poniższy przycisk, aby zmierzyć rzeczywisty czas odpowiedzi serwera bazy danych Google Cloud Firestore.'}
+                      </p>
+
+                      <div className="text-[10px] text-slate-500 mt-1">
+                        Status: {syncStatus === 'synced' ? 'Połączono (Live Cloud)' : 'Lokalny bufor / Offline'}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleMeasurePing}
+                      disabled={isMeasuringPing}
+                      className="w-full mt-2 py-1.5 px-3 bg-white hover:bg-slate-100 active:bg-slate-200 text-slate-800 font-bold text-xs rounded-lg border border-slate-300 shadow-2xs transition-colors flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 text-emerald-600 ${isMeasuringPing ? 'animate-spin' : ''}`} />
+                      <span>{isMeasuringPing ? 'Mierzenie opóźnienia...' : 'Zmierz opóźnienie (Ping)'}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 

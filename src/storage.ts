@@ -10,6 +10,7 @@ import {
   UserProfile,
   MortgageLoan,
   DebtItem,
+  TabType,
 } from './types';
 import {
   INITIAL_TRANSACTIONS,
@@ -33,6 +34,7 @@ const KEYS = {
   SNAPSHOTS: 'budget_planner_snapshots_history_v1',
   MORTGAGES: 'budget_planner_mortgages_v1',
   DEBTS: 'budget_planner_debts_v1',
+  POWER_SETTINGS: 'budget_planner_power_settings_v1',
 };
 
 export const INITIAL_MORTGAGES: MortgageLoan[] = [];
@@ -80,11 +82,44 @@ function setItemSafe<T>(key: string, value: T): void {
   }
 }
 
+// Power User Settings Interface & Storage
+export interface PowerUserSettings {
+  compactDensity: boolean;
+  privacyMode: boolean;
+  defaultView: TabType;
+  currency: string;
+  autoPruneSnapshots: boolean;
+}
+
+export const DEFAULT_POWER_USER_SETTINGS: PowerUserSettings = {
+  compactDensity: false,
+  privacyMode: false,
+  defaultView: 'dashboard',
+  currency: 'PLN',
+  autoPruneSnapshots: true,
+};
+
+export const loadPowerUserSettings = (): PowerUserSettings => {
+  return getItemSafe<PowerUserSettings>(KEYS.POWER_SETTINGS, DEFAULT_POWER_USER_SETTINGS);
+};
+
+export const savePowerUserSettings = (settings: PowerUserSettings): void => {
+  setItemSafe(KEYS.POWER_SETTINGS, settings);
+};
+
 // Snapshot Backup Management
 const MAX_SNAPSHOTS = 20;
 
 export const loadBackupSnapshots = (): DataSnapshot[] => {
   return getItemSafe<DataSnapshot[]>(KEYS.SNAPSHOTS, []);
+};
+
+export const pruneSnapshotsToLimit = (limit: number = 5): number => {
+  const existing = loadBackupSnapshots();
+  if (existing.length <= limit) return 0;
+  const pruned = existing.slice(0, limit);
+  setItemSafe(KEYS.SNAPSHOTS, pruned);
+  return existing.length - pruned.length;
 };
 
 export const saveBackupSnapshot = (
@@ -101,6 +136,9 @@ export const saveBackupSnapshot = (
 ): void => {
   try {
     const existing = loadBackupSnapshots();
+    const powerSettings = loadPowerUserSettings();
+    const maxLimit = powerSettings.autoPruneSnapshots ? 5 : MAX_SNAPSHOTS;
+
     const newSnapshot: DataSnapshot = {
       id: `snap-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       timestamp: new Date().toISOString(),
@@ -124,8 +162,8 @@ export const saveBackupSnapshot = (
       },
     };
 
-    // Prepend new snapshot, limit to MAX_SNAPSHOTS
-    const updated = [newSnapshot, ...existing.slice(0, MAX_SNAPSHOTS - 1)];
+    // Prepend new snapshot, limit according to powerSettings
+    const updated = [newSnapshot, ...existing.slice(0, maxLimit - 1)];
     setItemSafe(KEYS.SNAPSHOTS, updated);
   } catch (e) {
     console.warn('Nie udało się zapisać migawki lokalnej:', e);
@@ -143,6 +181,66 @@ export const clearAllBackupSnapshots = (): void => {
     localStorage.removeItem(KEYS.SNAPSHOTS);
   } catch (e) {
     console.warn('Nie udało się wyczyścić migawek:', e);
+  }
+};
+
+export interface LocalStorageDiagnostics {
+  usedBytes: number;
+  usedKb: number;
+  totalLimitKb: number;
+  percentUsed: number;
+  keysCount: number;
+}
+
+export const getLocalStorageDiagnostics = (): LocalStorageDiagnostics => {
+  try {
+    let totalChars = 0;
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key) {
+        const val = localStorage.getItem(key) || '';
+        totalChars += key.length + val.length;
+      }
+    }
+    // W przeglądarkach każdy znak to ~2 bajty (UTF-16)
+    const usedBytes = totalChars * 2;
+    const usedKb = Math.round(usedBytes / 1024);
+    const totalLimitKb = 5120; // 5 MB standardowy limit przeglądarek
+    const percentUsed = Math.min(100, Number(((usedKb / totalLimitKb) * 100).toFixed(1)));
+    return {
+      usedBytes,
+      usedKb,
+      totalLimitKb,
+      percentUsed,
+      keysCount: localStorage.length,
+    };
+  } catch {
+    return { usedBytes: 0, usedKb: 0, totalLimitKb: 5120, percentUsed: 0, keysCount: 0 };
+  }
+};
+
+export const optimizeLocalStorage = (): { freedKb: number; message: string } => {
+  try {
+    const before = getLocalStorageDiagnostics().usedKb;
+    // 1. Usunięcie starych id odczytanych powiadomień
+    localStorage.removeItem('app_read_notification_ids');
+    // 2. Czyszczenie sesji tymczasowej
+    sessionStorage.clear();
+    // 3. Ograniczenie migawek do 5
+    pruneSnapshotsToLimit(5);
+    // 4. Ograniczenie wpisów aktywności do 80
+    const activities = loadActivities();
+    if (activities.length > 80) {
+      saveActivities(activities.slice(0, 80));
+    }
+    const after = getLocalStorageDiagnostics().usedKb;
+    const freed = Math.max(0, before - after);
+    return {
+      freedKb: freed,
+      message: freed > 0 ? `Zoptymalizowano pamięć podręczną. Zwolniono ok. ${freed} KB.` : 'Pamięć podręczna jest już w pełni zoptymalizowana.',
+    };
+  } catch (e) {
+    return { freedKb: 0, message: 'Błąd podczas optymalizacji pamięci.' };
   }
 };
 

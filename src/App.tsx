@@ -1457,10 +1457,18 @@ export default function App() {
           newTx.debtAction === 'receive_lent';
 
         if (isRepayment) {
-          // Jeśli podano dedykowaną kwotę spłaty kapitału (np. z rachunku ze split-em kapitał/odsetki lub auto kalkulacji), używamy jej
+          const explicitPaymentType = (newTx as any).paymentType || newTx.mortgagePaymentType;
+          const isOverpayment = explicitPaymentType !== undefined
+            ? explicitPaymentType === 'overpayment'
+            : newTx.title.toLowerCase().includes('nadpłat') ||
+              (newTx.comment && newTx.comment.toLowerCase().includes('nadpłat'));
+
+          // Jeśli podano dedykowaną kwotę spłaty kapitału (np. z formularza ze split-em kapitał/odsetki lub kalkulacji), używamy jej
           let principalRepaid: number;
           if (typeof newTx.principalAmount === 'number') {
             principalRepaid = newTx.principalAmount;
+          } else if (isOverpayment) {
+            principalRepaid = newTx.amount;
           } else if (isInterestBearingDebt(found)) {
             const split = calculateSuggestedLoanSplit({
               debt: found,
@@ -1476,10 +1484,6 @@ export default function App() {
           const newPaid = Math.round((found.paidAmount + principalRepaid) * 100) / 100;
           const newRemaining = Math.max(0, Math.round((found.initialAmount - newPaid) * 100) / 100);
           const isNowSettled = newRemaining <= 0.01;
-          const isOverpayment =
-            (newTx as any).paymentType === 'overpayment' ||
-            newTx.title.toLowerCase().includes('nadpłat') ||
-            (newTx.comment && newTx.comment.toLowerCase().includes('nadpłat'));
 
           // Unikaj duplikowania wpisu w historii, jeśli już istnieje wpis z tym samym transactionId
           const existingHistory = found.paymentsHistory || [];
@@ -1832,6 +1836,7 @@ export default function App() {
 
           if (!hasPayment && !isTargetDebt) return debt;
 
+          const existingRecord = (debt.paymentsHistory || []).find((p) => p.transactionId === id);
           let payments = (debt.paymentsHistory || []).filter((p) => p.transactionId !== id);
 
           if (isTargetDebt && finalDebtId) {
@@ -1839,11 +1844,61 @@ export default function App() {
             const finalDate = updates.date !== undefined ? updates.date : origTx.date;
             const finalNotes = updates.title || updates.comment || origTx.title;
 
+            const isInterest = isInterestBearingDebt(debt);
+            const explicitPaymentType = updates.mortgagePaymentType !== undefined
+              ? updates.mortgagePaymentType
+              : (updates as any).paymentType !== undefined
+              ? (updates as any).paymentType
+              : undefined;
+
+            const finalType = explicitPaymentType !== undefined
+              ? explicitPaymentType
+              : origTx.mortgagePaymentType !== undefined
+              ? origTx.mortgagePaymentType
+              : (origTx as any).paymentType !== undefined
+              ? (origTx as any).paymentType
+              : (updates.title || origTx.title || '').toLowerCase().includes('nadpłat') ||
+                ((updates.comment || origTx.comment || '') as string).toLowerCase().includes('nadpłat')
+              ? 'overpayment'
+              : 'regular';
+
+            let principalRepaid: number;
+            let interestRepaid: number;
+
+            if (updates.principalAmount !== undefined) {
+              principalRepaid = updates.principalAmount;
+              interestRepaid = updates.interestAmount !== undefined
+                ? updates.interestAmount
+                : Math.max(0, Math.round((finalAmount - principalRepaid) * 100) / 100);
+            } else if (origTx.principalAmount !== undefined && updates.amount === undefined) {
+              principalRepaid = origTx.principalAmount;
+              interestRepaid = origTx.interestAmount !== undefined
+                ? origTx.interestAmount
+                : Math.max(0, Math.round((finalAmount - principalRepaid) * 100) / 100);
+            } else if (finalType === 'overpayment') {
+              principalRepaid = finalAmount;
+              interestRepaid = 0;
+            } else if (isInterest) {
+              const split = calculateSuggestedLoanSplit({
+                debt,
+                paymentAmount: finalAmount,
+                paymentDate: finalDate,
+                paymentType: 'regular',
+              });
+              principalRepaid = split.suggestedPrincipal;
+              interestRepaid = split.suggestedInterest;
+            } else {
+              principalRepaid = finalAmount;
+              interestRepaid = 0;
+            }
+
             payments.push({
-              id: `payment-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+              id: existingRecord?.id || `payment-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
               date: finalDate,
               amount: finalAmount,
-              type: 'regular',
+              principalAmount: principalRepaid,
+              interestAmount: interestRepaid,
+              type: finalType === 'overpayment' ? 'overpayment' : 'regular',
               remainingAfter: 0,
               notes: finalNotes,
               transactionId: id,
@@ -1880,6 +1935,83 @@ export default function App() {
         return nextDebts;
       });
     }
+
+    // Synchronizacja kredytów hipotecznych (mortgages) przy edycji transakcji
+    setMortgages((prevMortgages) => {
+      let hasMortgageChange = false;
+      const updatedMortgages = prevMortgages.map((m) => {
+        const hasLinkedRecord = (m.paymentsHistory || []).some((p) => p.transactionId === id);
+        const finalMortgageId = (updates as any).mortgageId !== undefined ? (updates as any).mortgageId : (origTx as any).mortgageId;
+        const isDirectMortgage = finalMortgageId && m.id === finalMortgageId;
+
+        if (!hasLinkedRecord && !isDirectMortgage) return m;
+
+        hasMortgageChange = true;
+        let mHistory = (m.paymentsHistory || []).filter((p) => p.transactionId !== id);
+
+        if (isDirectMortgage) {
+          const finalAmount = updates.amount !== undefined ? updates.amount : origTx.amount;
+          const finalDate = updates.date !== undefined ? updates.date : origTx.date;
+          const finalNotes = updates.title || updates.comment || origTx.title;
+          const explicitPaymentType = updates.mortgagePaymentType !== undefined
+            ? updates.mortgagePaymentType
+            : (updates as any).paymentType !== undefined
+            ? (updates as any).paymentType
+            : undefined;
+
+          const finalType = explicitPaymentType !== undefined
+            ? explicitPaymentType
+            : origTx.mortgagePaymentType !== undefined
+            ? origTx.mortgagePaymentType
+            : (origTx as any).paymentType !== undefined
+            ? (origTx as any).paymentType
+            : (updates.title || origTx.title || '').toLowerCase().includes('nadpłat') ||
+              ((updates.comment || origTx.comment || '') as string).toLowerCase().includes('nadpłat')
+            ? 'overpayment'
+            : 'regular';
+
+          const principalRepaid = updates.principalAmount !== undefined
+            ? updates.principalAmount
+            : (origTx as any).principalAmount !== undefined && updates.amount === undefined
+            ? (origTx as any).principalAmount
+            : finalAmount;
+
+          const interestRepaid = updates.interestAmount !== undefined
+            ? updates.interestAmount
+            : Math.max(0, Math.round((finalAmount - principalRepaid) * 100) / 100);
+
+          mHistory.push({
+            id: `m-pay-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            date: finalDate,
+            amount: finalAmount,
+            principalPaid: principalRepaid,
+            interestPaid: interestRepaid,
+            type: finalType === 'overpayment' ? 'overpayment' : 'regular',
+            remainingPrincipalAfter: 0,
+            transactionId: id,
+            notes: finalNotes,
+          });
+        }
+
+        const totalPaidSoFar = mHistory.reduce((sum, p) => sum + (p.principalPaid || 0), 0);
+        const initialPaid = m.initialPaidPrincipal || 0;
+        const newRemaining = Math.max(0, Math.round((m.totalLoanAmount - initialPaid - totalPaidSoFar) * 100) / 100);
+
+        mHistory = mHistory.map((p) => (p.transactionId === id ? { ...p, remainingPrincipalAfter: newRemaining } : p));
+
+        return {
+          ...m,
+          remainingPrincipal: newRemaining,
+          paymentsHistory: mHistory,
+        };
+      });
+
+      if (hasMortgageChange) {
+        saveMortgages(updatedMortgages);
+        return updatedMortgages;
+      }
+      return prevMortgages;
+    });
 
     recordActivity({
       action: 'update',

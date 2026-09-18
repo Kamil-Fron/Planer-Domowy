@@ -47,6 +47,7 @@ import {
   isDebtInGracePeriod,
 } from '../utils/loanCalculation';
 import { DebtRepaymentLivePreview } from './DebtRepaymentLivePreview';
+import { DebtSplitAndLivePreview } from './DebtSplitAndLivePreview';
 
 interface QuickAddModalProps {
   isOpen: boolean;
@@ -294,15 +295,20 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
           return;
         }
 
-        if (isInterestBearingDebt(targetDebt)) {
-          if (debtPrincipal) {
-            const p = parseFloat(debtPrincipal.replace(',', '.'));
-            if (!isNaN(p) && p >= 0) {
-              principalAmt = p;
-              interestAmt = Math.max(0, Math.round((cleanAmount - p) * 100) / 100);
-            }
+        if (debtPrincipal) {
+          const p = parseFloat(debtPrincipal.replace(',', '.'));
+          if (!isNaN(p) && p >= 0) {
+            principalAmt = p;
+            interestAmt = debtInterest
+              ? (parseFloat(debtInterest.replace(',', '.')) || 0)
+              : Math.max(0, Math.round((cleanAmount - p) * 100) / 100);
           }
-          if (principalAmt === undefined) {
+        }
+        if (principalAmt === undefined) {
+          if (debtPaymentType === 'overpayment') {
+            principalAmt = cleanAmount;
+            interestAmt = 0;
+          } else if (isInterestBearingDebt(targetDebt)) {
             const split = calculateSuggestedLoanSplit({
               debt: targetDebt,
               paymentAmount: cleanAmount,
@@ -311,6 +317,9 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
             });
             principalAmt = split.suggestedPrincipal;
             interestAmt = split.suggestedInterest;
+          } else {
+            principalAmt = cleanAmount;
+            interestAmt = 0;
           }
         }
       }
@@ -331,6 +340,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
       debtCounterparty: isDebtCategory && debtActionType === 'create_new' ? newDebtCounterparty.trim() : undefined,
       principalAmount: principalAmt,
       interestAmount: interestAmt,
+      mortgagePaymentType: debtPaymentType,
       paymentType: debtPaymentType,
     };
 
@@ -782,224 +792,27 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
                         </select>
                         {debtId && (() => {
                           const targetDebt = debts.find((d) => d.id === debtId);
+                          if (!targetDebt) return null;
                           const parsedNum = parseFloat(amount.replace(',', '.')) || 0;
-                          const isOver = targetDebt && targetDebt.currentRemaining > 0 && parsedNum > targetDebt.currentRemaining + 0.009;
-                          const hasInterest = targetDebt && isInterestBearingDebt(targetDebt);
-
-                          const splitSuggestion = targetDebt && hasInterest
-                            ? calculateSuggestedLoanSplit({
-                                debt: targetDebt,
-                                paymentAmount: parsedNum,
-                                paymentDate: date || new Date().toISOString().split('T')[0],
-                                paymentType: debtPaymentType,
-                              })
-                            : null;
-
-                          const currentPrincipal = debtPrincipal !== ''
-                            ? (parseFloat(debtPrincipal.replace(',', '.')) || 0)
-                            : (splitSuggestion ? splitSuggestion.suggestedPrincipal : parsedNum);
-                          const currentInterest = debtInterest !== ''
-                            ? (parseFloat(debtInterest.replace(',', '.')) || 0)
-                            : (splitSuggestion ? splitSuggestion.suggestedInterest : 0);
 
                           return (
-                            <div className="space-y-2.5">
-                              {isOver && (
-                                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-300 text-xs text-rose-950 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                                  <div>
-                                    <span className="font-bold block text-rose-900">
-                                      ⚠️ Kwota ({parsedNum.toFixed(2)} zł) przekracza pozostałe saldo ({targetDebt.currentRemaining.toFixed(2)} zł)!
-                                    </span>
-                                    <span className="text-[10px] text-rose-800">
-                                      Do całkowitego rozliczenia należy zapłacić {targetDebt.currentRemaining.toFixed(2)} zł.
-                                    </span>
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setAmount(targetDebt.currentRemaining.toFixed(2));
-                                      if (hasInterest) {
-                                        const split = calculateSuggestedLoanSplit({
-                                          debt: targetDebt,
-                                          paymentAmount: targetDebt.currentRemaining,
-                                          paymentDate: date || new Date().toISOString().split('T')[0],
-                                          paymentType: 'regular',
-                                        });
-                                        setDebtPrincipal(split.suggestedPrincipal.toFixed(2));
-                                        setDebtInterest(split.suggestedInterest.toFixed(2));
-                                      }
-                                    }}
-                                    className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-md font-bold text-[11px] shrink-0 transition-colors cursor-pointer"
-                                  >
-                                    Ustaw {targetDebt.currentRemaining.toFixed(2)} zł
-                                  </button>
-                                </div>
-                              )}
-
-                              {hasInterest && splitSuggestion && (
-                                <div className="p-3 rounded-xl bg-white border border-indigo-200 space-y-2 shadow-2xs">
-                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                                    <span className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
-                                      <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-                                      <span>Automatyczny podział raty (kapitał / odsetki)</span>
-                                    </span>
-                                    <div className="flex items-center gap-1">
-                                      {splitSuggestion.isInGracePeriod ? (
-                                        <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold">
-                                          Karencja do {splitSuggestion.graceEndDate || 'końca'}
-                                        </span>
-                                      ) : (
-                                        <span className="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-900 border border-indigo-200 text-[10px] font-bold">
-                                          Oproc.: {splitSuggestion.effectiveAnnualRate}%
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-
-                                  {/* Wybór typu spłaty: Rata vs Nadpłata */}
-                                  <div className="flex items-center gap-1.5 pt-0.5">
-                                    <span className="text-[10px] font-bold text-slate-600">Typ spłaty:</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setDebtPaymentType('regular');
-                                        setDebtPrincipal(splitSuggestion.suggestedPrincipal.toFixed(2));
-                                        setDebtInterest(splitSuggestion.suggestedInterest.toFixed(2));
-                                      }}
-                                      className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
-                                        debtPaymentType === 'regular'
-                                          ? 'bg-indigo-600 text-white shadow-2xs'
-                                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                      }`}
-                                    >
-                                      🏦 Rata miesięczna
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setDebtPaymentType('overpayment');
-                                        setDebtPrincipal(parsedNum.toFixed(2));
-                                        setDebtInterest('0.00');
-                                        if (!title || title.toLowerCase().includes('rata') || title === 'Wydatek: Zobowiązania i pożyczki') {
-                                          setTitle(`Nadpłata kredytu: ${targetDebt.name}`);
-                                        }
-                                      }}
-                                      className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
-                                        debtPaymentType === 'overpayment'
-                                          ? 'bg-emerald-600 text-white shadow-2xs'
-                                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                      }`}
-                                    >
-                                      🚀 Nadpłata kapitału
-                                    </button>
-                                  </div>
-
-                                  <p className="text-[11px] text-slate-600 leading-snug">
-                                    {splitSuggestion.explanation}
-                                  </p>
-
-                                  <div className="flex flex-wrap gap-1 pt-1">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setDebtPrincipal(splitSuggestion.suggestedPrincipal.toFixed(2));
-                                        setDebtInterest(splitSuggestion.suggestedInterest.toFixed(2));
-                                      }}
-                                      className="px-2 py-0.5 rounded bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold transition-colors cursor-pointer"
-                                    >
-                                      Sugestia bankowa ({splitSuggestion.suggestedPrincipal.toFixed(2)} zł / {splitSuggestion.suggestedInterest.toFixed(2)} zł)
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setDebtPrincipal(parsedNum.toFixed(2));
-                                        setDebtInterest('0.00');
-                                      }}
-                                      className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 text-[10px] font-semibold transition-colors cursor-pointer"
-                                    >
-                                      100% kapitał
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setDebtPrincipal('0.00');
-                                        setDebtInterest(parsedNum.toFixed(2));
-                                      }}
-                                      className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 text-[10px] font-semibold transition-colors cursor-pointer"
-                                    >
-                                      100% odsetki
-                                    </button>
-                                  </div>
-
-                                  <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-100">
-                                    <div>
-                                      <label className="block text-[10px] font-bold text-slate-600 uppercase mb-0.5">
-                                        Kapitał (zł):
-                                      </label>
-                                      <input
-                                        type="number"
-                                        step="0.01"
-                                        placeholder="0.00"
-                                        value={debtPrincipal}
-                                        onChange={(e) => {
-                                          const p = e.target.value;
-                                          setDebtPrincipal(p);
-                                          const pNum = parseFloat(p) || 0;
-                                          setDebtInterest(Math.max(0, Math.round((parsedNum - pNum) * 100) / 100).toFixed(2));
-                                        }}
-                                        className="w-full px-2.5 py-1 text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="block text-[10px] font-bold text-slate-600 uppercase mb-0.5">
-                                        Odsetki (zł):
-                                      </label>
-                                      <input
-                                        type="number"
-                                        step="0.01"
-                                        placeholder="0.00"
-                                        value={debtInterest}
-                                        onChange={(e) => {
-                                          const i = e.target.value;
-                                          setDebtInterest(i);
-                                          const iNum = parseFloat(i) || 0;
-                                          setDebtPrincipal(Math.max(0, Math.round((parsedNum - iNum) * 100) / 100).toFixed(2));
-                                        }}
-                                        className="w-full px-2.5 py-1 text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500"
-                                      />
-                                    </div>
-                                  </div>
-
-                                  {/* Dynamiczny podgląd na żywo pozostałego salda */}
-                                  {parsedNum > 0 && (
-                                    <DebtRepaymentLivePreview
-                                      debt={targetDebt}
-                                      totalPayment={parsedNum}
-                                      principalPayment={currentPrincipal}
-                                      interestPayment={currentInterest}
-                                      paymentType={debtPaymentType}
-                                      currency="zł"
-                                      className="mt-2"
-                                    />
-                                  )}
-                                </div>
-                              )}
-
-                              {!hasInterest && parsedNum > 0 && targetDebt && (
-                                <DebtRepaymentLivePreview
-                                  debt={targetDebt}
-                                  totalPayment={parsedNum}
-                                  principalPayment={parsedNum}
-                                  interestPayment={0}
-                                  paymentType="regular"
-                                  currency="zł"
-                                  className="mt-2"
-                                />
-                              )}
-
+                            <div className="space-y-2">
+                              <DebtSplitAndLivePreview
+                                debt={targetDebt}
+                                paymentAmount={parsedNum}
+                                paymentDate={date || new Date().toISOString().split('T')[0]}
+                                paymentType={debtPaymentType}
+                                onChangePaymentType={(t) => setDebtPaymentType(t)}
+                                principalAmount={debtPrincipal}
+                                onChangePrincipal={(val) => setDebtPrincipal(val)}
+                                interestAmount={debtInterest}
+                                onChangeInterest={(val) => setDebtInterest(val)}
+                                onSetExactAmount={(amt) => setAmount(amt)}
+                                className="mt-1"
+                              />
                               <p className="text-[10px] text-indigo-800 font-medium">
                                 {type === 'expense'
-                                  ? (hasInterest
+                                  ? (isInterestBearingDebt(targetDebt)
                                       ? '💡 Spłata kapitału pomniejszy saldo kredytu. Część odsetkowa zostanie zarejestrowana jako koszt obsługi długu.'
                                       : '💡 Zapisanie wydatku automatycznie pomniejszy saldo Twojego zadłużenia wobec wierzyciela i doda wpis w historii spłat.')
                                   : '💡 Zapisanie wpływu automatycznie pomniejszy kwotę do zwrotu od dłużnika i doda wpis w historii spłat.'}

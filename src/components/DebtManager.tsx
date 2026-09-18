@@ -31,6 +31,7 @@ import {
   CreditCard,
 } from 'lucide-react';
 import { DebtItem, DebtPaymentRecord, DebtType, DebtCategory, Transaction, Bill } from '../types';
+import { DebtRepaymentLivePreview } from './DebtRepaymentLivePreview';
 import {
   calculateSuggestedLoanSplit,
   isInterestBearingDebt,
@@ -62,6 +63,7 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
   onUpdateDebt,
   onDeleteDebt,
   onAddTransaction,
+  onDeleteTransaction,
   onAddBill,
   transactions = [],
   onSuccessFeedback,
@@ -77,6 +79,10 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
   const [selectedDebtForEdit, setSelectedDebtForEdit] = useState<DebtItem | null>(null);
   const [selectedDebtForCalculator, setSelectedDebtForCalculator] = useState<DebtItem | null>(null);
   const [debtToDelete, setDebtToDelete] = useState<DebtItem | null>(null);
+  const [paymentToDeleteFromHistory, setPaymentToDeleteFromHistory] = useState<{
+    debt: DebtItem;
+    payment: DebtPaymentRecord;
+  } | null>(null);
 
   // Quick Payment Modal form state
   const [paymentAmount, setPaymentAmount] = useState('');
@@ -546,6 +552,8 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
     const newRemaining = Math.max(0, selectedDebtForPayment.currentRemaining - principal);
     const newPaid = selectedDebtForPayment.paidAmount + principal;
 
+    const txId = `tx-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
     const paymentRecord: DebtPaymentRecord = {
       id: `debt-pay-${Date.now()}`,
       date: paymentDate,
@@ -555,16 +563,20 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
       interestAmount: interest,
       remainingAfter: newRemaining,
       notes: paymentNotes.trim() || undefined,
+      transactionId: txId,
     };
 
     // Create automatic transaction in Transactions
     const isRepayMyDebt = selectedDebtForPayment.type === 'borrowed';
     const txType = isRepayMyDebt ? 'expense' : 'income';
     const txTitle = isRepayMyDebt
-      ? `Spłata zobowiązania: ${selectedDebtForPayment.name}`
+      ? paymentType === 'overpayment'
+        ? `Nadpłata kredytu: ${selectedDebtForPayment.name}`
+        : `Spłata zobowiązania: ${selectedDebtForPayment.name}`
       : `Zwrot pożyczki od: ${selectedDebtForPayment.counterparty}`;
 
     onAddTransaction({
+      id: txId,
       title: txTitle,
       amount,
       type: txType,
@@ -573,7 +585,7 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
       debtId: selectedDebtForPayment.id,
       debtAction: isRepayMyDebt ? 'repay_borrowed' : 'receive_lent',
       debtCounterparty: selectedDebtForPayment.counterparty,
-      comment: paymentNotes.trim() || `Rozliczenie w sekcji Zadłużenia`,
+      comment: paymentNotes.trim() || (paymentType === 'overpayment' ? `Nadpłata kapitału w sekcji Zadłużenia` : `Rozliczenie w sekcji Zadłużenia`),
       principalAmount: principal,
       interestAmount: interest,
     });
@@ -600,6 +612,63 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
     }
 
     setSelectedDebtForPayment(null);
+  };
+
+  // Revert / Delete payment record from debt history
+  const handleDeletePaymentHistoryRecord = (debt: DebtItem, paymentRecord: DebtPaymentRecord) => {
+    const principalToRevert = paymentRecord.principalAmount !== undefined
+      ? paymentRecord.principalAmount
+      : (isInterestBearingDebt(debt)
+          ? calculateSuggestedLoanSplit({
+              debt,
+              paymentAmount: paymentRecord.amount,
+              paymentDate: paymentRecord.date,
+              paymentType: paymentRecord.type === 'overpayment' ? 'overpayment' : 'regular',
+            }).suggestedPrincipal
+          : paymentRecord.amount);
+
+    const newPaid = Math.max(0, Math.round((debt.paidAmount - principalToRevert) * 100) / 100);
+    const newRemaining = Math.max(0, Math.round((debt.initialAmount - newPaid) * 100) / 100);
+    const remainingHistory = (debt.paymentsHistory || []).filter((p) => p.id !== paymentRecord.id);
+
+    const updatedDebt: DebtItem = {
+      ...debt,
+      paidAmount: newPaid,
+      currentRemaining: newRemaining,
+      status: newRemaining <= 0.01 ? 'settled' : 'active',
+      paymentsHistory: remainingHistory,
+      updatedAt: new Date().toISOString(),
+    };
+
+    onUpdateDebt(updatedDebt);
+    setSelectedDebtForDetails(updatedDebt);
+
+    // Jeśli wpis posiada powiązane transactionId lub transakcję w budżecie, usuwamy ją
+    if (onDeleteTransaction && paymentRecord.transactionId) {
+      onDeleteTransaction(paymentRecord.transactionId);
+    } else if (onDeleteTransaction && transactions) {
+      const matchedTx = transactions.find(
+        (t) =>
+          (t.debtId === debt.id || t.category === 'Zobowiązania i pożyczki') &&
+          t.date === paymentRecord.date &&
+          Math.abs(t.amount - paymentRecord.amount) < 0.05
+      );
+      if (matchedTx) {
+        onDeleteTransaction(matchedTx.id);
+      }
+    }
+
+    if (onSuccessFeedback) {
+      onSuccessFeedback(
+        'Cofnięto wpis spłaty',
+        paymentRecord.amount,
+        'expense',
+        undefined,
+        `Zwrócono ${principalToRevert.toFixed(2)} zł do salda zobowiązania`
+      );
+    }
+
+    setPaymentToDeleteFromHistory(null);
   };
 
   // Confirm delete
@@ -1683,7 +1752,7 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
 
             {(() => {
               const parsedAmt = parseFloat(paymentAmount.replace(',', '.')) || 0;
-              const parsedPrinc = (selectedDebtForPayment.isBankLoan && paymentPrincipal)
+              const parsedPrinc = (isInterestBearingDebt(selectedDebtForPayment) && paymentPrincipal)
                 ? (parseFloat(paymentPrincipal.replace(',', '.')) || 0)
                 : parsedAmt;
               const remainingDebt = selectedDebtForPayment.currentRemaining;
@@ -1937,6 +2006,23 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                         </div>
                       );
                     })()}
+
+                    {/* Dynamiczny podgląd na żywo salda po spłacie */}
+                    {parsedAmt > 0 && (
+                      <DebtRepaymentLivePreview
+                        debt={selectedDebtForPayment}
+                        totalPayment={parsedAmt}
+                        principalPayment={parsedPrinc}
+                        interestPayment={
+                          isInterestBearingDebt(selectedDebtForPayment)
+                            ? Math.max(0, parsedAmt - parsedPrinc)
+                            : 0
+                        }
+                        paymentType={paymentType}
+                        currency="zł"
+                        className="mt-3"
+                      />
+                    )}
 
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-slate-700">Notatka / komentarz:</label>
@@ -2343,11 +2429,26 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                           )}
                           {p.notes && <p className="text-[11px] text-slate-400 italic mt-0.5">{p.notes}</p>}
                         </div>
-                        <div className="text-right">
-                          <span className="text-[11px] text-slate-500 font-medium">{p.date}</span>
-                          <p className="text-[10px] text-slate-400">
-                            Zostało po: {p.remainingAfter.toLocaleString('pl-PL')} zł
-                          </p>
+                        <div className="flex items-center gap-2">
+                          <div className="text-right">
+                            <span className="text-[11px] text-slate-500 font-medium">{p.date}</span>
+                            <p className="text-[10px] text-slate-400">
+                              Zostało po: {p.remainingAfter.toLocaleString('pl-PL')} zł
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            title="Usuń ten wpis spłaty i cofnij kwotę do salda zadłużenia"
+                            onClick={() =>
+                              setPaymentToDeleteFromHistory({
+                                debt: selectedDebtForDetails,
+                                payment: p,
+                              })
+                            }
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -2970,6 +3071,45 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Modal potwierdzenia usunięcia wpisu spłaty z historii */}
+      {paymentToDeleteFromHistory && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center space-x-3 text-rose-600">
+              <div className="p-2.5 bg-rose-50 rounded-xl">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <h3 className="text-base font-bold text-slate-900">Cofnąć ten wpis spłaty?</h3>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Czy na pewno chcesz usunąć wpis ze spłatą <strong className="text-slate-900">{paymentToDeleteFromHistory.payment.amount.toLocaleString('pl-PL')} zł</strong> z dnia {paymentToDeleteFromHistory.payment.date}?
+              <br /><br />
+              Kwota kapitału ({(paymentToDeleteFromHistory.payment.principalAmount ?? paymentToDeleteFromHistory.payment.amount).toFixed(2)} zł) zostanie zwrócona do pozostałego salda zadłużenia, a powiązana transakcja wydatku zostanie usunięta z budżetu.
+            </p>
+            <div className="flex justify-end space-x-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setPaymentToDeleteFromHistory(null)}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl"
+              >
+                Anuluj
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  handleDeletePaymentHistoryRecord(
+                    paymentToDeleteFromHistory.debt,
+                    paymentToDeleteFromHistory.payment
+                  )
+                }
+                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-md transition-all cursor-pointer"
+              >
+                Usuń i cofnij spłatę
+              </button>
+            </div>
           </div>
         </div>
       )}

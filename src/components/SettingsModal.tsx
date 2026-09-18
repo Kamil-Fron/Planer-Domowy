@@ -1438,13 +1438,70 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="flex items-center space-x-2">
                     <Database className="w-4 h-4 text-emerald-600" />
                     <div>
-                      <h4 className="text-xs sm:text-sm font-bold text-slate-900">
-                        Diagnostyka Bazy Danych i Pamięci (System Health)
-                      </h4>
+                      <div className="flex items-center space-x-2">
+                        <h4 className="text-xs sm:text-sm font-bold text-slate-900">
+                          Diagnostyka Środowiska & Stan PWA
+                        </h4>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-100 text-indigo-800 border border-indigo-200">
+                          Wersja 3.0.0
+                        </span>
+                      </div>
                       <p className="text-[11px] text-slate-500">
-                        Monitorowanie zużycia pamięci przeglądarki oraz szybkości odpowiedzi chmury Google Cloud.
+                        Weryfikacja trybu uruchomienia, bazy Google Cloud Firestore oraz stanu pamięci podręcznej.
                       </p>
                     </div>
+                  </div>
+                </div>
+
+                {/* 3 Kafelki Diagnostyczne Środowiska */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  {/* Kafelek 1: Tryb PWA */}
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tryb Aplikacji</span>
+                      <Smartphone className="w-3.5 h-3.5 text-indigo-600" />
+                    </div>
+                    <p className="text-xs font-black text-slate-900">
+                      {isStandalonePWA()
+                        ? 'Zainstalowano (PWA)'
+                        : isRunningInIframe()
+                        ? 'Podgląd w iFrame'
+                        : 'Przeglądarka www'}
+                    </p>
+                    <p className="text-[10px] text-slate-500">
+                      {isStandalonePWA()
+                        ? 'Działa jak aplikacja natywna'
+                        : 'Dostęp przez adres URL'}
+                    </p>
+                  </div>
+
+                  {/* Kafelek 2: Silnik Bazy */}
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Silnik Bazy</span>
+                      <Cloud className="w-3.5 h-3.5 text-emerald-600" />
+                    </div>
+                    <p className="text-xs font-black text-slate-900">
+                      Google Cloud Firestore
+                    </p>
+                    <p className="text-[10px] text-emerald-600 font-semibold flex items-center space-x-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                      <span>{syncStatus === 'synced' ? 'Synchronizacja na żywo' : 'Połączenie aktywne'}</span>
+                    </p>
+                  </div>
+
+                  {/* Kafelek 3: Status Pamięci Podręcznej & Cache */}
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Pamięć Podręczna</span>
+                      <HardDrive className="w-3.5 h-3.5 text-amber-600" />
+                    </div>
+                    <p className="text-xs font-black text-slate-900">
+                      {storageDiag.usedKb} KB zajęte ({storageDiag.percentUsed}%)
+                    </p>
+                    <p className="text-[10px] text-slate-500">
+                      {storageDiag.keysCount} pozycji w lokalnym buforze
+                    </p>
                   </div>
                 </div>
 

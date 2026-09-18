@@ -19,6 +19,7 @@ import {
   Percent,
 } from 'lucide-react';
 import { Transaction, TransactionType, DebtItem, DebtCategory, DebtType } from '../types';
+import { DebtRepaymentLivePreview } from './DebtRepaymentLivePreview';
 import { INITIAL_CATEGORIES, INITIAL_INCOME_CATEGORIES } from '../mockData';
 import { MonthRolloverControl } from './MonthRolloverControl';
 import { useMonthSwipe } from '../hooks/useMonthSwipe';
@@ -119,6 +120,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
   const [editDebtId, setEditDebtId] = useState<string>('');
   const [editDebtPrincipal, setEditDebtPrincipal] = useState<string>('');
   const [editDebtInterest, setEditDebtInterest] = useState<string>('');
+  const [editPaymentType, setEditPaymentType] = useState<'regular' | 'overpayment'>('regular');
 
   // Form State (Add)
   const [formType, setFormType] = useState<TransactionType>('income');
@@ -131,6 +133,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
   const [formDebtId, setFormDebtId] = useState<string>('');
   const [formDebtPrincipal, setFormDebtPrincipal] = useState<string>('');
   const [formDebtInterest, setFormDebtInterest] = useState<string>('');
+  const [formPaymentType, setFormPaymentType] = useState<'regular' | 'overpayment'>('regular');
 
   // New Debt creation sub-form state when formCategory === 'Zobowiązania i pożyczki'
   const [formDebtActionType, setFormDebtActionType] = useState<'link' | 'create_new'>('link');
@@ -204,6 +207,12 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
     setEditDebtId(t.debtId || '');
 
     const linkedDebt = t.debtId ? debts.find((d) => d.id === t.debtId) : undefined;
+    const isOverpayment =
+      (t as any).paymentType === 'overpayment' ||
+      t.title.toLowerCase().includes('nadpłat') ||
+      (t.comment && t.comment.toLowerCase().includes('nadpłat'));
+    setEditPaymentType(isOverpayment ? 'overpayment' : 'regular');
+
     if (t.principalAmount !== undefined) {
       setEditDebtPrincipal(t.principalAmount.toString());
       setEditDebtInterest((t.interestAmount !== undefined ? t.interestAmount : Math.max(0, Math.round((t.amount - t.principalAmount) * 100) / 100)).toString());
@@ -212,7 +221,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
         debt: linkedDebt,
         paymentAmount: t.amount,
         paymentDate: t.date,
-        paymentType: 'regular',
+        paymentType: isOverpayment ? 'overpayment' : 'regular',
       });
       setEditDebtPrincipal(split.suggestedPrincipal.toFixed(2));
       setEditDebtInterest(split.suggestedInterest.toFixed(2));
@@ -247,7 +256,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
             debt: targetDebt,
             paymentAmount: parsedAmount,
             paymentDate: editDate,
-            paymentType: 'regular',
+            paymentType: editPaymentType,
           });
           principalAmt = split.suggestedPrincipal;
           interestAmt = split.suggestedInterest;
@@ -268,7 +277,8 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
         debtId: editDebtId || undefined,
         principalAmount: principalAmt,
         interestAmount: interestAmt,
-      });
+        paymentType: editPaymentType,
+      } as any);
     }
 
     setEditingTransaction(null);
@@ -339,7 +349,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
               debt: targetDebt,
               paymentAmount: parsedAmount,
               paymentDate: formDate,
-              paymentType: 'regular',
+              paymentType: formPaymentType,
             });
             principalAmt = split.suggestedPrincipal;
             interestAmt = split.suggestedInterest;
@@ -362,7 +372,8 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
       debtCounterparty: isDebtCategory && formDebtActionType === 'create_new' ? formNewDebtCounterparty.trim() : undefined,
       principalAmount: principalAmt,
       interestAmount: interestAmt,
-    });
+      paymentType: formPaymentType,
+    } as any);
 
     recordTransactionUsage(formTitle.trim(), formCategory, formType, parsedAmount);
 
@@ -373,6 +384,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
     setFormDebtId('');
     setFormDebtPrincipal('');
     setFormDebtInterest('');
+    setFormPaymentType('regular');
     setFormDebtActionType('link');
     setFormNewDebtCounterparty('');
     setFormNewDebtDueDate('');
@@ -1016,20 +1028,40 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                             debt: targetDebt,
                             paymentAmount: parsedAmt,
                             paymentDate: editDate,
-                            paymentType: 'regular',
+                            paymentType: editPaymentType,
                           })
                         : null;
 
                       if (!hasInterest || !splitSuggestion) {
                         return (
-                          <p className="text-[11px] text-indigo-800 leading-relaxed">
-                            💡 Zapisanie zmian zaktualizuje historię spłat i saldo tego zobowiązania.
-                          </p>
+                          <div className="space-y-2">
+                            {parsedAmt > 0 && targetDebt && (
+                              <DebtRepaymentLivePreview
+                                debt={targetDebt}
+                                totalPayment={parsedAmt}
+                                principalPayment={parsedAmt}
+                                interestPayment={0}
+                                paymentType="regular"
+                                currency="zł"
+                                className="mt-1"
+                              />
+                            )}
+                            <p className="text-[11px] text-indigo-800 leading-relaxed font-medium">
+                              💡 Zapisanie zmian zaktualizuje historię spłat i saldo tego zobowiązania.
+                            </p>
+                          </div>
                         );
                       }
 
+                      const currentPrincipal = editDebtPrincipal !== ''
+                        ? (parseFloat(editDebtPrincipal.replace(',', '.')) || 0)
+                        : (splitSuggestion ? splitSuggestion.suggestedPrincipal : parsedAmt);
+                      const currentInterest = editDebtInterest !== ''
+                        ? (parseFloat(editDebtInterest.replace(',', '.')) || 0)
+                        : (splitSuggestion ? splitSuggestion.suggestedInterest : 0);
+
                       return (
-                        <div className="p-3 rounded-xl bg-white border border-indigo-200 space-y-2 shadow-2xs">
+                        <div className="p-3 rounded-xl bg-white border border-indigo-200 space-y-2.5 shadow-2xs">
                           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                             <span className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
                               <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
@@ -1046,6 +1078,43 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                                 </span>
                               )}
                             </div>
+                          </div>
+
+                          {/* Typ spłaty: Rata vs Nadpłata */}
+                          <div className="flex items-center gap-1.5 pt-0.5">
+                            <span className="text-[10px] font-bold text-slate-600">Typ spłaty:</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditPaymentType('regular');
+                                if (splitSuggestion) {
+                                  setEditDebtPrincipal(splitSuggestion.suggestedPrincipal.toFixed(2));
+                                  setEditDebtInterest(splitSuggestion.suggestedInterest.toFixed(2));
+                                }
+                              }}
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                                editPaymentType === 'regular'
+                                  ? 'bg-indigo-600 text-white shadow-2xs'
+                                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                              }`}
+                            >
+                              🏦 Rata miesięczna
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditPaymentType('overpayment');
+                                setEditDebtPrincipal(parsedAmt.toFixed(2));
+                                setEditDebtInterest('0.00');
+                              }}
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                                editPaymentType === 'overpayment'
+                                  ? 'bg-emerald-600 text-white shadow-2xs'
+                                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                              }`}
+                            >
+                              🚀 Nadpłata kapitału
+                            </button>
                           </div>
 
                           <p className="text-[11px] text-slate-600 leading-snug">
@@ -1123,6 +1192,19 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                               />
                             </div>
                           </div>
+
+                          {/* Dynamiczny podgląd na żywo pozostałego salda */}
+                          {parsedAmt > 0 && targetDebt && (
+                            <DebtRepaymentLivePreview
+                              debt={targetDebt}
+                              totalPayment={parsedAmt}
+                              principalPayment={currentPrincipal}
+                              interestPayment={currentInterest}
+                              paymentType={editPaymentType}
+                              currency="zł"
+                              className="mt-2"
+                            />
+                          )}
                         </div>
                       );
                     })()}
@@ -1484,9 +1566,16 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                                   debt: targetDebt,
                                   paymentAmount: parsedNum,
                                   paymentDate: formDate,
-                                  paymentType: 'regular',
+                                  paymentType: formPaymentType,
                                 })
                               : null;
+
+                            const currentPrincipal = formDebtPrincipal !== ''
+                              ? (parseFloat(formDebtPrincipal.replace(',', '.')) || 0)
+                              : (splitSuggestion ? splitSuggestion.suggestedPrincipal : parsedNum);
+                            const currentInterest = formDebtInterest !== ''
+                              ? (parseFloat(formDebtInterest.replace(',', '.')) || 0)
+                              : (splitSuggestion ? splitSuggestion.suggestedInterest : 0);
 
                             return (
                               <div className="space-y-2.5">
@@ -1511,7 +1600,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                                 )}
 
                                 {hasInterest && splitSuggestion && (
-                                  <div className="p-3 rounded-xl bg-white border border-indigo-200 space-y-2 shadow-2xs">
+                                  <div className="p-3 rounded-xl bg-white border border-indigo-200 space-y-2.5 shadow-2xs">
                                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                                       <span className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
                                         <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
@@ -1528,6 +1617,44 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                                           </span>
                                         )}
                                       </div>
+                                    </div>
+
+                                    {/* Wybór typu spłaty: Rata vs Nadpłata */}
+                                    <div className="flex items-center gap-1.5 pt-0.5">
+                                      <span className="text-[10px] font-bold text-slate-600">Typ spłaty:</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setFormPaymentType('regular');
+                                          setFormDebtPrincipal(splitSuggestion.suggestedPrincipal.toFixed(2));
+                                          setFormDebtInterest(splitSuggestion.suggestedInterest.toFixed(2));
+                                        }}
+                                        className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                                          formPaymentType === 'regular'
+                                            ? 'bg-indigo-600 text-white shadow-2xs'
+                                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                        }`}
+                                      >
+                                        🏦 Rata miesięczna
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setFormPaymentType('overpayment');
+                                          setFormDebtPrincipal(parsedNum.toFixed(2));
+                                          setFormDebtInterest('0.00');
+                                          if (!formTitle || formTitle === 'Wypłata z etatu' || formTitle.toLowerCase().includes('rata')) {
+                                            setFormTitle(`Nadpłata kredytu: ${targetDebt.name}`);
+                                          }
+                                        }}
+                                        className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                                          formPaymentType === 'overpayment'
+                                            ? 'bg-emerald-600 text-white shadow-2xs'
+                                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                        }`}
+                                      >
+                                        🚀 Nadpłata kapitału
+                                      </button>
                                     </div>
 
                                     <p className="text-[11px] text-slate-600 leading-snug">
@@ -1605,7 +1732,32 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                                         />
                                       </div>
                                     </div>
+
+                                    {/* Dynamiczny podgląd na żywo pozostałego salda */}
+                                    {parsedNum > 0 && (
+                                      <DebtRepaymentLivePreview
+                                        debt={targetDebt}
+                                        totalPayment={parsedNum}
+                                        principalPayment={currentPrincipal}
+                                        interestPayment={currentInterest}
+                                        paymentType={formPaymentType}
+                                        currency="zł"
+                                        className="mt-2"
+                                      />
+                                    )}
                                   </div>
+                                )}
+
+                                {!hasInterest && parsedNum > 0 && targetDebt && (
+                                  <DebtRepaymentLivePreview
+                                    debt={targetDebt}
+                                    totalPayment={parsedNum}
+                                    principalPayment={parsedNum}
+                                    interestPayment={0}
+                                    paymentType="regular"
+                                    currency="zł"
+                                    className="mt-2"
+                                  />
                                 )}
 
                                 <p className="text-[11px] text-indigo-800 leading-relaxed font-medium">

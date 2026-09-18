@@ -1463,26 +1463,41 @@ export default function App() {
           const newPaid = Math.round((found.paidAmount + principalRepaid) * 100) / 100;
           const newRemaining = Math.max(0, Math.round((found.initialAmount - newPaid) * 100) / 100);
           const isNowSettled = newRemaining <= 0.01;
+          const isOverpayment =
+            (newTx as any).paymentType === 'overpayment' ||
+            newTx.title.toLowerCase().includes('nadpłat') ||
+            (newTx.comment && newTx.comment.toLowerCase().includes('nadpłat'));
+
+          // Unikaj duplikowania wpisu w historii, jeśli już istnieje wpis z tym samym transactionId
+          const existingHistory = found.paymentsHistory || [];
+          const alreadyHasTxRecord = existingHistory.some((p) => p.transactionId === newTx.id);
+
+          const updatedHistory = alreadyHasTxRecord
+            ? existingHistory
+            : [
+                ...existingHistory,
+                {
+                  id: `payment-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                  date: newTx.date,
+                  amount: newTx.amount,
+                  principalAmount: principalRepaid,
+                  interestAmount:
+                    newTx.interestAmount !== undefined
+                      ? newTx.interestAmount
+                      : Math.max(0, Math.round((newTx.amount - principalRepaid) * 100) / 100),
+                  type: isOverpayment ? ('overpayment' as const) : ('regular' as const),
+                  remainingAfter: newRemaining,
+                  notes: newTx.comment || newTx.title,
+                  transactionId: newTx.id,
+                },
+              ];
 
           const updatedDebt: DebtItem = {
             ...found,
             paidAmount: newPaid,
             currentRemaining: newRemaining,
             status: isNowSettled ? 'settled' : 'active',
-            paymentsHistory: [
-              ...(found.paymentsHistory || []),
-              {
-                id: `payment-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-                date: newTx.date,
-                amount: newTx.amount,
-                principalAmount: principalRepaid,
-                interestAmount: newTx.interestAmount !== undefined ? newTx.interestAmount : Math.max(0, Math.round((newTx.amount - principalRepaid) * 100) / 100),
-                type: 'regular',
-                remainingAfter: newRemaining,
-                notes: newTx.comment || newTx.title,
-                transactionId: newTx.id,
-              },
-            ],
+            paymentsHistory: updatedHistory,
           };
 
           // Jeśli zobowiązanie zostało w całości spłacone, a istnieje powiązany cykliczny rachunek, oznaczamy rachunek jako zakończony / opłacony
@@ -1641,39 +1656,115 @@ export default function App() {
         });
       }
 
-      // Jeśli usunięta transakcja była powiązana ze spłatą zadłużenia, cofnij spłatę w zobowiązaniu
-      if (deletedTx.debtId) {
-        setDebts((prevDebts) => {
-          const found = prevDebts.find((d) => d.id === deletedTx.debtId);
-          if (!found) return prevDebts;
+      // Jeśli usunięta transakcja była powiązana ze spłatą zadłużenia / kredytu, cofnij spłatę w zobowiązaniu i usuń wpis w historii
+      setDebts((prevDebts) => {
+        // Znajdź powiązane zobowiązanie: bezpośrednio po debtId, lub szukając wpisu w historii z transactionId, lub po spójności danych
+        let targetDebt = deletedTx.debtId ? prevDebts.find((d) => d.id === deletedTx.debtId) : undefined;
+        if (!targetDebt) {
+          targetDebt = prevDebts.find((d) =>
+            (d.paymentsHistory || []).some((p) => p.transactionId === deletedTx.id)
+          );
+        }
+        if (!targetDebt && (deletedTx.category === 'Zobowiązania i pożyczki' || deletedTx.title.toLowerCase().includes('spłat') || deletedTx.title.toLowerCase().includes('nadpłat') || deletedTx.title.toLowerCase().includes('kredyt'))) {
+          targetDebt = prevDebts.find((d) =>
+            (d.paymentsHistory || []).some(
+              (p) => p.date === deletedTx.date && Math.abs(p.amount - deletedTx.amount) < 0.05
+            )
+          );
+        }
 
-          const remainingHistory = found.paymentsHistory.filter((p) => p.transactionId !== deletedTx.id);
-          const principalToRevert = typeof deletedTx.principalAmount === 'number'
-            ? deletedTx.principalAmount
-            : (isInterestBearingDebt(found)
-                ? calculateSuggestedLoanSplit({
-                    debt: found,
-                    paymentAmount: deletedTx.amount,
-                    paymentDate: deletedTx.date,
-                    paymentType: 'regular',
-                  }).suggestedPrincipal
-                : deletedTx.amount);
+        if (!targetDebt) return prevDebts;
 
-          const newPaid = Math.max(0, Math.round((found.paidAmount - principalToRevert) * 100) / 100);
-          const newRemaining = Math.max(0, Math.round((found.initialAmount - newPaid) * 100) / 100);
+        const currentHistory = targetDebt.paymentsHistory || [];
+        let recordToRemoveIndex = currentHistory.findIndex((p) => p.transactionId === deletedTx.id);
+        if (recordToRemoveIndex === -1) {
+          recordToRemoveIndex = currentHistory.findIndex(
+            (p) => p.date === deletedTx.date && Math.abs(p.amount - deletedTx.amount) < 0.05
+          );
+        }
 
-          const updatedDebt: DebtItem = {
-            ...found,
-            paidAmount: newPaid,
-            currentRemaining: newRemaining,
-            status: newRemaining <= 0.01 ? 'settled' : 'active',
-            paymentsHistory: remainingHistory,
+        const removedRecord = recordToRemoveIndex !== -1 ? currentHistory[recordToRemoveIndex] : undefined;
+        const remainingHistory = recordToRemoveIndex !== -1
+          ? currentHistory.filter((_, idx) => idx !== recordToRemoveIndex)
+          : currentHistory.filter((p) => p.transactionId !== deletedTx.id);
+
+        const principalToRevert = removedRecord?.principalAmount !== undefined
+          ? removedRecord.principalAmount
+          : (typeof deletedTx.principalAmount === 'number'
+              ? deletedTx.principalAmount
+              : (isInterestBearingDebt(targetDebt)
+                  ? calculateSuggestedLoanSplit({
+                      debt: targetDebt,
+                      paymentAmount: deletedTx.amount,
+                      paymentDate: deletedTx.date,
+                      paymentType: 'regular',
+                    }).suggestedPrincipal
+                  : deletedTx.amount));
+
+        const newPaid = Math.max(0, Math.round((targetDebt.paidAmount - principalToRevert) * 100) / 100);
+        const newRemaining = Math.max(0, Math.round((targetDebt.initialAmount - newPaid) * 100) / 100);
+
+        const updatedDebt: DebtItem = {
+          ...targetDebt,
+          paidAmount: newPaid,
+          currentRemaining: newRemaining,
+          status: newRemaining <= 0.01 ? 'settled' : 'active',
+          paymentsHistory: remainingHistory,
+          updatedAt: new Date().toISOString(),
+        };
+
+        const next = prevDebts.map((d) => (d.id === targetDebt.id ? updatedDebt : d));
+        saveDebts(next);
+        return next;
+      });
+
+      // Synchronizacja kredytów hipotecznych (mortgages)
+      setMortgages((prevMortgages) => {
+        let hasMortgageChange = false;
+        const updatedMortgages = prevMortgages.map((m) => {
+          const hasLinkedRecord = (m.paymentsHistory || []).some(
+            (p) => p.transactionId === deletedTx.id || (p.date === deletedTx.date && Math.abs(p.amount - deletedTx.amount) < 0.05)
+          );
+          const isDirectMortgage = deletedTx.mortgageId && m.id === deletedTx.mortgageId;
+
+          if (!hasLinkedRecord && !isDirectMortgage) return m;
+
+          hasMortgageChange = true;
+          let mRemoveIdx = (m.paymentsHistory || []).findIndex((p) => p.transactionId === deletedTx.id);
+          if (mRemoveIdx === -1) {
+            mRemoveIdx = (m.paymentsHistory || []).findIndex(
+              (p) => p.date === deletedTx.date && Math.abs(p.amount - deletedTx.amount) < 0.05
+            );
+          }
+
+          const mRecordToRemove = mRemoveIdx !== -1 ? m.paymentsHistory[mRemoveIdx] : undefined;
+          const remainingMHistory = mRemoveIdx !== -1
+            ? m.paymentsHistory.filter((_, idx) => idx !== mRemoveIdx)
+            : m.paymentsHistory.filter((p) => p.transactionId !== deletedTx.id);
+
+          const mPrincipalToRevert = mRecordToRemove?.principalAmount !== undefined
+            ? mRecordToRemove.principalAmount
+            : (typeof deletedTx.principalAmount === 'number' ? deletedTx.principalAmount : deletedTx.amount);
+
+          const newRemainingLoan = Math.min(
+            m.totalLoanAmount,
+            Math.round((m.remainingPrincipal + mPrincipalToRevert) * 100) / 100
+          );
+
+          return {
+            ...m,
+            remainingPrincipal: newRemainingLoan,
+            paymentsHistory: remainingMHistory,
+            updatedAt: new Date().toISOString(),
           };
-          const next = prevDebts.map((d) => (d.id === found.id ? updatedDebt : d));
-          saveDebts(next);
-          return next;
         });
-      }
+
+        if (hasMortgageChange) {
+          saveMortgages(updatedMortgages);
+          return updatedMortgages;
+        }
+        return prevMortgages;
+      });
     }
   };
 

@@ -46,6 +46,7 @@ import {
   isInterestBearingDebt,
   isDebtInGracePeriod,
 } from '../utils/loanCalculation';
+import { DebtRepaymentLivePreview } from './DebtRepaymentLivePreview';
 
 interface QuickAddModalProps {
   isOpen: boolean;
@@ -151,6 +152,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
   const [debtId, setDebtId] = useState<string>('');
   const [debtPrincipal, setDebtPrincipal] = useState<string>('');
   const [debtInterest, setDebtInterest] = useState<string>('');
+  const [debtPaymentType, setDebtPaymentType] = useState<'regular' | 'overpayment'>('regular');
   const [error, setError] = useState<string | null>(null);
 
   // New Debt creation sub-form state when category === 'Zobowiązania i pożyczki'
@@ -304,7 +306,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
               debt: targetDebt,
               paymentAmount: cleanAmount,
               paymentDate: date,
-              paymentType: 'regular',
+              paymentType: debtPaymentType,
             });
             principalAmt = split.suggestedPrincipal;
             interestAmt = split.suggestedInterest;
@@ -328,6 +330,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
       debtCounterparty: isDebtCategory && debtActionType === 'create_new' ? newDebtCounterparty.trim() : undefined,
       principalAmount: principalAmt,
       interestAmount: interestAmt,
+      paymentType: debtPaymentType,
     };
 
     onAddTransaction(newTxData);
@@ -768,9 +771,16 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
                                 debt: targetDebt,
                                 paymentAmount: parsedNum,
                                 paymentDate: date || new Date().toISOString().split('T')[0],
-                                paymentType: 'regular',
+                                paymentType: debtPaymentType,
                               })
                             : null;
+
+                          const currentPrincipal = debtPrincipal !== ''
+                            ? (parseFloat(debtPrincipal.replace(',', '.')) || 0)
+                            : (splitSuggestion ? splitSuggestion.suggestedPrincipal : parsedNum);
+                          const currentInterest = debtInterest !== ''
+                            ? (parseFloat(debtInterest.replace(',', '.')) || 0)
+                            : (splitSuggestion ? splitSuggestion.suggestedInterest : 0);
 
                           return (
                             <div className="space-y-2.5">
@@ -824,6 +834,44 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
                                         </span>
                                       )}
                                     </div>
+                                  </div>
+
+                                  {/* Wybór typu spłaty: Rata vs Nadpłata */}
+                                  <div className="flex items-center gap-1.5 pt-0.5">
+                                    <span className="text-[10px] font-bold text-slate-600">Typ spłaty:</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setDebtPaymentType('regular');
+                                        setDebtPrincipal(splitSuggestion.suggestedPrincipal.toFixed(2));
+                                        setDebtInterest(splitSuggestion.suggestedInterest.toFixed(2));
+                                      }}
+                                      className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                                        debtPaymentType === 'regular'
+                                          ? 'bg-indigo-600 text-white shadow-2xs'
+                                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                      }`}
+                                    >
+                                      🏦 Rata miesięczna
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setDebtPaymentType('overpayment');
+                                        setDebtPrincipal(parsedNum.toFixed(2));
+                                        setDebtInterest('0.00');
+                                        if (!title || title.toLowerCase().includes('rata') || title === 'Wydatek: Zobowiązania i pożyczki') {
+                                          setTitle(`Nadpłata kredytu: ${targetDebt.name}`);
+                                        }
+                                      }}
+                                      className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                                        debtPaymentType === 'overpayment'
+                                          ? 'bg-emerald-600 text-white shadow-2xs'
+                                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                      }`}
+                                    >
+                                      🚀 Nadpłata kapitału
+                                    </button>
                                   </div>
 
                                   <p className="text-[11px] text-slate-600 leading-snug">
@@ -901,7 +949,32 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
                                       />
                                     </div>
                                   </div>
+
+                                  {/* Dynamiczny podgląd na żywo pozostałego salda */}
+                                  {parsedNum > 0 && (
+                                    <DebtRepaymentLivePreview
+                                      debt={targetDebt}
+                                      totalPayment={parsedNum}
+                                      principalPayment={currentPrincipal}
+                                      interestPayment={currentInterest}
+                                      paymentType={debtPaymentType}
+                                      currency="zł"
+                                      className="mt-2"
+                                    />
+                                  )}
                                 </div>
+                              )}
+
+                              {!hasInterest && parsedNum > 0 && targetDebt && (
+                                <DebtRepaymentLivePreview
+                                  debt={targetDebt}
+                                  totalPayment={parsedNum}
+                                  principalPayment={parsedNum}
+                                  interestPayment={0}
+                                  paymentType="regular"
+                                  currency="zł"
+                                  className="mt-2"
+                                />
                               )}
 
                               <p className="text-[10px] text-indigo-800 font-medium">

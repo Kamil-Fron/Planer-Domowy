@@ -1,6 +1,6 @@
 {
   "name": "Planer Budżetu Domowego & Paragon AI",
-  "description": "Kompleksowy planer budżetu domowego z podziałem na kategorie, inteligentnym skanerem paragonów Gemini AI, listami zakupów, zarządzaniem rachunkami, limitami budżetowymi, wykresami i eksportem PDF/CSV.",
+  "description": "Wersja 3.0.0. Kompleksowy planer budżetu domowego z inteligentnym skanerem paragonów Gemini AI, obsługą zobowiązań i pożyczek z podglądem spłaty na żywo, powiadomieniami Web Push, synchronizacją Google Cloud Firestore oraz listami zakupów i rachunkami.",
   "requestFramePermissions": [
     "camera"
   ],

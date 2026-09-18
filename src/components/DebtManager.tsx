@@ -29,6 +29,7 @@ import {
   Sparkles,
   Receipt,
   CreditCard,
+  Coins,
 } from 'lucide-react';
 import { DebtItem, DebtPaymentRecord, DebtType, DebtCategory, Transaction, Bill } from '../types';
 import { DebtRepaymentLivePreview } from './DebtRepaymentLivePreview';
@@ -1720,52 +1721,63 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
       )}
 
       {/* MODAL 2: SZYBKA SPŁATA / ROZLICZENIE */}
-      {selectedDebtForPayment && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
-          <div className="bg-white w-full max-w-md rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6 border border-slate-100 animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                  {selectedDebtForPayment.type === 'borrowed' ? 'Spłać zadłużenie' : 'Zarejestruj zwrot'}
-                </h2>
-                <p className="text-xs text-slate-500">
-                  {selectedDebtForPayment.name} ({selectedDebtForPayment.counterparty})
-                </p>
-              </div>
-              <div className="flex items-center space-x-2">
-                <button
-                  type="submit"
-                  form="quick-payment-form"
-                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center space-x-1 cursor-pointer"
-                >
-                  <Check className="w-3.5 h-3.5" />
-                  <span>Zapisz</span>
-                </button>
-                <button
-                  onClick={() => setSelectedDebtForPayment(null)}
-                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
+      {selectedDebtForPayment && (() => {
+        const parsedAmt = parseFloat(paymentAmount.replace(',', '.')) || 0;
+        const parsedPrinc = (isInterestBearingDebt(selectedDebtForPayment) && paymentPrincipal)
+          ? (parseFloat(paymentPrincipal.replace(',', '.')) || 0)
+          : parsedAmt;
+        const remainingDebt = selectedDebtForPayment.currentRemaining;
+        const isOverpaid = remainingDebt > 0 && parsedPrinc > remainingDebt + 0.009;
+        const overpaidAmount = isOverpaid ? parsedPrinc - remainingDebt : 0;
+        const isFinalInstallment = remainingDebt > 0 && remainingDebt <= (selectedDebtForPayment.monthlyPayment || remainingDebt);
 
-            {(() => {
-              const parsedAmt = parseFloat(paymentAmount.replace(',', '.')) || 0;
-              const parsedPrinc = (isInterestBearingDebt(selectedDebtForPayment) && paymentPrincipal)
-                ? (parseFloat(paymentPrincipal.replace(',', '.')) || 0)
-                : parsedAmt;
-              const remainingDebt = selectedDebtForPayment.currentRemaining;
-              const isOverpaid = remainingDebt > 0 && parsedPrinc > remainingDebt + 0.009;
-              const overpaidAmount = isOverpaid ? parsedPrinc - remainingDebt : 0;
-              const isFinalInstallment = remainingDebt > 0 && remainingDebt <= (selectedDebtForPayment.monthlyPayment || remainingDebt);
+        return (
+          <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs p-2.5 sm:p-4 md:py-8 flex min-h-full items-start justify-center">
+            <div className="my-auto w-full max-w-lg rounded-3xl shadow-2xl border border-slate-100 flex flex-col max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-hidden bg-white animate-in fade-in zoom-in-95">
+              {/* Header (sticky at top) */}
+              <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
+                <div className="flex items-center space-x-3 min-w-0 pr-2">
+                  <div className={`p-2 sm:p-2.5 rounded-xl shrink-0 ${
+                    selectedDebtForPayment.type === 'borrowed' ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-50 text-emerald-600'
+                  }`}>
+                    {selectedDebtForPayment.type === 'borrowed' ? <Landmark className="w-5 h-5" /> : <Coins className="w-5 h-5" />}
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="text-sm sm:text-base font-bold text-slate-900 truncate">
+                      {selectedDebtForPayment.type === 'borrowed' ? 'Spłać zadłużenie' : 'Zarejestruj zwrot'}
+                    </h2>
+                    <p className="text-xs text-slate-500 truncate">
+                      {selectedDebtForPayment.name} &bull; {selectedDebtForPayment.counterparty}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2 shrink-0">
+                  <button
+                    type="submit"
+                    form="quick-payment-form"
+                    disabled={isOverpaid || isNaN(parsedAmt) || parsedAmt <= 0}
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center space-x-1 cursor-pointer"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Zapisz</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDebtForPayment(null)}
+                    className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
 
-              return (
-                <>
+              {/* Formularz ze scrollowalnym środkiem i przyklejoną stopką */}
+              <form id="quick-payment-form" onSubmit={handleSubmitPayment} className="flex flex-col flex-1 min-h-0">
+                <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-4">
                   <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
-                    <span className="text-slate-500">Pozostało do rozliczenia:</span>
+                    <span className="text-slate-500 font-medium">Pozostało do rozliczenia:</span>
                     <span className="font-black text-slate-900 text-sm">
-                      {selectedDebtForPayment.currentRemaining.toLocaleString('pl-PL')} zł
+                      {selectedDebtForPayment.currentRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł
                     </span>
                   </div>
 
@@ -1818,253 +1830,253 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                     </div>
                   )}
 
-                  <form id="quick-payment-form" onSubmit={handleSubmitPayment} className="space-y-4">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-slate-700">Kwota wpłaty (zł):</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0.01"
-                        required
-                        autoFocus
-                        placeholder="0.00"
-                        value={paymentAmount}
-                        onChange={(e) => setPaymentAmount(e.target.value)}
-                        className={`w-full px-4 py-2.5 text-base font-black bg-slate-50 border rounded-xl focus:ring-2 focus:ring-indigo-500 ${
-                          isOverpaid ? 'border-rose-400 bg-rose-50/40 text-rose-900' : 'border-slate-200'
-                        }`}
-                      />
-                    </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-700">Kwota wpłaty (zł):</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      required
+                      autoFocus
+                      placeholder="0.00"
+                      value={paymentAmount}
+                      onChange={(e) => setPaymentAmount(e.target.value)}
+                      className={`w-full px-4 py-2.5 text-base font-black bg-slate-50 border rounded-xl focus:ring-2 focus:ring-indigo-500 ${
+                        isOverpaid ? 'border-rose-400 bg-rose-50/40 text-rose-900' : 'border-slate-200'
+                      }`}
+                    />
+                  </div>
 
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-slate-700">Data wpłaty:</label>
-                      <input
-                        type="date"
-                        required
-                        value={paymentDate}
-                        onChange={(e) => setPaymentDate(e.target.value)}
-                        className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
-                      />
-                    </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-700">Data wpłaty:</label>
+                    <input
+                      type="date"
+                      required
+                      value={paymentDate}
+                      onChange={(e) => setPaymentDate(e.target.value)}
+                      className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
 
-                    {isInterestBearingDebt(selectedDebtForPayment) && (() => {
-                      const parsedTotal = parseFloat(paymentAmount.replace(',', '.')) || 0;
-                      const splitSuggestion = calculateSuggestedLoanSplit({
-                        debt: selectedDebtForPayment,
-                        paymentAmount: parsedTotal,
-                        paymentDate,
-                        paymentType,
-                      });
+                  {isInterestBearingDebt(selectedDebtForPayment) && (() => {
+                    const parsedTotal = parseFloat(paymentAmount.replace(',', '.')) || 0;
+                    const splitSuggestion = calculateSuggestedLoanSplit({
+                      debt: selectedDebtForPayment,
+                      paymentAmount: parsedTotal,
+                      paymentDate,
+                      paymentType,
+                    });
 
-                      return (
-                        <div className="p-3.5 rounded-2xl bg-gradient-to-br from-indigo-50/90 via-indigo-50/50 to-white border border-indigo-200 space-y-3 shadow-2xs">
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
-                            <div className="flex items-center gap-2">
-                              <div className="p-1.5 rounded-lg bg-indigo-600 text-white shrink-0">
-                                <Landmark className="w-4 h-4" />
-                              </div>
-                              <div>
-                                <span className="text-xs font-black text-indigo-950 block leading-tight">
-                                  Podział raty kredytu
-                                </span>
-                                <span className="text-[11px] text-slate-500 font-medium">
-                                  Saldo: <strong>{remainingDebt.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł</strong>
-                                </span>
-                              </div>
+                    return (
+                      <div className="p-3.5 rounded-2xl bg-gradient-to-br from-indigo-50/90 via-indigo-50/50 to-white border border-indigo-200 space-y-3 shadow-2xs">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                          <div className="flex items-center gap-2">
+                            <div className="p-1.5 rounded-lg bg-indigo-600 text-white shrink-0">
+                              <Landmark className="w-4 h-4" />
                             </div>
-
-                            <div className="flex flex-wrap items-center gap-1">
-                              {splitSuggestion.isInGracePeriod ? (
-                                <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold flex items-center gap-1">
-                                  <Clock className="w-3 h-3 text-amber-700" />
-                                  <span>Karencja do {splitSuggestion.graceEndDate || 'końca'}</span>
-                                </span>
-                              ) : (
-                                <span className="px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-900 border border-indigo-200 text-[10px] font-bold flex items-center gap-1">
-                                  <Percent className="w-3 h-3 text-indigo-700" />
-                                  <span>Oprocentowanie: {splitSuggestion.effectiveAnnualRate}%</span>
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Baner sugestii */}
-                          <div className={`p-2.5 rounded-xl border text-[11px] leading-relaxed flex items-start gap-2 ${
-                            splitSuggestion.isInGracePeriod
-                              ? 'bg-amber-50/80 border-amber-200 text-amber-900'
-                              : 'bg-blue-50/70 border-blue-200 text-blue-950'
-                          }`}>
-                            <Sparkles className={`w-4 h-4 shrink-0 mt-0.5 ${splitSuggestion.isInGracePeriod ? 'text-amber-600' : 'text-blue-600'}`} />
-                            <div className="space-y-0.5">
-                              <span className="font-bold block">
-                                {splitSuggestion.isInGracePeriod ? '🟡 Okres karencji w spłacie kapitału' : '📐 Kalkulacja bankowa:'}
+                            <div>
+                              <span className="text-xs font-black text-indigo-950 block leading-tight">
+                                Podział raty kredytu
                               </span>
-                              <span>{splitSuggestion.explanation}</span>
+                              <span className="text-[11px] text-slate-500 font-medium">
+                                Saldo: <strong>{remainingDebt.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł</strong>
+                              </span>
                             </div>
                           </div>
 
-                          {/* Szybkie przyciski sugestii */}
-                          <div className="flex flex-wrap gap-1.5 pt-0.5">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setPaymentType('regular');
-                                setPaymentPrincipal(splitSuggestion.suggestedPrincipal.toFixed(2));
-                                setPaymentInterest(splitSuggestion.suggestedInterest.toFixed(2));
-                              }}
-                              className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] transition-all flex items-center gap-1 shadow-2xs cursor-pointer"
-                            >
-                              <Sparkles className="w-3 h-3" />
-                              <span>Sugestia bankowa ({splitSuggestion.suggestedPrincipal.toFixed(2)} zł / {splitSuggestion.suggestedInterest.toFixed(2)} zł)</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setPaymentType('overpayment');
-                                setPaymentPrincipal(parsedTotal.toFixed(2));
-                                setPaymentInterest('0.00');
-                              }}
-                              className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-semibold text-[11px] transition-colors cursor-pointer"
-                            >
-                              100% kapitał (nadpłata)
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setPaymentType('regular');
-                                setPaymentPrincipal('0.00');
-                                setPaymentInterest(parsedTotal.toFixed(2));
-                              }}
-                              className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-semibold text-[11px] transition-colors cursor-pointer"
-                            >
-                              100% odsetki (karencja)
-                            </button>
-                          </div>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1 border-t border-indigo-100">
-                            <div>
-                              <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">
-                                Spłata kapitału (zł):
-                              </label>
-                              <input
-                                type="number"
-                                step="0.01"
-                                placeholder="0.00"
-                                value={paymentPrincipal}
-                                onChange={(e) => {
-                                  const pVal = e.target.value;
-                                  setPaymentPrincipal(pVal);
-                                  const pNum = parseFloat(pVal) || 0;
-                                  setPaymentInterest(Math.max(0, parsedTotal - pNum).toFixed(2));
-                                }}
-                                className="w-full px-3 py-1.5 text-xs font-bold text-slate-900 bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
-                              />
-                            </div>
-
-                            <div>
-                              <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">
-                                Koszt odsetek (zł):
-                              </label>
-                              <input
-                                type="number"
-                                step="0.01"
-                                placeholder="0.00"
-                                value={paymentInterest}
-                                onChange={(e) => {
-                                  const iVal = e.target.value;
-                                  setPaymentInterest(iVal);
-                                  const iNum = parseFloat(iVal) || 0;
-                                  setPaymentPrincipal(Math.max(0, parsedTotal - iNum).toFixed(2));
-                                }}
-                                className="w-full px-3 py-1.5 text-xs font-bold text-slate-900 bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
-                              />
-                            </div>
-
-                            <div>
-                              <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">
-                                Typ wpłaty:
-                              </label>
-                              <select
-                                value={paymentType}
-                                onChange={(e) => {
-                                  const newType = e.target.value as any;
-                                  setPaymentType(newType);
-                                  if (newType === 'overpayment') {
-                                    setPaymentPrincipal(parsedTotal.toFixed(2));
-                                    setPaymentInterest('0.00');
-                                  }
-                                }}
-                                className="w-full px-3 py-1.5 text-xs font-semibold bg-white border border-indigo-200 rounded-xl"
-                              >
-                                <option value="regular">Rata standardowa</option>
-                                <option value="overpayment">Nadpłata kapitału</option>
-                              </select>
-                            </div>
+                          <div className="flex flex-wrap items-center gap-1">
+                            {splitSuggestion.isInGracePeriod ? (
+                              <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold flex items-center gap-1">
+                                <Clock className="w-3 h-3 text-amber-700" />
+                                <span>Karencja do {splitSuggestion.graceEndDate || 'końca'}</span>
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-900 border border-indigo-200 text-[10px] font-bold flex items-center gap-1">
+                                <Percent className="w-3 h-3 text-indigo-700" />
+                                <span>Oprocentowanie: {splitSuggestion.effectiveAnnualRate}%</span>
+                              </span>
+                            )}
                           </div>
                         </div>
-                      );
-                    })()}
 
-                    {/* Dynamiczny podgląd na żywo salda po spłacie */}
-                    {parsedAmt > 0 && (
-                      <DebtRepaymentLivePreview
-                        debt={selectedDebtForPayment}
-                        totalPayment={parsedAmt}
-                        principalPayment={parsedPrinc}
-                        interestPayment={
-                          isInterestBearingDebt(selectedDebtForPayment)
-                            ? Math.max(0, parsedAmt - parsedPrinc)
-                            : 0
-                        }
-                        paymentType={paymentType}
-                        currency="zł"
-                        className="mt-3"
-                      />
-                    )}
+                        {/* Baner sugestii */}
+                        <div className={`p-2.5 rounded-xl border text-[11px] leading-relaxed flex items-start gap-2 ${
+                          splitSuggestion.isInGracePeriod
+                            ? 'bg-amber-50/80 border-amber-200 text-amber-900'
+                            : 'bg-blue-50/70 border-blue-200 text-blue-950'
+                        }`}>
+                          <Sparkles className={`w-4 h-4 shrink-0 mt-0.5 ${splitSuggestion.isInGracePeriod ? 'text-amber-600' : 'text-blue-600'}`} />
+                          <div className="space-y-0.5">
+                            <span className="font-bold block">
+                              {splitSuggestion.isInGracePeriod ? '🟡 Okres karencji w spłacie kapitału' : '📐 Kalkulacja bankowa:'}
+                            </span>
+                            <span>{splitSuggestion.explanation}</span>
+                          </div>
+                        </div>
 
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-slate-700">Notatka / komentarz:</label>
-                      <input
-                        type="text"
-                        placeholder="np. Rata za bieżący miesiąc lub przelew BLIK"
-                        value={paymentNotes}
-                        onChange={(e) => setPaymentNotes(e.target.value)}
-                        className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
-                      />
-                    </div>
+                        {/* Szybkie przyciski sugestii */}
+                        <div className="flex flex-wrap gap-1.5 pt-0.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPaymentType('regular');
+                              setPaymentPrincipal(splitSuggestion.suggestedPrincipal.toFixed(2));
+                              setPaymentInterest(splitSuggestion.suggestedInterest.toFixed(2));
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] transition-all flex items-center gap-1 shadow-2xs cursor-pointer"
+                          >
+                            <Sparkles className="w-3 h-3" />
+                            <span>Sugestia bankowa ({splitSuggestion.suggestedPrincipal.toFixed(2)} zł / {splitSuggestion.suggestedInterest.toFixed(2)} zł)</span>
+                          </button>
 
-                    <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-100 text-[11px] text-emerald-800 flex items-center space-x-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                      <span>
-                        Wpis automatycznie utworzy powiązaną transakcję w kategorii "Zobowiązania i pożyczki".
-                      </span>
-                    </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPaymentType('overpayment');
+                              setPaymentPrincipal(parsedTotal.toFixed(2));
+                              setPaymentInterest('0.00');
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-semibold text-[11px] transition-colors cursor-pointer"
+                          >
+                            100% kapitał (nadpłata)
+                          </button>
 
-                    <div className="flex items-center justify-end space-x-3 pt-2">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedDebtForPayment(null)}
-                        className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl"
-                      >
-                        Anuluj
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={isOverpaid || isNaN(parsedAmt) || parsedAmt <= 0}
-                        className="px-6 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl shadow-md transition-all cursor-pointer"
-                      >
-                        {isOverpaid ? 'Kwota przekracza saldo spłaty' : 'Zapisz spłatę'}
-                      </button>
-                    </div>
-                  </form>
-                </>
-              );
-            })()}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPaymentType('regular');
+                              setPaymentPrincipal('0.00');
+                              setPaymentInterest(parsedTotal.toFixed(2));
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-semibold text-[11px] transition-colors cursor-pointer"
+                          >
+                            100% odsetki (karencja)
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1 border-t border-indigo-100">
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">
+                              Spłata kapitału (zł):
+                            </label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              placeholder="0.00"
+                              value={paymentPrincipal}
+                              onChange={(e) => {
+                                const pVal = e.target.value;
+                                setPaymentPrincipal(pVal);
+                                const pNum = parseFloat(pVal) || 0;
+                                setPaymentInterest(Math.max(0, parsedTotal - pNum).toFixed(2));
+                              }}
+                              className="w-full px-3 py-1.5 text-xs font-bold text-slate-900 bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">
+                              Koszt odsetek (zł):
+                            </label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              placeholder="0.00"
+                              value={paymentInterest}
+                              onChange={(e) => {
+                                const iVal = e.target.value;
+                                setPaymentInterest(iVal);
+                                const iNum = parseFloat(iVal) || 0;
+                                setPaymentPrincipal(Math.max(0, parsedTotal - iNum).toFixed(2));
+                              }}
+                              className="w-full px-3 py-1.5 text-xs font-bold text-slate-900 bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">
+                              Typ wpłaty:
+                            </label>
+                            <select
+                              value={paymentType}
+                              onChange={(e) => {
+                                const newType = e.target.value as any;
+                                setPaymentType(newType);
+                                if (newType === 'overpayment') {
+                                  setPaymentPrincipal(parsedTotal.toFixed(2));
+                                  setPaymentInterest('0.00');
+                                }
+                              }}
+                              className="w-full px-3 py-1.5 text-xs font-semibold bg-white border border-indigo-200 rounded-xl"
+                            >
+                              <option value="regular">Rata standardowa</option>
+                              <option value="overpayment">Nadpłata kapitału</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Dynamiczny podgląd na żywo salda po spłacie */}
+                  {parsedAmt > 0 && (
+                    <DebtRepaymentLivePreview
+                      debt={selectedDebtForPayment}
+                      totalPayment={parsedAmt}
+                      principalPayment={parsedPrinc}
+                      interestPayment={
+                        isInterestBearingDebt(selectedDebtForPayment)
+                          ? Math.max(0, parsedAmt - parsedPrinc)
+                          : 0
+                      }
+                      paymentType={paymentType}
+                      currency="zł"
+                      className="mt-3"
+                    />
+                  )}
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-700">Notatka / komentarz:</label>
+                    <input
+                      type="text"
+                      placeholder="np. Rata za bieżący miesiąc lub przelew BLIK"
+                      value={paymentNotes}
+                      onChange={(e) => setPaymentNotes(e.target.value)}
+                      className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-100 text-[11px] text-emerald-800 flex items-center space-x-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>
+                      Wpis automatycznie utworzy powiązaną transakcję w kategorii "Zobowiązania i pożyczki".
+                    </span>
+                  </div>
+                </div>
+
+                {/* Przyklejona stopka z przyciskami */}
+                <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-end space-x-3 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDebtForPayment(null)}
+                    className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200/70 rounded-xl transition-colors cursor-pointer"
+                  >
+                    Anuluj
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isOverpaid || isNaN(parsedAmt) || parsedAmt <= 0}
+                    className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl shadow-md transition-all cursor-pointer flex items-center space-x-1.5"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>{isOverpaid ? 'Kwota przekracza saldo spłaty' : 'Zapisz spłatę'}</span>
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* MODAL 3: SZCZEGÓŁY I HISTORIA WPŁAT */}
       {selectedDebtForDetails && (
@@ -2563,15 +2575,16 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
 
       {/* MODAL 4: KALKULATOR I SYMULATOR KREDYTU */}
       {selectedDebtForCalculator && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
-          <div className="bg-white w-full max-w-xl rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6 border border-slate-100 animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs p-2.5 sm:p-4 md:py-8 flex min-h-full items-start justify-center">
+          <div className="my-auto w-full max-w-xl rounded-3xl shadow-2xl border border-slate-100 flex flex-col max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-hidden bg-white animate-in fade-in zoom-in-95">
+            {/* Header (sticky at top) */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
               <div className="flex items-center space-x-3">
-                <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl">
-                  <Calculator className="w-6 h-6" />
+                <div className="p-2 sm:p-2.5 bg-indigo-50 text-indigo-600 rounded-xl shrink-0">
+                  <Calculator className="w-5 h-5" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-black text-slate-900">
+                  <h2 className="text-base sm:text-lg font-black text-slate-900">
                     Kalkulator i Symulator Nadpłat
                   </h2>
                   <p className="text-xs text-slate-500">
@@ -2580,55 +2593,59 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => setSelectedDebtForCalculator(null)}
-                className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100"
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
-              <h4 className="text-xs font-bold text-slate-800">
-                Symulacja: Co daje jednorazowa nadpłata kredytu?
-              </h4>
-              <div className="flex items-center space-x-3">
-                <input
-                  type="number"
-                  step="100"
-                  value={simulatorOverpayment}
-                  onChange={(e) => setSimulatorOverpayment(e.target.value)}
-                  className="px-3 py-2 text-xs font-bold bg-white border border-slate-200 rounded-xl w-36"
-                  placeholder="Kwota nadpłaty"
-                />
-                <span className="text-xs text-slate-600">zł nadpłaty</span>
+            <div className="p-5 sm:p-6 overflow-y-auto flex-1 space-y-4">
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                <h4 className="text-xs font-bold text-slate-800">
+                  Symulacja: Co daje jednorazowa nadpłata kredytu?
+                </h4>
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="number"
+                    step="100"
+                    value={simulatorOverpayment}
+                    onChange={(e) => setSimulatorOverpayment(e.target.value)}
+                    className="px-3 py-2 text-xs font-bold bg-white border border-slate-200 rounded-xl w-36"
+                    placeholder="Kwota nadpłaty"
+                  />
+                  <span className="text-xs text-slate-600">zł nadpłaty</span>
+                </div>
+
+                {(() => {
+                  const overpayVal = parseFloat(simulatorOverpayment) || 0;
+                  const rate = (selectedDebtForCalculator.interestRate || 7.5) / 100;
+                  const yearlySavings = Math.round(overpayVal * rate);
+                  const tenYearSavings = Math.round(overpayVal * rate * 10);
+
+                  return (
+                    <div className="mt-3 p-3 bg-indigo-50/70 border border-indigo-100 rounded-xl space-y-1 text-xs">
+                      <p className="font-bold text-indigo-950">
+                        Oszczędność na odsetkach bankowych:
+                      </p>
+                      <p className="text-indigo-800">
+                        ~ <span className="font-black text-indigo-900">{yearlySavings.toLocaleString('pl-PL')} zł</span> rocznie mniej odsetek dla banku!
+                      </p>
+                      <p className="text-indigo-700 text-[11px]">
+                        W perspektywie 10 lat to aż ~ <span className="font-black">{tenYearSavings.toLocaleString('pl-PL')} zł</span> czystego zysku w Twojej kieszeni.
+                      </p>
+                    </div>
+                  );
+                })()}
               </div>
-
-              {(() => {
-                const overpayVal = parseFloat(simulatorOverpayment) || 0;
-                const rate = (selectedDebtForCalculator.interestRate || 7.5) / 100;
-                const yearlySavings = Math.round(overpayVal * rate);
-                const tenYearSavings = Math.round(overpayVal * rate * 10);
-
-                return (
-                  <div className="mt-3 p-3 bg-indigo-50/70 border border-indigo-100 rounded-xl space-y-1 text-xs">
-                    <p className="font-bold text-indigo-950">
-                      Oszczędność na odsetkach bankowych:
-                    </p>
-                    <p className="text-indigo-800">
-                      ~ <span className="font-black text-indigo-900">{yearlySavings.toLocaleString('pl-PL')} zł</span> rocznie mniej odsetek dla banku!
-                    </p>
-                    <p className="text-indigo-700 text-[11px]">
-                      W perspektywie 10 lat to aż ~ <span className="font-black">{tenYearSavings.toLocaleString('pl-PL')} zł</span> czystego zysku w Twojej kieszeni.
-                    </p>
-                  </div>
-                );
-              })()}
             </div>
 
-            <div className="pt-2 flex justify-end">
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-end shrink-0">
               <button
+                type="button"
                 onClick={() => setSelectedDebtForCalculator(null)}
-                className="px-5 py-2 bg-slate-900 text-white rounded-xl font-bold text-xs"
+                className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs transition-colors cursor-pointer"
               >
                 Gotowe
               </button>

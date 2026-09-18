@@ -271,6 +271,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
         initialAmount: cleanAmount,
         totalAmount: cleanAmount,
         currentRemaining: cleanAmount,
+        initialPaidAmount: 0,
         paidAmount: 0,
         startDate: date || new Date().toISOString().split('T')[0],
         dueDate: newDebtDueDate || undefined,
@@ -597,22 +598,41 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
               </div>
             </div>
 
-            {/* Description & Category (Title & Category) */}
+            {/* Title / Description */}
+            <div>
+              <label htmlFor="quick-add-title-input" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                Tytuł / Nazwa
+              </label>
+              <input
+                id="quick-add-title-input"
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder={type === 'expense' ? 'np. Zakupy w sklepie' : 'np. Wynagrodzenie'}
+                className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-800 placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+              />
+            </div>
+
+            {/* Date Picker & Category: Date is placed directly after Title and before Category */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Date Field (po tytule, a przed kategorią) */}
               <div>
-                <label htmlFor="quick-add-title-input" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                  Tytuł / Nazwa
+                <label htmlFor="quick-add-date" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                  Data transakcji
                 </label>
-                <input
-                  id="quick-add-title-input"
-                  type="text"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder={type === 'expense' ? 'np. Zakupy w sklepie' : 'np. Wynagrodzenie'}
-                  className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-800 placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                />
+                <div className="relative">
+                  <Calendar className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    id="quick-add-date"
+                    type="date"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    className="w-full text-xs font-semibold pl-8 pr-3 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 cursor-pointer"
+                  />
+                </div>
               </div>
 
+              {/* Category */}
               <div>
                 <label htmlFor="quick-add-category" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
                   Kategoria
@@ -1134,23 +1154,6 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
                   </div>
                 </div>
               )}
-            </div>
-
-            {/* Date Picker */}
-            <div>
-              <label htmlFor="quick-add-date" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                Data transakcji
-              </label>
-              <div className="relative">
-                <Calendar className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  id="quick-add-date"
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="w-full text-xs font-semibold pl-8 pr-3 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 cursor-pointer"
-                />
-              </div>
             </div>
 
             {/* Hidden submit trigger for Enter and header save */}

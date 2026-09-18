@@ -314,6 +314,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
         initialAmount: parsedAmount,
         totalAmount: parsedAmount,
         currentRemaining: parsedAmount,
+        initialPaidAmount: 0,
         paidAmount: 0,
         startDate: formDate || new Date().toISOString().split('T')[0],
         dueDate: formNewDebtDueDate || undefined,

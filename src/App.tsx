@@ -818,7 +818,7 @@ export default function App() {
             bankName: debt.bankName || debt.counterparty,
             totalLoanAmount: debt.initialAmount,
             remainingPrincipal: debt.currentRemaining,
-            initialPaidPrincipal: debt.paidAmount,
+            initialPaidPrincipal: debt.initialPaidAmount !== undefined ? debt.initialPaidAmount : debt.paidAmount,
             monthlyPayment: debt.monthlyPayment || 0,
             interestRate: debt.interestRate || 0,
             loanTermYears: debt.loanTermYears || 25,
@@ -1215,8 +1215,21 @@ export default function App() {
         }
 
         if (cloudDebts && Array.isArray(cloudDebts)) {
-          setDebts(cloudDebts);
-          saveDebts(cloudDebts);
+          const normalizedDebts = cloudDebts.map((d: DebtItem) => {
+            if (d.initialPaidAmount === undefined) {
+              const histPaid = (d.paymentsHistory || []).reduce(
+                (sum, p) => sum + (p.principalAmount !== undefined ? p.principalAmount : p.amount),
+                0
+              );
+              return {
+                ...d,
+                initialPaidAmount: Math.max(0, Math.round(((d.paidAmount || 0) - histPaid) * 100) / 100),
+              };
+            }
+            return d;
+          });
+          setDebts(normalizedDebts);
+          saveDebts(normalizedDebts);
         }
 
         if (cloudData.members || cloudData.pushSubscriptions) {
@@ -1492,8 +1505,19 @@ export default function App() {
                 },
               ];
 
+          const basePaid = found.initialPaidAmount !== undefined
+            ? found.initialPaidAmount
+            : (() => {
+                const histPaid = (found.paymentsHistory || []).reduce(
+                  (sum, p) => sum + (p.principalAmount !== undefined ? p.principalAmount : p.amount),
+                  0
+                );
+                return Math.max(0, Math.round(((found.paidAmount || 0) - histPaid) * 100) / 100);
+              })();
+
           const updatedDebt: DebtItem = {
             ...found,
+            initialPaidAmount: basePaid,
             paidAmount: newPaid,
             currentRemaining: newRemaining,
             status: isNowSettled ? 'settled' : 'active',
@@ -1701,11 +1725,23 @@ export default function App() {
                     }).suggestedPrincipal
                   : deletedTx.amount));
 
-        const newPaid = Math.max(0, Math.round((targetDebt.paidAmount - principalToRevert) * 100) / 100);
+        const basePaid = targetDebt.initialPaidAmount !== undefined
+          ? targetDebt.initialPaidAmount
+          : (() => {
+              const histPaid = (targetDebt.paymentsHistory || []).reduce(
+                (sum, p) => sum + (p.principalAmount !== undefined ? p.principalAmount : p.amount),
+                0
+              );
+              return Math.max(0, Math.round(((targetDebt.paidAmount || 0) - histPaid) * 100) / 100);
+            })();
+
+        const historyPaid = remainingHistory.reduce((sum, p) => sum + (p.principalAmount !== undefined ? p.principalAmount : p.amount), 0);
+        const newPaid = Math.round((basePaid + historyPaid) * 100) / 100;
         const newRemaining = Math.max(0, Math.round((targetDebt.initialAmount - newPaid) * 100) / 100);
 
         const updatedDebt: DebtItem = {
           ...targetDebt,
+          initialPaidAmount: basePaid,
           paidAmount: newPaid,
           currentRemaining: newRemaining,
           status: newRemaining <= 0.01 ? 'settled' : 'active',
@@ -1814,14 +1850,26 @@ export default function App() {
             });
           }
 
-          const newPaid = payments.reduce((sum, p) => sum + p.amount, 0);
-          const newRemaining = Math.max(0, debt.initialAmount - newPaid);
+          const basePaid = debt.initialPaidAmount !== undefined
+            ? debt.initialPaidAmount
+            : (() => {
+                const histPaid = (debt.paymentsHistory || []).reduce(
+                  (sum, p) => sum + (p.principalAmount !== undefined ? p.principalAmount : p.amount),
+                  0
+                );
+                return Math.max(0, Math.round(((debt.paidAmount || 0) - histPaid) * 100) / 100);
+              })();
+
+          const historyPaid = payments.reduce((sum, p) => sum + (p.principalAmount !== undefined ? p.principalAmount : p.amount), 0);
+          const newPaid = Math.round((basePaid + historyPaid) * 100) / 100;
+          const newRemaining = Math.max(0, Math.round((debt.initialAmount - newPaid) * 100) / 100);
 
           // Update remainingAfter
           payments = payments.map((p) => (p.transactionId === id ? { ...p, remainingAfter: newRemaining } : p));
 
           return {
             ...debt,
+            initialPaidAmount: basePaid,
             paidAmount: newPaid,
             currentRemaining: newRemaining,
             status: newRemaining <= 0.01 ? ('settled' as const) : ('active' as const),

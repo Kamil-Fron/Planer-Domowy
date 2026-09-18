@@ -356,8 +356,9 @@ export interface DebtItem {
   counterparty: string; // Kto / Bank / Znajomy, np. "PKO BP", "Tomek", "Marek"
   initialAmount: number; // Całkowita kwota zadłużenia
   totalAmount?: number; // Alias całkowitej kwoty
+  initialPaidAmount?: number; // Stała zadeklarowana kwota spłacona (zmieniana tylko w edycji zobowiązania, niezmienna przy dodawaniu/usuwaniu transakcji)
   currentRemaining: number; // Pozostało do oddania lub do odzyskania
-  paidAmount: number; // Spłacono lub odzyskano
+  paidAmount: number; // Spłacono lub odzyskano łącznie (initialPaidAmount + transakcje spłat w aplikacji)
   startDate: string; // YYYY-MM-DD
   dueDate?: string; // Termin całkowitego zwrotu (YYYY-MM-DD)
   status: 'active' | 'settled'; // 'active' (w trakcie) | 'settled' (rozliczone)

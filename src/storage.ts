@@ -420,7 +420,20 @@ export const saveMortgages = (data: MortgageLoan[]): void => setItemSafe(KEYS.MO
 export const loadDebts = (): DebtItem[] => {
   const list = getItemSafe<DebtItem[]>(KEYS.DEBTS, INITIAL_DEBTS);
   if (Array.isArray(list) && list.length > 0) {
-    return list;
+    return list.map((d) => {
+      if (d.initialPaidAmount === undefined) {
+        const historyRepaid = (d.paymentsHistory || []).reduce(
+          (sum, p) => sum + (p.principalAmount !== undefined ? p.principalAmount : p.amount),
+          0
+        );
+        const basePaid = Math.max(0, Math.round(((d.paidAmount || 0) - historyRepaid) * 100) / 100);
+        return {
+          ...d,
+          initialPaidAmount: basePaid,
+        };
+      }
+      return d;
+    });
   }
   // Seamless migration from legacy mortgages if debts list is empty
   const mortgages = loadMortgages();
@@ -432,6 +445,7 @@ export const loadDebts = (): DebtItem[] => {
       name: m.name || 'Kredyt hipoteczny',
       counterparty: m.bankName || 'Bank',
       initialAmount: m.totalLoanAmount || 0,
+      initialPaidAmount: m.initialPaidPrincipal || 0,
       currentRemaining: m.remainingPrincipal ?? m.totalLoanAmount ?? 0,
       paidAmount: Math.max(0, (m.totalLoanAmount || 0) - (m.remainingPrincipal || 0)) || (m.initialPaidPrincipal || 0),
       startDate: m.startDate || new Date().toISOString().split('T')[0],

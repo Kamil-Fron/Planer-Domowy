@@ -17,8 +17,11 @@ import {
   Landmark,
   User,
   Percent,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
 } from 'lucide-react';
-import { Transaction, TransactionType, DebtItem, DebtCategory, DebtType } from '../types';
+import { Transaction, TransactionType, DebtItem, DebtCategory, DebtType, ReceiptItemDetail } from '../types';
 import { DebtRepaymentLivePreview } from './DebtRepaymentLivePreview';
 import { DebtSplitAndLivePreview } from './DebtSplitAndLivePreview';
 import { INITIAL_CATEGORIES, INITIAL_INCOME_CATEGORIES } from '../mockData';
@@ -35,6 +38,96 @@ import {
   getLoanEffectiveInterestRate,
   isDebtInGracePeriod,
 } from '../utils/loanCalculation';
+
+// Helper do normalizacji tekstu wyszukiwania (usuwanie polskich znaków diakrytycznych, małe litery)
+const normalizeSearchText = (str: string | undefined | null): string => {
+  if (!str) return '';
+  return str
+    .toLowerCase()
+    .replace(/ł/g, 'l')
+    .replace(/Ł/g, 'l')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+};
+
+// Sprawdzenie czy pozycja z paragonu pasuje do zapytania wyszukiwania
+const matchesReceiptItem = (item: ReceiptItemDetail, queryNorm: string): boolean => {
+  if (!queryNorm) return true;
+  const nameNorm = normalizeSearchText(item.name);
+  const catNorm = normalizeSearchText(item.category);
+  const notesNorm = normalizeSearchText(item.notes);
+  const priceStr = item.price.toFixed(2).replace('.', ',');
+  const priceDot = item.price.toFixed(2);
+  const quantityStr = item.quantity ? `${item.quantity}` : '';
+
+  return (
+    nameNorm.includes(queryNorm) ||
+    catNorm.includes(queryNorm) ||
+    notesNorm.includes(queryNorm) ||
+    priceStr.includes(queryNorm) ||
+    priceDot.includes(queryNorm) ||
+    (quantityStr !== '' && queryNorm === quantityStr)
+  );
+};
+
+// Komponent bezpiecznego podświetlania dopasowanego fragmentu wyszukiwania
+const HighlightText: React.FC<{ text: string | undefined | null; query: string }> = ({
+  text,
+  query,
+}) => {
+  if (!text) return null;
+  const trimmed = query.trim();
+  if (!trimmed) return <>{text}</>;
+
+  const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  try {
+    const parts = text.split(new RegExp(`(${escaped})`, 'gi'));
+    if (parts.length > 1) {
+      return (
+        <>
+          {parts.map((part, i) =>
+            part.toLowerCase() === trimmed.toLowerCase() ? (
+              <mark key={i} className="bg-amber-200/90 text-amber-950 font-bold px-0.5 rounded-xs">
+                {part}
+              </mark>
+            ) : (
+              part
+            )
+          )}
+        </>
+      );
+    }
+  } catch {
+    // fallback poniżej
+  }
+
+  const textNorm = normalizeSearchText(text);
+  const queryNorm = normalizeSearchText(trimmed);
+  const idx = textNorm.indexOf(queryNorm);
+  if (idx !== -1 && idx < text.length) {
+    const endIdx = Math.min(text.length, idx + trimmed.length);
+    return (
+      <>
+        {text.slice(0, idx)}
+        <mark className="bg-amber-200/90 text-amber-950 font-bold px-0.5 rounded-xs">
+          {text.slice(idx, endIdx)}
+        </mark>
+        {text.slice(endIdx)}
+      </>
+    );
+  }
+
+  return <>{text}</>;
+};
+
+export interface FlatReceiptItem {
+  id: string;
+  transaction: Transaction;
+  item: ReceiptItemDetail;
+  itemIndex: number;
+  matchesQuery: boolean;
+}
 
 interface TransactionsManagerProps {
   transactions: Transaction[];
@@ -70,6 +163,10 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
   );
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery || '');
+  const [viewMode, setViewMode] = useState<'transactions' | 'receipt_items'>('transactions');
+  const [searchAllMonths, setSearchAllMonths] = useState<boolean>(false);
+  const [expandedReceiptIds, setExpandedReceiptIds] = useState<Set<string>>(new Set());
+  const [showAllItemsTxIds, setShowAllItemsTxIds] = useState<Set<string>>(new Set());
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedReceiptDetails, setSelectedReceiptDetails] = useState<Transaction | null>(null);
   const [isolatedTransactionId, setIsolatedTransactionId] = useState<string | null>(null);
@@ -151,22 +248,118 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
     transactions,
   });
 
+  // Query normalized
+  const queryNorm = normalizeSearchText(searchQuery);
+
   // Filtered list
   const filtered = transactions.filter((t) => {
     if (isolatedTransactionId) {
       return t.id === isolatedTransactionId;
     }
-    const matchesMonth = !selectedMonth || t.date.startsWith(selectedMonth);
+    const matchesMonth = searchAllMonths || !selectedMonth || t.date.startsWith(selectedMonth);
     const matchesType = filterType === 'all' || t.type === filterType;
-    const matchesCategory = filterCategory === 'all' || t.category === filterCategory;
-    const matchesSearch =
-      t.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (t.comment && t.comment.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      t.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (t.receiptStoreName && t.receiptStoreName.toLowerCase().includes(searchQuery.toLowerCase()));
+    const matchesCategory =
+      filterCategory === 'all' ||
+      t.category === filterCategory ||
+      (t.receiptItems && t.receiptItems.some((item) => item.category === filterCategory));
 
-    return matchesMonth && matchesType && matchesCategory && matchesSearch;
+    if (!queryNorm) {
+      return matchesMonth && matchesType && matchesCategory;
+    }
+
+    const matchesDirectly =
+      normalizeSearchText(t.title).includes(queryNorm) ||
+      (t.comment && normalizeSearchText(t.comment).includes(queryNorm)) ||
+      normalizeSearchText(t.category).includes(queryNorm) ||
+      (t.receiptStoreName && normalizeSearchText(t.receiptStoreName).includes(queryNorm)) ||
+      (t.debtCounterparty && normalizeSearchText(t.debtCounterparty).includes(queryNorm));
+
+    const matchesReceiptItems =
+      !!t.receiptItems &&
+      t.receiptItems.length > 0 &&
+      t.receiptItems.some((item) => matchesReceiptItem(item, queryNorm));
+
+    return matchesMonth && matchesType && matchesCategory && (matchesDirectly || matchesReceiptItems);
   });
+
+  // Licznik wyników w innych miesiącach, gdy filtr miesiąca jest aktywny i nic lub mało znaleziono
+  const otherMonthMatchesCount =
+    !searchAllMonths && selectedMonth && queryNorm
+      ? transactions.filter((t) => {
+          if (t.date.startsWith(selectedMonth)) return false;
+          const matchesType = filterType === 'all' || t.type === filterType;
+          const matchesCategory =
+            filterCategory === 'all' ||
+            t.category === filterCategory ||
+            (t.receiptItems && t.receiptItems.some((item) => item.category === filterCategory));
+
+          const matchesDirectly =
+            normalizeSearchText(t.title).includes(queryNorm) ||
+            (t.comment && normalizeSearchText(t.comment).includes(queryNorm)) ||
+            normalizeSearchText(t.category).includes(queryNorm) ||
+            (t.receiptStoreName && normalizeSearchText(t.receiptStoreName).includes(queryNorm)) ||
+            (t.debtCounterparty && normalizeSearchText(t.debtCounterparty).includes(queryNorm));
+
+          const matchesReceiptItems =
+            !!t.receiptItems &&
+            t.receiptItems.length > 0 &&
+            t.receiptItems.some((item) => matchesReceiptItem(item, queryNorm));
+
+          return matchesType && matchesCategory && (matchesDirectly || matchesReceiptItems);
+        }).length
+      : 0;
+
+  // Spłaszczona lista pozycji z paragonów dla dedykowanego widoku / wyszukiwarki pozycji
+  const allFilteredReceiptItems: FlatReceiptItem[] = [];
+  filtered.forEach((t) => {
+    if (!t.receiptItems || t.receiptItems.length === 0) return;
+    t.receiptItems.forEach((item, idx) => {
+      // Filtr kategorii
+      if (
+        filterCategory !== 'all' &&
+        item.category !== filterCategory &&
+        t.category !== filterCategory
+      ) {
+        return;
+      }
+      const isItemMatch = queryNorm ? matchesReceiptItem(item, queryNorm) : true;
+      const parentMatches = queryNorm
+        ? normalizeSearchText(t.title).includes(queryNorm) ||
+          (t.receiptStoreName && normalizeSearchText(t.receiptStoreName).includes(queryNorm)) ||
+          (t.comment && normalizeSearchText(t.comment).includes(queryNorm))
+        : true;
+
+      if (!queryNorm || isItemMatch || parentMatches) {
+        allFilteredReceiptItems.push({
+          id: `${t.id}-item-${idx}`,
+          transaction: t,
+          item,
+          itemIndex: idx,
+          matchesQuery: isItemMatch,
+        });
+      }
+    });
+  });
+
+  const totalReceiptItemsSum = allFilteredReceiptItems.reduce(
+    (sum, f) => sum + f.item.price,
+    0
+  );
+
+  const handleScrollToTransaction = (txId: string) => {
+    setViewMode('transactions');
+    setExpandedReceiptIds((prev) => new Set(prev).add(txId));
+    setTimeout(() => {
+      const el = document.getElementById(`tx-row-${txId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('ring-2', 'ring-indigo-500', 'bg-indigo-50/70');
+        setTimeout(() => {
+          el.classList.remove('ring-2', 'ring-indigo-500', 'bg-indigo-50/70');
+        }, 2200);
+      }
+    }, 60);
+  };
 
   const totalIncome = filtered
     .filter((t) => t.type === 'income')
@@ -574,17 +767,100 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
         </div>
 
         {/* Search Field */}
-        <div className="relative w-full sm:w-64 min-w-0">
+        <div className="relative w-full sm:w-72 min-w-0">
           <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Szukaj..."
-            className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-slate-900"
+            placeholder="Szukaj (transakcje, pozycje, sklep)..."
+            className="w-full pl-8 pr-8 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-slate-900"
           />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full cursor-pointer"
+              title="Wyczyść wyszukiwanie"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
         </div>
       </div>
+
+      {/* View Mode Switcher & Search Scope Bar */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 px-0.5">
+        {/* Tabs: Główne wpisy vs Pozycje z paragonów */}
+        <div className="flex items-center space-x-1.5 bg-slate-100/90 p-1 rounded-xl shrink-0 self-start sm:self-auto border border-slate-200/60">
+          <button
+            type="button"
+            onClick={() => setViewMode('transactions')}
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center space-x-1.5 ${
+              viewMode === 'transactions'
+                ? 'bg-white text-slate-900 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <DollarSign className="w-3.5 h-3.5" />
+            <span>Główne wpisy ({filtered.length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('receipt_items')}
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center space-x-1.5 ${
+              viewMode === 'receipt_items'
+                ? 'bg-indigo-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-indigo-600'
+            }`}
+            title="Przełącz na widok pojedynczych pozycji z paragonów"
+          >
+            <Receipt className="w-3.5 h-3.5" />
+            <span>Pozycje z paragonów ({allFilteredReceiptItems.length})</span>
+          </button>
+        </div>
+
+        {/* Search details & All Months Scope */}
+        <div className="flex items-center space-x-2 text-xs text-slate-500 flex-wrap justify-between sm:justify-end gap-y-1.5">
+          {selectedMonth && (
+            <label className="flex items-center space-x-1.5 cursor-pointer select-none bg-slate-50 hover:bg-slate-100 border border-slate-200/80 px-2 py-1 rounded-lg transition-colors">
+              <input
+                type="checkbox"
+                checked={searchAllMonths}
+                onChange={(e) => setSearchAllMonths(e.target.checked)}
+                className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+              />
+              <span className="text-[11px] font-medium text-slate-700">Wszystkie miesiące</span>
+            </label>
+          )}
+
+          {searchQuery.trim() && (
+            <div className="flex items-center space-x-1.5 text-[11px] bg-amber-50 text-amber-900 px-2.5 py-1 rounded-lg border border-amber-200/70 font-medium">
+              <span>Szukasz:</span>
+              <strong className="font-bold underline decoration-amber-400">„{searchQuery}”</strong>
+              <span className="text-amber-700/80 font-normal">
+                ({filtered.length} wpisów, {allFilteredReceiptItems.length} pozycji)
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Out-of-month search matches prompt */}
+      {otherMonthMatchesCount > 0 && !searchAllMonths && filtered.length === 0 && (
+        <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 text-xs text-indigo-900 flex items-center justify-between gap-3 shadow-xs">
+          <span>
+            Brak wyników w wybranym miesiącu ({selectedMonth}), ale znaleziono <strong>{otherMonthMatchesCount}</strong> pasujących wpisów w innych miesiącach.
+          </span>
+          <button
+            type="button"
+            onClick={() => setSearchAllMonths(true)}
+            className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold rounded-lg transition-colors shrink-0 cursor-pointer text-xs"
+          >
+            Pokaż ze wszystkich miesięcy
+          </button>
+        </div>
+      )}
 
       {/* Isolated Transaction Banner (opened from notification) */}
       {isolatedTransactionId && (
@@ -611,234 +887,552 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
         </div>
       )}
 
-      {/* Transactions List Table */}
+      {/* Transactions List Table / Receipt Items List */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden divide-y divide-slate-100 w-full">
-        {filtered.length === 0 ? (
-          <div className="py-12 text-center text-slate-400 text-xs sm:text-sm space-y-2">
-            <DollarSign className="w-8 h-8 text-slate-300 mx-auto" />
-            <p className="font-semibold text-slate-600">Brak transakcji</p>
-          </div>
-        ) : (
-          filtered.map((item) => {
-            const isIncome = item.type === 'income';
+        {viewMode === 'receipt_items' ? (
+          allFilteredReceiptItems.length === 0 ? (
+            <div className="py-12 text-center text-slate-400 text-xs sm:text-sm space-y-2">
+              <Receipt className="w-8 h-8 text-slate-300 mx-auto" />
+              <p className="font-semibold text-slate-600">Brak pozycji z paragonów</p>
+              <p className="text-xs text-slate-400">
+                {searchQuery
+                  ? `Nie znaleziono pozycji w paragonach pasujących do „${searchQuery}”.`
+                  : 'Brak zarejestrowanych paragonów ze szczegółowymi pozycjami w wybranym filtrze.'}
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {/* Sub-header with count and sum */}
+              <div className="p-3 bg-slate-50/70 flex items-center justify-between text-xs text-slate-500 border-b border-slate-100 flex-wrap gap-2">
+                <span className="font-medium">
+                  Znaleziono <strong className="text-slate-800">{allFilteredReceiptItems.length}</strong> {allFilteredReceiptItems.length === 1 ? 'pozycję' : 'pozycji'} w paragonach
+                </span>
+                <span className="font-bold text-indigo-900 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-lg">
+                  Suma pozycji: {totalReceiptItemsSum.toFixed(2)} PLN
+                </span>
+              </div>
 
-            // Calculate loan interest / principal split if applicable
-            const linkedDebt = item.debtId ? debts.find((d) => d.id === item.debtId) : null;
-            const hasInterest = linkedDebt && isInterestBearingDebt(linkedDebt);
-            let pAmt = item.principalAmount;
-            let iAmt = item.interestAmount;
-            if ((pAmt === undefined || iAmt === undefined) && linkedDebt && hasInterest) {
-              const autoSplit = calculateSuggestedLoanSplit({
-                debt: linkedDebt,
-                paymentAmount: item.amount,
-                paymentDate: item.date,
-                paymentType: 'regular',
-              });
-              if (pAmt === undefined) pAmt = autoSplit.suggestedPrincipal;
-              if (iAmt === undefined) iAmt = autoSplit.suggestedInterest;
-            }
-
-            const hasAnyBadges =
-              item.isBalanceRollover ||
-              item.debtId ||
-              item.isRecurring ||
-              (item.receiptItems && item.receiptItems.length > 0);
-
-            return (
-              <div
-                key={item.id}
-                className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 sm:gap-4 hover:bg-slate-50/80 transition-colors w-full overflow-hidden"
-              >
-                {/* Main Content Area */}
-                <div className="flex items-start space-x-3 min-w-0 flex-1">
-                  {/* Direction Arrow Icon */}
+              {allFilteredReceiptItems.map((flatItem) => {
+                const isIncome = flatItem.transaction.type === 'income';
+                return (
                   <div
-                    className={`p-2 rounded-xl shrink-0 mt-0.5 sm:mt-0 ${
-                      isIncome ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
-                    }`}
+                    key={flatItem.id}
+                    className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 sm:gap-4 hover:bg-slate-50/80 transition-colors w-full overflow-hidden"
                   >
-                    {isIncome ? (
-                      <ArrowUp className="w-4 h-4 stroke-[2.5]" />
-                    ) : (
-                      <ArrowDown className="w-4 h-4 stroke-[2.5]" />
-                    )}
-                  </div>
-
-                  {/* Text & Badges Details */}
-                  <div className="min-w-0 flex-1 space-y-1.5">
-                    {/* Header Row: Title, Category & (Mobile-only) Amount */}
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <h3 className="font-bold text-xs sm:text-sm text-slate-900 leading-snug break-words">
-                            {item.title}
-                          </h3>
-                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 shrink-0">
-                            {item.category}
-                          </span>
-                        </div>
+                    <div className="flex items-start space-x-3 min-w-0 flex-1">
+                      <div className="p-2 rounded-xl shrink-0 mt-0.5 sm:mt-0 bg-indigo-50 text-indigo-600">
+                        <Receipt className="w-4 h-4 stroke-[2.5]" />
                       </div>
 
-                      {/* Amount on Mobile (< sm) */}
-                      <div className="text-right sm:hidden shrink-0 pl-1">
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <h3 className="font-bold text-xs sm:text-sm text-slate-900 leading-snug break-words">
+                                <HighlightText text={flatItem.item.name} query={searchQuery} />
+                              </h3>
+                              {flatItem.item.quantity && flatItem.item.quantity > 1 && (
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-600">
+                                  x{flatItem.item.quantity}
+                                </span>
+                              )}
+                              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 shrink-0">
+                                {flatItem.item.category || flatItem.transaction.category}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Mobile Price */}
+                          <div className="text-right sm:hidden shrink-0 pl-1">
+                            <span
+                              className={`text-sm font-black whitespace-nowrap block ${
+                                isIncome ? 'text-emerald-600' : 'text-slate-900'
+                              }`}
+                            >
+                              {isIncome ? '+' : '-'}
+                              {flatItem.item.price.toFixed(2)} zł
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Origin Receipt Info */}
+                        <div className="flex items-center gap-2 text-[11px] text-slate-500 flex-wrap">
+                          <span className="font-medium text-indigo-700 bg-indigo-50/80 px-2 py-0.5 rounded-md border border-indigo-100/60 flex items-center space-x-1">
+                            <span>Paragon:</span>
+                            <strong className="text-indigo-900">
+                              <HighlightText
+                                text={flatItem.transaction.receiptStoreName || flatItem.transaction.title}
+                                query={searchQuery}
+                              />
+                            </strong>
+                          </span>
+                          <span className="flex items-center space-x-1 text-slate-400">
+                            <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
+                            <span>{flatItem.item.date || flatItem.transaction.date}</span>
+                          </span>
+                          {flatItem.item.notes && (
+                            <span className="italic text-slate-400 text-[10px] truncate max-w-[200px]">
+                              ({flatItem.item.notes})
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Mobile actions */}
+                        <div className="flex items-center space-x-2 pt-1 sm:hidden">
+                          <button
+                            type="button"
+                            onClick={() => handleScrollToTransaction(flatItem.transaction.id)}
+                            className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 bg-indigo-50/80 hover:bg-indigo-100 px-2 py-1 rounded-lg transition-colors flex items-center space-x-1 cursor-pointer"
+                          >
+                            <span>Pokaż wpis</span>
+                            <ExternalLink className="w-2.5 h-2.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedReceiptDetails(flatItem.transaction)}
+                            className="text-[11px] font-medium text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded-lg transition-colors cursor-pointer"
+                          >
+                            Pełny paragon
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Desktop Price & Actions */}
+                    <div className="hidden sm:flex items-center space-x-3 shrink-0 pl-2">
+                      <div className="text-right">
                         <span
-                          className={`text-sm font-black whitespace-nowrap block ${
+                          className={`text-sm sm:text-base font-black whitespace-nowrap block ${
                             isIncome ? 'text-emerald-600' : 'text-slate-900'
                           }`}
                         >
                           {isIncome ? '+' : '-'}
-                          {item.amount.toFixed(2)} zł
+                          {flatItem.item.price.toFixed(2)} zł
+                        </span>
+                        <span className="text-[10px] text-slate-400 block whitespace-nowrap">
+                          z paragonu: {flatItem.transaction.amount.toFixed(2)} zł
                         </span>
                       </div>
-                    </div>
 
-                    {/* Labels / Badges Row (dedicated container, full-width wrapping, never overlapping amount) */}
-                    {hasAnyBadges && (
-                      <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                        {item.isBalanceRollover && (
-                          <span
-                            className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200 flex items-center space-x-1 shrink-0"
-                            title={`Przeniesienie bilansu z ${item.rolloverFromMonth || 'poprzedniego miesiąca'}`}
-                          >
-                            <Sparkles className="w-3 h-3 text-violet-600 shrink-0" />
-                            <span>Przeniesienie bilansu</span>
-                          </span>
-                        )}
+                      <button
+                        type="button"
+                        onClick={() => handleScrollToTransaction(flatItem.transaction.id)}
+                        className="px-2.5 py-1 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 active:bg-indigo-200 rounded-lg transition-colors flex items-center space-x-1 cursor-pointer"
+                        title="Pokaż główną transakcję na liście"
+                      >
+                        <span>Wpis</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </button>
 
-                        {item.debtId && (
-                          <span
-                            className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center space-x-1 max-w-full"
-                            title={linkedDebt ? `Spłata dla: ${linkedDebt.name}` : 'Powiązano ze zobowiązaniem'}
-                          >
-                            <Landmark className="w-3 h-3 text-indigo-600 shrink-0" />
-                            <span className="truncate max-w-[200px] sm:max-w-xs">
-                              {linkedDebt ? `Zobowiązanie: ${linkedDebt.name}` : 'Zobowiązanie'}
-                            </span>
-                          </span>
-                        )}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedReceiptDetails(flatItem.transaction)}
+                        className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors rounded-lg cursor-pointer"
+                        title="Pokaż cały paragon"
+                      >
+                        <Receipt className="w-4 h-4" />
+                      </button>
 
-                        {item.debtId && hasInterest && (pAmt !== undefined || iAmt !== undefined) && (
-                          <span
-                            className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-900 border border-amber-200 flex items-center space-x-1 max-w-full"
-                            title="Podział wpłaty na ratę kapitałową i odsetkową"
-                          >
-                            <Percent className="w-3 h-3 text-amber-600 shrink-0" />
-                            <span className="break-normal">
-                              Kapitał: {(pAmt ?? item.amount).toFixed(2)} zł • Odsetki: {(iAmt ?? 0).toFixed(2)} zł
-                            </span>
-                          </span>
-                        )}
-
-                        {item.isRecurring && (
-                          <span
-                            className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100 flex items-center space-x-0.5 shrink-0"
-                            title="Płatność cykliczna"
-                          >
-                            <Repeat className="w-3 h-3 text-blue-600 shrink-0" />
-                            <span>Cykliczna</span>
-                          </span>
-                        )}
-
-                        {item.receiptItems && item.receiptItems.length > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => setSelectedReceiptDetails(item)}
-                            className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100 hover:bg-indigo-100 active:bg-indigo-200 transition-colors flex items-center space-x-1 shrink-0 cursor-pointer"
-                            title="Pokaż pozycje z paragonu"
-                          >
-                            <Receipt className="w-3 h-3 text-indigo-600 shrink-0" />
-                            <span>{item.receiptItems.length} poz. paragonu</span>
-                          </button>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Note / Comment (if present) */}
-                    {item.comment && item.comment.trim() !== item.title.trim() && (
-                      <div className="flex items-start space-x-1.5 text-[11px] text-slate-500 bg-slate-50/70 p-1.5 rounded-lg border border-slate-100/80 max-w-full">
-                        <MessageSquare className="w-3 h-3 text-slate-400 shrink-0 mt-0.5" />
-                        <span className="italic break-words">{item.comment}</span>
-                      </div>
-                    )}
-
-                    {/* Date, Store and (on mobile) Action Buttons */}
-                    <div className="flex items-center justify-between gap-2 text-[11px] text-slate-400 pt-0.5">
-                      <div className="flex items-center space-x-3 shrink-0 flex-wrap">
-                        <span className="flex items-center space-x-1 font-medium text-slate-500">
-                          <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
-                          <span className="whitespace-nowrap">{item.date}</span>
-                        </span>
-                        {item.receiptStoreName && (
-                          <span className="text-slate-600 font-medium truncate max-w-[150px] sm:max-w-xs">
-                            Sklep: {item.receiptStoreName}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Mobile Actions: Edit & Delete buttons */}
-                      <div className="flex items-center space-x-1 sm:hidden shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenEditModal(item)}
-                          className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 active:bg-indigo-100 transition-colors rounded-lg touch-manipulation"
-                          title="Edytuj transakcję"
-                          aria-label="Edytuj"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onDeleteTransaction(item.id)}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 active:bg-rose-100 transition-colors rounded-lg touch-manipulation"
-                          title="Usuń transakcję"
-                          aria-label="Usuń"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditModal(flatItem.transaction)}
+                        className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors rounded-lg cursor-pointer"
+                        title="Edytuj powiązaną transakcję"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
-                </div>
+                );
+              })}
+            </div>
+          )
+        ) : (
+          filtered.length === 0 ? (
+            <div className="py-12 text-center text-slate-400 text-xs sm:text-sm space-y-2">
+              <DollarSign className="w-8 h-8 text-slate-300 mx-auto" />
+              <p className="font-semibold text-slate-600">Brak transakcji</p>
+            </div>
+          ) : (
+            filtered.map((item) => {
+              const isIncome = item.type === 'income';
 
-                {/* Desktop Amount & Actions (sm and up) */}
-                <div className="hidden sm:flex items-center space-x-3 shrink-0 pl-2">
-                  <div className="text-right">
-                    <span
-                      className={`text-sm sm:text-base font-black whitespace-nowrap block ${
-                        isIncome ? 'text-emerald-600' : 'text-slate-900'
+              // Calculate loan interest / principal split if applicable
+              const linkedDebt = item.debtId ? debts.find((d) => d.id === item.debtId) : null;
+              const hasInterest = linkedDebt && isInterestBearingDebt(linkedDebt);
+              let pAmt = item.principalAmount;
+              let iAmt = item.interestAmount;
+              if ((pAmt === undefined || iAmt === undefined) && linkedDebt && hasInterest) {
+                const autoSplit = calculateSuggestedLoanSplit({
+                  debt: linkedDebt,
+                  paymentAmount: item.amount,
+                  paymentDate: item.date,
+                  paymentType: 'regular',
+                });
+                if (pAmt === undefined) pAmt = autoSplit.suggestedPrincipal;
+                if (iAmt === undefined) iAmt = autoSplit.suggestedInterest;
+              }
+
+              const hasAnyBadges =
+                item.isBalanceRollover ||
+                item.debtId ||
+                item.isRecurring ||
+                (item.receiptItems && item.receiptItems.length > 0);
+
+              return (
+                <div
+                  key={item.id}
+                  id={`tx-row-${item.id}`}
+                  className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 sm:gap-4 hover:bg-slate-50/80 transition-colors w-full overflow-hidden"
+                >
+                  {/* Main Content Area */}
+                  <div className="flex items-start space-x-3 min-w-0 flex-1">
+                    {/* Direction Arrow Icon */}
+                    <div
+                      className={`p-2 rounded-xl shrink-0 mt-0.5 sm:mt-0 ${
+                        isIncome ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
                       }`}
                     >
-                      {isIncome ? '+' : '-'}
-                      {item.amount.toFixed(2)} zł
-                    </span>
-                    {hasInterest && (pAmt !== undefined || iAmt !== undefined) && (
-                      <span className="text-[10px] font-semibold text-slate-500 block whitespace-nowrap">
-                        kap. {(pAmt ?? item.amount).toFixed(2)} zł / ods. {(iAmt ?? 0).toFixed(2)} zł
-                      </span>
-                    )}
+                      {isIncome ? (
+                        <ArrowUp className="w-4 h-4 stroke-[2.5]" />
+                      ) : (
+                        <ArrowDown className="w-4 h-4 stroke-[2.5]" />
+                      )}
+                    </div>
+
+                    {/* Text & Badges Details */}
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      {/* Header Row: Title, Category & (Mobile-only) Amount */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <h3 className="font-bold text-xs sm:text-sm text-slate-900 leading-snug break-words">
+                              <HighlightText text={item.title} query={searchQuery} />
+                            </h3>
+                            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 shrink-0">
+                              {item.category}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Amount on Mobile (< sm) */}
+                        <div className="text-right sm:hidden shrink-0 pl-1">
+                          <span
+                            className={`text-sm font-black whitespace-nowrap block ${
+                              isIncome ? 'text-emerald-600' : 'text-slate-900'
+                            }`}
+                          >
+                            {isIncome ? '+' : '-'}
+                            {item.amount.toFixed(2)} zł
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Labels / Badges Row (dedicated container, full-width wrapping, never overlapping amount) */}
+                      {hasAnyBadges && (
+                        <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                          {item.isBalanceRollover && (
+                            <span
+                              className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200 flex items-center space-x-1 shrink-0"
+                              title={`Przeniesienie bilansu z ${item.rolloverFromMonth || 'poprzedniego miesiąca'}`}
+                            >
+                              <Sparkles className="w-3 h-3 text-violet-600 shrink-0" />
+                              <span>Przeniesienie bilansu</span>
+                            </span>
+                          )}
+
+                          {item.debtId && (
+                            <span
+                              className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center space-x-1 max-w-full"
+                              title={linkedDebt ? `Spłata dla: ${linkedDebt.name}` : 'Powiązano ze zobowiązaniem'}
+                            >
+                              <Landmark className="w-3 h-3 text-indigo-600 shrink-0" />
+                              <span className="truncate max-w-[200px] sm:max-w-xs">
+                                {linkedDebt ? `Zobowiązanie: ${linkedDebt.name}` : 'Zobowiązanie'}
+                              </span>
+                            </span>
+                          )}
+
+                          {item.debtId && hasInterest && (pAmt !== undefined || iAmt !== undefined) && (
+                            <span
+                              className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-900 border border-amber-200 flex items-center space-x-1 max-w-full"
+                              title="Podział wpłaty na ratę kapitałową i odsetkową"
+                            >
+                              <Percent className="w-3 h-3 text-amber-600 shrink-0" />
+                              <span className="break-normal">
+                                Kapitał: {(pAmt ?? item.amount).toFixed(2)} zł • Odsetki: {(iAmt ?? 0).toFixed(2)} zł
+                              </span>
+                            </span>
+                          )}
+
+                          {item.isRecurring && (
+                            <span
+                              className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100 flex items-center space-x-0.5 shrink-0"
+                              title="Płatność cykliczna"
+                            >
+                              <Repeat className="w-3 h-3 text-blue-600 shrink-0" />
+                              <span>Cykliczna</span>
+                            </span>
+                          )}
+
+                          {item.receiptItems && item.receiptItems.length > 0 && (() => {
+                            const isAutoExpanded = !!queryNorm && (
+                              item.receiptItems.some((ri) => matchesReceiptItem(ri, queryNorm)) ||
+                              normalizeSearchText(item.title).includes(queryNorm) ||
+                              (item.receiptStoreName && normalizeSearchText(item.receiptStoreName).includes(queryNorm))
+                            );
+                            const isManuallyExpanded = expandedReceiptIds.has(item.id);
+                            const isExpanded = isAutoExpanded || isManuallyExpanded;
+
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setExpandedReceiptIds((prev) => {
+                                    const next = new Set(prev);
+                                    if (isExpanded) {
+                                      next.delete(item.id);
+                                    } else {
+                                      next.add(item.id);
+                                    }
+                                    return next;
+                                  });
+                                }}
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all flex items-center space-x-1 shrink-0 cursor-pointer ${
+                                  isExpanded
+                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                                    : 'bg-indigo-50 text-indigo-700 border-indigo-100 hover:bg-indigo-100 active:bg-indigo-200'
+                                }`}
+                                title={isExpanded ? 'Zwiń pozycje z paragonu' : 'Rozwiń pozycje z paragonu'}
+                              >
+                                <Receipt className="w-3 h-3 shrink-0" />
+                                <span>{item.receiptItems.length} poz. paragonu</span>
+                                {isExpanded ? (
+                                  <ChevronUp className="w-3 h-3 shrink-0" />
+                                ) : (
+                                  <ChevronDown className="w-3 h-3 shrink-0" />
+                                )}
+                              </button>
+                            );
+                          })()}
+                        </div>
+                      )}
+
+                      {/* Inline Receipt Items section */}
+                      {item.receiptItems && item.receiptItems.length > 0 && (() => {
+                        const matchingItems = queryNorm
+                          ? item.receiptItems.filter((ri) => matchesReceiptItem(ri, queryNorm))
+                          : [];
+                        const parentMatchedDirectly = queryNorm
+                          ? (
+                              normalizeSearchText(item.title).includes(queryNorm) ||
+                              (item.receiptStoreName && normalizeSearchText(item.receiptStoreName).includes(queryNorm)) ||
+                              (item.comment && normalizeSearchText(item.comment).includes(queryNorm)) ||
+                              normalizeSearchText(item.category).includes(queryNorm)
+                            )
+                          : false;
+
+                        const isAutoExpanded = queryNorm.length > 0 && (matchingItems.length > 0 || parentMatchedDirectly);
+                        const isManuallyExpanded = expandedReceiptIds.has(item.id);
+                        const isExpanded = isAutoExpanded || isManuallyExpanded;
+
+                        if (!isExpanded) return null;
+
+                        const showAll =
+                          showAllItemsTxIds.has(item.id) ||
+                          parentMatchedDirectly ||
+                          matchingItems.length === 0 ||
+                          matchingItems.length === item.receiptItems.length ||
+                          !queryNorm;
+
+                        const itemsToDisplay = showAll ? item.receiptItems : matchingItems;
+
+                        return (
+                          <div className="w-full mt-2 pt-2 border-t border-slate-100 space-y-1.5 animate-in fade-in duration-150">
+                            <div className="flex items-center justify-between text-xs flex-wrap gap-1">
+                              <div className="flex items-center space-x-1.5 font-bold text-slate-700">
+                                <Receipt className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                                <span>
+                                  {queryNorm && !showAll
+                                    ? `Dopasowane pozycje w paragonie (${matchingItems.length} z ${item.receiptItems.length}):`
+                                    : `Pozycje w paragonie (${item.receiptItems.length}):`}
+                                </span>
+                              </div>
+                              <div className="flex items-center space-x-2 text-[11px]">
+                                {!showAll && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setShowAllItemsTxIds((prev) => new Set(prev).add(item.id));
+                                    }}
+                                    className="text-indigo-600 hover:text-indigo-800 font-semibold cursor-pointer underline-offset-2 hover:underline"
+                                  >
+                                    + Pokaż wszystkie ({item.receiptItems.length})
+                                  </button>
+                                )}
+                                {showAll && queryNorm && matchingItems.length < item.receiptItems.length && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setShowAllItemsTxIds((prev) => {
+                                        const next = new Set(prev);
+                                        next.delete(item.id);
+                                        return next;
+                                      });
+                                    }}
+                                    className="text-slate-500 hover:text-slate-700 font-semibold cursor-pointer underline-offset-2 hover:underline"
+                                  >
+                                    Tylko dopasowane ({matchingItems.length})
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedReceiptDetails(item)}
+                                  className="text-indigo-600 hover:text-indigo-800 font-semibold cursor-pointer underline-offset-2 hover:underline flex items-center space-x-0.5"
+                                >
+                                  <span>Pełny podgląd</span>
+                                  <ExternalLink className="w-2.5 h-2.5" />
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="bg-slate-50/90 rounded-xl p-1.5 border border-slate-200/80 divide-y divide-slate-100 max-h-56 overflow-y-auto">
+                              {itemsToDisplay.map((recItem, rIdx) => {
+                                const isThisItemMatch = queryNorm ? matchesReceiptItem(recItem, queryNorm) : false;
+                                return (
+                                  <div
+                                    key={rIdx}
+                                    className={`py-1.5 px-2 flex items-center justify-between text-xs rounded-lg transition-colors ${
+                                      isThisItemMatch ? 'bg-amber-50/90 border border-amber-200/60 font-medium' : 'hover:bg-slate-100/60'
+                                    }`}
+                                  >
+                                    <div className="min-w-0 flex-1 pr-2">
+                                      <div className="flex items-center space-x-1.5 flex-wrap">
+                                        {isThisItemMatch && (
+                                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" title="Dopasowanie wyszukiwania" />
+                                        )}
+                                        <span className="text-slate-900 font-medium truncate max-w-full">
+                                          <HighlightText text={recItem.name} query={searchQuery} />
+                                        </span>
+                                        {recItem.quantity && recItem.quantity > 1 && (
+                                          <span className="text-[10px] font-bold px-1 py-0.2 rounded bg-slate-200/70 text-slate-600 shrink-0">
+                                            x{recItem.quantity}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center space-x-2 text-[10px] text-slate-400 mt-0.5 flex-wrap">
+                                        <span className="bg-white px-1.5 py-0.5 rounded border border-slate-200 text-slate-600 font-medium">
+                                          {recItem.category || item.category}
+                                        </span>
+                                        {recItem.notes && (
+                                          <span className="italic text-slate-500 truncate max-w-[200px]">
+                                            {recItem.notes}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="text-right shrink-0 pl-1">
+                                      <span className="font-bold text-slate-900 text-xs">
+                                        {recItem.price.toFixed(2)} zł
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Note / Comment (if present) */}
+                      {item.comment && item.comment.trim() !== item.title.trim() && (
+                        <div className="flex items-start space-x-1.5 text-[11px] text-slate-500 bg-slate-50/70 p-1.5 rounded-lg border border-slate-100/80 max-w-full">
+                          <MessageSquare className="w-3 h-3 text-slate-400 shrink-0 mt-0.5" />
+                          <span className="italic break-words">
+                            <HighlightText text={item.comment} query={searchQuery} />
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Date, Store and (on mobile) Action Buttons */}
+                      <div className="flex items-center justify-between gap-2 text-[11px] text-slate-400 pt-0.5">
+                        <div className="flex items-center space-x-3 shrink-0 flex-wrap">
+                          <span className="flex items-center space-x-1 font-medium text-slate-500">
+                            <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
+                            <span className="whitespace-nowrap">{item.date}</span>
+                          </span>
+                          {item.receiptStoreName && (
+                            <span className="text-slate-600 font-medium truncate max-w-[150px] sm:max-w-xs">
+                              Sklep: <HighlightText text={item.receiptStoreName} query={searchQuery} />
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Mobile Actions: Edit & Delete buttons */}
+                        <div className="flex items-center space-x-1 sm:hidden shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditModal(item)}
+                            className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 active:bg-indigo-100 transition-colors rounded-lg touch-manipulation"
+                            title="Edytuj transakcję"
+                            aria-label="Edytuj"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onDeleteTransaction(item.id)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 active:bg-rose-100 transition-colors rounded-lg touch-manipulation"
+                            title="Usuń transakcję"
+                            aria-label="Usuń"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => handleOpenEditModal(item)}
-                    className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors rounded-lg cursor-pointer"
-                    title="Edytuj transakcję"
-                  >
-                    <Pencil className="w-4 h-4" />
-                  </button>
+                  {/* Desktop Amount & Actions (sm and up) */}
+                  <div className="hidden sm:flex items-center space-x-3 shrink-0 pl-2">
+                    <div className="text-right">
+                      <span
+                        className={`text-sm sm:text-base font-black whitespace-nowrap block ${
+                          isIncome ? 'text-emerald-600' : 'text-slate-900'
+                        }`}
+                      >
+                        {isIncome ? '+' : '-'}
+                        {item.amount.toFixed(2)} zł
+                      </span>
+                      {hasInterest && (pAmt !== undefined || iAmt !== undefined) && (
+                        <span className="text-[10px] font-semibold text-slate-500 block whitespace-nowrap">
+                          kap. {(pAmt ?? item.amount).toFixed(2)} zł / ods. {(iAmt ?? 0).toFixed(2)} zł
+                        </span>
+                      )}
+                    </div>
 
-                  <button
-                    type="button"
-                    onClick={() => onDeleteTransaction(item.id)}
-                    className="p-1.5 text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-colors rounded-lg cursor-pointer"
-                    title="Usuń"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEditModal(item)}
+                      className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors rounded-lg cursor-pointer"
+                      title="Edytuj transakcję"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onDeleteTransaction(item.id)}
+                      className="p-1.5 text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-colors rounded-lg cursor-pointer"
+                      title="Usuń"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            );
-          })
+              );
+            })
+          )
         )}
       </div>
 

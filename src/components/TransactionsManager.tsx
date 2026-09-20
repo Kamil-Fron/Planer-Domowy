@@ -684,7 +684,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
         <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between min-w-0">
           <div className="min-w-0 flex-1">
             <span className="text-xs text-slate-500 font-medium block truncate">Dochody</span>
-            <p className="text-xl sm:text-2xl font-black text-emerald-600 mt-0.5 truncate">
+            <p className="text-xl sm:text-2xl font-black text-emerald-600 mt-0.5 truncate privacy-blur">
               +{totalIncome.toFixed(2)} PLN
             </p>
           </div>
@@ -696,7 +696,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
         <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between min-w-0">
           <div className="min-w-0 flex-1">
             <span className="text-xs text-slate-500 font-medium block truncate">Wydatki</span>
-            <p className="text-xl sm:text-2xl font-black text-rose-600 mt-0.5 truncate">
+            <p className="text-xl sm:text-2xl font-black text-rose-600 mt-0.5 truncate privacy-blur">
               -{totalExpense.toFixed(2)} PLN
             </p>
           </div>
@@ -721,7 +721,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
               />
             </div>
             <p
-              className={`text-xl sm:text-2xl font-black mt-0.5 truncate ${
+              className={`text-xl sm:text-2xl font-black mt-0.5 truncate privacy-blur ${
                 totalIncome - totalExpense >= 0 ? 'text-slate-900' : 'text-rose-600'
               }`}
             >
@@ -1009,7 +1009,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                           {/* Mobile Price */}
                           <div className="text-right sm:hidden shrink-0 pl-1">
                             <span
-                              className={`text-sm font-black whitespace-nowrap block ${
+                              className={`text-sm font-black whitespace-nowrap block privacy-blur ${
                                 isIncome ? 'text-emerald-600' : 'text-slate-900'
                               }`}
                             >
@@ -1066,14 +1066,14 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                     <div className="hidden sm:flex items-center space-x-3 shrink-0 pl-2">
                       <div className="text-right">
                         <span
-                          className={`text-sm sm:text-base font-black whitespace-nowrap block ${
+                          className={`text-sm sm:text-base font-black whitespace-nowrap block privacy-blur ${
                             isIncome ? 'text-emerald-600' : 'text-slate-900'
                           }`}
                         >
                           {isIncome ? '+' : '-'}
                           {flatItem.item.price.toFixed(2)} zł
                         </span>
-                        <span className="text-[10px] text-slate-400 block whitespace-nowrap">
+                        <span className="text-[10px] text-slate-400 block whitespace-nowrap privacy-blur">
                           z paragonu: {flatItem.transaction.amount.toFixed(2)} zł
                         </span>
                       </div>
@@ -1193,7 +1193,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                         {/* Amount on Mobile (< sm) */}
                         <div className="text-right sm:hidden shrink-0 pl-1">
                           <span
-                            className={`text-sm font-black whitespace-nowrap block ${
+                            className={`text-sm font-black whitespace-nowrap block privacy-blur ${
                               isIncome ? 'text-emerald-600' : 'text-slate-900'
                             }`}
                           >
@@ -1234,7 +1234,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                               title="Podział wpłaty na ratę kapitałową i odsetkową"
                             >
                               <Percent className="w-3 h-3 text-amber-600 shrink-0" />
-                              <span className="break-normal">
+                              <span className="break-normal privacy-blur">
                                 Kapitał: {(pAmt ?? item.amount).toFixed(2)} zł • Odsetki: {(iAmt ?? 0).toFixed(2)} zł
                               </span>
                             </span>
@@ -1407,7 +1407,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                                       </div>
                                     </div>
                                     <div className="text-right shrink-0 pl-1">
-                                      <span className="font-bold text-slate-900 text-xs">
+                                      <span className="font-bold text-slate-900 text-xs privacy-blur">
                                         {recItem.price.toFixed(2)} zł
                                       </span>
                                     </div>
@@ -1472,7 +1472,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                   <div className="hidden sm:flex items-center space-x-3 shrink-0 pl-2">
                     <div className="text-right">
                       <span
-                        className={`text-sm sm:text-base font-black whitespace-nowrap block ${
+                        className={`text-sm sm:text-base font-black whitespace-nowrap block privacy-blur ${
                           isIncome ? 'text-emerald-600' : 'text-slate-900'
                         }`}
                       >
@@ -1480,7 +1480,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                         {item.amount.toFixed(2)} zł
                       </span>
                       {hasInterest && (pAmt !== undefined || iAmt !== undefined) && (
-                        <span className="text-[10px] font-semibold text-slate-500 block whitespace-nowrap">
+                        <span className="text-[10px] font-semibold text-slate-500 block whitespace-nowrap privacy-blur">
                           kap. {(pAmt ?? item.amount).toFixed(2)} zł / ods. {(iAmt ?? 0).toFixed(2)} zł
                         </span>
                       )}

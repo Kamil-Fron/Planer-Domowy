@@ -815,7 +815,7 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                 <span className="w-2 h-2 rounded-full bg-rose-500" />
                 <span>Muszę oddać (Moje długi)</span>
               </div>
-              <p className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+              <p className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight privacy-blur">
                 {stats.totalBorrowedRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł
               </p>
             </div>
@@ -826,10 +826,10 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
 
           <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
             <div>
-              Zaciągnięto: <span className="font-semibold text-slate-800">{stats.totalBorrowedInitial.toLocaleString('pl-PL')} zł</span>
+              Zaciągnięto: <span className="font-semibold text-slate-800 privacy-blur">{stats.totalBorrowedInitial.toLocaleString('pl-PL')} zł</span>
             </div>
             <div>
-              Spłacono: <span className="font-semibold text-emerald-600">{stats.totalBorrowedPaid.toLocaleString('pl-PL')} zł</span>
+              Spłacono: <span className="font-semibold text-emerald-600 privacy-blur">{stats.totalBorrowedPaid.toLocaleString('pl-PL')} zł</span>
             </div>
           </div>
           <div className="mt-2 text-[11px] text-slate-400">
@@ -845,7 +845,7 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                 <span className="w-2 h-2 rounded-full bg-emerald-500" />
                 <span>Do odzyskania (Pożyczone innym)</span>
               </div>
-              <p className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+              <p className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight privacy-blur">
                 {stats.totalLentRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł
               </p>
             </div>
@@ -856,10 +856,10 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
 
           <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
             <div>
-              Pożyczono: <span className="font-semibold text-slate-800">{stats.totalLentInitial.toLocaleString('pl-PL')} zł</span>
+              Pożyczono: <span className="font-semibold text-slate-800 privacy-blur">{stats.totalLentInitial.toLocaleString('pl-PL')} zł</span>
             </div>
             <div>
-              Odzyskano: <span className="font-semibold text-emerald-600">{stats.totalLentPaid.toLocaleString('pl-PL')} zł</span>
+              Odzyskano: <span className="font-semibold text-emerald-600 privacy-blur">{stats.totalLentPaid.toLocaleString('pl-PL')} zł</span>
             </div>
           </div>
           <div className="mt-2 text-[11px] text-slate-400">
@@ -875,7 +875,7 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                 <Scale className="w-3.5 h-3.5" />
                 <span>Bilans zobowiązań netto</span>
               </div>
-              <p className={`text-2xl sm:text-3xl font-black tracking-tight ${
+              <p className={`text-2xl sm:text-3xl font-black tracking-tight privacy-blur ${
                 stats.netBalance >= 0 ? 'text-emerald-700' : 'text-rose-700'
               }`}>
                 {stats.netBalance >= 0 ? '+' : ''}{stats.netBalance.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł
@@ -1111,7 +1111,7 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                     <span className="text-xs text-slate-500 font-medium">
                       {isBorrowed ? 'Pozostało do spłaty:' : 'Pozostało do zwrotu:'}
                     </span>
-                    <span className={`text-xl font-black ${isBorrowed ? 'text-rose-600' : 'text-emerald-600'}`}>
+                    <span className={`text-xl font-black privacy-blur ${isBorrowed ? 'text-rose-600' : 'text-emerald-600'}`}>
                       {item.currentRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł
                     </span>
                   </div>
@@ -1127,8 +1127,8 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                       />
                     </div>
                     <div className="flex items-center justify-between text-[11px] text-slate-400 font-medium">
-                      <span>Spłacono: {item.paidAmount.toLocaleString('pl-PL')} zł ({progress}%)</span>
-                      <span>Całość: {item.initialAmount.toLocaleString('pl-PL')} zł</span>
+                      <span className="privacy-blur">Spłacono: {item.paidAmount.toLocaleString('pl-PL')} zł ({progress}%)</span>
+                      <span className="privacy-blur">Całość: {item.initialAmount.toLocaleString('pl-PL')} zł</span>
                     </div>
                   </div>
 
@@ -1147,7 +1147,7 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                     {item.monthlyPayment && (
                       <span className={`flex items-center space-x-1 font-semibold ${isPaid ? 'text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-md' : 'text-slate-700'}`}>
                         <DollarSign className="w-3 h-3 text-slate-400" />
-                        <span>{isPaid ? 'Rata: Rozliczona (0 zł)' : `Rata: ${item.monthlyPayment.toLocaleString('pl-PL')} zł/msc`}</span>
+                        <span className="privacy-blur">{isPaid ? 'Rata: Rozliczona (0 zł)' : `Rata: ${item.monthlyPayment.toLocaleString('pl-PL')} zł/msc`}</span>
                       </span>
                     )}
                     {item.interestRate && (

@@ -3441,6 +3441,8 @@ export default function App() {
         unreadNotificationsCount={notifications.filter((n) => !n.read).length}
         userName={currentUser.name}
         householdName={household?.name}
+        isPrivacyMode={powerSettings.privacyMode}
+        onTogglePrivacyMode={handleTogglePrivacyMode}
       />
 
       {/* Top Main Navigation Header */}

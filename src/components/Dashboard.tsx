@@ -350,7 +350,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 </span>
               </div>
               <p
-                className={`text-3xl sm:text-4xl font-black tracking-tight mt-0.5 ${
+                className={`text-3xl sm:text-4xl font-black tracking-tight mt-0.5 privacy-blur ${
                   balance >= 0 ? 'text-emerald-400' : 'text-rose-400'
                 }`}
               >
@@ -361,7 +361,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <div className="mt-2 inline-flex items-center space-x-1.5 text-xs text-slate-300 bg-slate-800/80 border border-slate-700/60 px-2.5 py-1 rounded-lg">
                   <CalendarClock className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
                   <span>
-                    <strong className={projectedBalance >= 0 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                    <strong className={`privacy-blur ${projectedBalance >= 0 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}`}>
                       {projectedBalance >= 0 ? '+' : ''}{projectedBalance.toFixed(2)} zł
                     </strong>
                     <span className="text-slate-400 ml-1.5">po opłaceniu zleconego rachunku</span>
@@ -384,7 +384,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   <span>Wpłaty & Dochody</span>
                 </span>
                 <p className="text-lg font-bold text-emerald-400 mt-0.5 flex items-center justify-between">
-                  <span>+{totalIncome.toFixed(2)} zł</span>
+                  <span className="privacy-blur">+{totalIncome.toFixed(2)} zł</span>
                   <span className="text-[11px] text-slate-500 group-hover/inc:text-slate-300 transition-colors">→</span>
                 </p>
               </div>
@@ -400,11 +400,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   <span>Wydatki łączne</span>
                 </span>
                 <p className="text-lg font-bold text-rose-400 mt-0.5 flex items-center justify-between">
-                  <span>-{totalExpense.toFixed(2)} zł</span>
+                  <span className="privacy-blur">-{totalExpense.toFixed(2)} zł</span>
                   <span className="text-[11px] text-slate-500 group-hover/exp:text-slate-300 transition-colors">→</span>
                 </p>
                 {futureExpense > 0 && (
-                  <span className="text-[10px] text-amber-300 font-medium block mt-0.5">
+                  <span className="text-[10px] text-amber-300 font-medium block mt-0.5 privacy-blur">
                     +{futureExpense.toFixed(2)} zł zlecone
                   </span>
                 )}
@@ -519,7 +519,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       >
                         <div>
                           <strong className="text-slate-900 font-bold group-hover:text-emerald-950">{b.name}</strong>
-                          <span className="text-slate-700 ml-1 font-semibold">{b.amount.toFixed(2)} zł</span>
+                          <span className="text-slate-700 ml-1 font-semibold privacy-blur">{b.amount.toFixed(2)} zł</span>
                           <span className="text-[10px] text-emerald-700 block sm:inline sm:ml-1 font-medium">
                             Termin: {b.targetDate}
                           </span>
@@ -541,7 +541,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     >
                       <div>
                         <strong className="text-slate-900 font-bold group-hover:text-amber-950">{b.name}</strong>
-                        <span className="text-slate-700 ml-1 font-semibold">{b.amount.toFixed(2)} zł</span>
+                        <span className="text-slate-700 ml-1 font-semibold privacy-blur">{b.amount.toFixed(2)} zł</span>
                         <span className="text-[10px] text-slate-400 block sm:inline sm:ml-1">Termin: {b.targetDate}</span>
                       </div>
                       <span className="px-2 py-0.5 bg-emerald-600 group-hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold shrink-0 flex items-center space-x-1 shadow-2xs transition-colors ml-1">
@@ -689,7 +689,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   </div>
                   <div className="text-right shrink-0">
                     <span
-                      className={`font-black whitespace-nowrap block ${
+                      className={`font-black whitespace-nowrap block privacy-blur ${
                         isIncome ? 'text-emerald-600' : 'text-rose-600'
                       }`}
                     >
@@ -775,16 +775,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <span className="text-slate-500 font-medium">({borrowedDebts.length} poz.)</span>
               </span>
               <div className="flex items-baseline space-x-1.5">
-                <span className="text-xl font-black text-rose-600">
+                <span className="text-xl font-black text-rose-600 privacy-blur">
                   {totalBorrowedRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} zł
                 </span>
-                <span className="text-[11px] text-slate-400">
+                <span className="text-[11px] text-slate-400 privacy-blur">
                   / {totalBorrowedInitial.toLocaleString('pl-PL', { maximumFractionDigits: 0 })} zł
                 </span>
               </div>
               <div>
                 <div className="flex justify-between text-[10px] text-slate-500 mb-1">
-                  <span>Spłacono: {totalBorrowedPaid.toLocaleString('pl-PL', { maximumFractionDigits: 0 })} zł</span>
+                  <span className="privacy-blur">Spłacono: {totalBorrowedPaid.toLocaleString('pl-PL', { maximumFractionDigits: 0 })} zł</span>
                   <span className="font-bold text-rose-600">{borrowedPaidPercent.toFixed(1)}%</span>
                 </div>
                 <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
@@ -810,16 +810,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <span className="text-slate-500 font-medium">({lentDebts.length} poz.)</span>
               </span>
               <div className="flex items-baseline space-x-1.5">
-                <span className="text-xl font-black text-emerald-600">
+                <span className="text-xl font-black text-emerald-600 privacy-blur">
                   {totalLentRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} zł
                 </span>
-                <span className="text-[11px] text-slate-400">
+                <span className="text-[11px] text-slate-400 privacy-blur">
                   / {totalLentInitial.toLocaleString('pl-PL', { maximumFractionDigits: 0 })} zł
                 </span>
               </div>
               <div>
                 <div className="flex justify-between text-[10px] text-slate-500 mb-1">
-                  <span>Odzyskano: {totalLentRecovered.toLocaleString('pl-PL', { maximumFractionDigits: 0 })} zł</span>
+                  <span className="privacy-blur">Odzyskano: {totalLentRecovered.toLocaleString('pl-PL', { maximumFractionDigits: 0 })} zł</span>
                   <span className="font-bold text-emerald-600">{lentRecoveredPercent.toFixed(1)}%</span>
                 </div>
                 <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
@@ -838,7 +838,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   Miesięczne raty kredytów
                 </span>
                 <div className="flex items-baseline space-x-1.5 mt-0.5">
-                  <span className={`text-xl font-black ${totalMonthlyInstallments > 0 ? 'text-slate-900' : 'text-emerald-600'}`}>
+                  <span className={`text-xl font-black privacy-blur ${totalMonthlyInstallments > 0 ? 'text-slate-900' : 'text-emerald-600'}`}>
                     {totalMonthlyInstallments.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} zł
                   </span>
                   <span className="text-[11px] text-slate-500">/ mies.</span>
@@ -947,7 +947,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     <span className="font-bold text-slate-800 group-hover:text-indigo-900 truncate">
                       {limit.category}
                     </span>
-                    <span className="font-black text-slate-900 shrink-0">
+                    <span className="font-black text-slate-900 shrink-0 privacy-blur">
                       {spent.toFixed(0)} / {limit.monthlyLimit.toFixed(0)} zł
                     </span>
                   </div>

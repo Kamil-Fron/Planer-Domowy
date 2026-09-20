@@ -141,7 +141,7 @@ export const BudgetLimits: React.FC<BudgetLimitsProps> = ({
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
           <div>
             <span className="text-xs text-slate-500 font-medium">Łączny ustalony budżet</span>
-            <p className="text-2xl font-black text-slate-900 mt-1">
+            <p className="text-2xl font-black text-slate-900 mt-1 privacy-blur">
               {totalBudget.toFixed(2)} PLN
             </p>
             <span className="text-xs text-slate-400 mt-0.5 block">
@@ -156,7 +156,7 @@ export const BudgetLimits: React.FC<BudgetLimitsProps> = ({
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
           <div>
             <span className="text-xs text-slate-500 font-medium">Aktualnie wydano</span>
-            <p className="text-2xl font-black text-rose-600 mt-1">
+            <p className="text-2xl font-black text-rose-600 mt-1 privacy-blur">
               {totalSpentAcrossLimits.toFixed(2)} PLN
             </p>
             <span className="text-xs text-slate-400 mt-0.5 block">
@@ -172,7 +172,7 @@ export const BudgetLimits: React.FC<BudgetLimitsProps> = ({
           <div>
             <span className="text-xs text-slate-500 font-medium">Pozostały limit do dyspozycji</span>
             <p
-              className={`text-2xl font-black mt-1 ${
+              className={`text-2xl font-black mt-1 privacy-blur ${
                 totalBudget - totalSpentAcrossLimits >= 0 ? 'text-emerald-600' : 'text-rose-600'
               }`}
             >
@@ -272,7 +272,7 @@ export const BudgetLimits: React.FC<BudgetLimitsProps> = ({
                 <div className="my-4 flex items-baseline justify-between">
                   <div>
                     <span className="text-xs text-slate-500 block">Wydano w tym miesiącu</span>
-                    <span className="text-xl font-black text-slate-900">
+                    <span className="text-xl font-black text-slate-900 privacy-blur">
                       {categorySpent.toFixed(2)} <span className="text-xs font-semibold text-slate-500">PLN</span>
                     </span>
                   </div>
@@ -300,7 +300,7 @@ export const BudgetLimits: React.FC<BudgetLimitsProps> = ({
                         className="flex items-center justify-end space-x-1 text-slate-700 hover:text-indigo-600 cursor-pointer group"
                         title="Kliknij aby zmienić limit"
                       >
-                        <span className="text-base font-bold">{limit.monthlyLimit.toFixed(2)} PLN</span>
+                        <span className="text-base font-bold privacy-blur">{limit.monthlyLimit.toFixed(2)} PLN</span>
                         <Edit3 className="w-3 h-3 text-slate-400 group-hover:text-indigo-600" />
                       </div>
                     )}
@@ -319,9 +319,9 @@ export const BudgetLimits: React.FC<BudgetLimitsProps> = ({
                     <span>Zużycie: {percent.toFixed(0)}%</span>
                     <span>
                       {remaining >= 0 ? (
-                        <>Pozostało: <strong className="text-emerald-700">{remaining.toFixed(2)} PLN</strong></>
+                        <>Pozostało: <strong className="text-emerald-700 privacy-blur">{remaining.toFixed(2)} PLN</strong></>
                       ) : (
-                        <>Przekroczenie o: <strong className="text-rose-600">{Math.abs(remaining).toFixed(2)} PLN</strong></>
+                        <>Przekroczenie o: <strong className="text-rose-600 privacy-blur">{Math.abs(remaining).toFixed(2)} PLN</strong></>
                       )}
                     </span>
                   </div>

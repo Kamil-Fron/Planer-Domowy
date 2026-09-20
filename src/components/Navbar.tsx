@@ -921,10 +921,61 @@ export const Navbar: React.FC<NavbarProps> = ({
                       )}
                     </div>
 
-                    {/* Opcja trybu prywatności / szybkiego startu na telefonach */}
+                    {/* Opcja trybu prywatności */}
+                    {onTogglePrivacyMode && (
+                      <div className="p-2 border-t border-slate-100">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onTogglePrivacyMode();
+                          }}
+                          className={`w-full text-left p-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-between border cursor-pointer ${
+                            powerSettings?.privacyMode
+                              ? 'bg-amber-50/80 border-amber-300 text-amber-900 shadow-2xs'
+                              : 'bg-slate-50/80 hover:bg-slate-100/80 border-slate-200/80 text-slate-800'
+                          }`}
+                        >
+                          <div className="flex items-center space-x-2.5 min-w-0">
+                            <div
+                              className={`w-7 h-7 rounded-lg flex items-center justify-center shadow-2xs shrink-0 ${
+                                powerSettings?.privacyMode
+                                  ? 'bg-amber-500 text-white'
+                                  : 'bg-slate-200 text-slate-600'
+                              }`}
+                            >
+                              {powerSettings?.privacyMode ? (
+                                <EyeOff className="w-4 h-4" />
+                              ) : (
+                                <Eye className="w-4 h-4" />
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold leading-none truncate">Tryb prywatności</p>
+                              <p className="text-[10px] text-slate-500 font-normal mt-0.5 truncate">
+                                {powerSettings?.privacyMode
+                                  ? 'Kwoty i salda są zamaskowane'
+                                  : 'Ukrywa finanse w miejscach publ.'}
+                              </p>
+                            </div>
+                          </div>
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-md border shrink-0 ${
+                              powerSettings?.privacyMode
+                                ? 'bg-amber-600 text-white border-amber-600'
+                                : 'bg-white text-slate-700 border-slate-300'
+                            }`}
+                          >
+                            {powerSettings?.privacyMode ? 'WŁĄCZONY' : 'WYŁĄCZONY'}
+                          </span>
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Opcja szybkiego startu na telefonach */}
                     {onOpenMobileLauncher && (
                       <div className="p-2 border-t border-slate-100 sm:hidden">
                         <button
+                          type="button"
                           onClick={() => {
                             setIsActionMenuOpen(false);
                             onOpenMobileLauncher();
@@ -932,16 +983,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                           className="w-full text-left p-2.5 rounded-xl text-xs font-bold text-slate-800 hover:bg-emerald-50 hover:text-emerald-800 transition-all flex items-center justify-between border border-emerald-100 bg-emerald-50/40"
                         >
                           <div className="flex items-center space-x-2.5 min-w-0">
-                            <div className="w-6 h-6 rounded-lg bg-emerald-600 text-white flex items-center justify-center shadow-2xs">
-                              <Shield className="w-3.5 h-3.5" />
+                            <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center shadow-2xs shrink-0">
+                              <Smartphone className="w-4 h-4" />
                             </div>
-                            <div>
-                              <p className="text-xs font-bold text-slate-900 leading-none">Tryb prywatności</p>
-                              <p className="text-[10px] text-slate-500 font-normal mt-0.5">Szybki start & ukryte saldo</p>
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-slate-900 leading-none truncate">Ekran szybkiego startu</p>
+                              <p className="text-[10px] text-slate-500 font-normal mt-0.5 truncate">Skróty do paragonów i list</p>
                             </div>
                           </div>
-                          <span className="text-[10px] font-bold text-emerald-700 bg-white px-2 py-0.5 rounded-md border border-emerald-200">
-                            Włącz
+                          <span className="text-[10px] font-bold text-emerald-700 bg-white px-2 py-0.5 rounded-md border border-emerald-200 shrink-0">
+                            Otwórz
                           </span>
                         </button>
                       </div>

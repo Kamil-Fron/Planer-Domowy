@@ -29,11 +29,14 @@ html.compact-density .compact-p-adjust {
 
 /* Tryb Prywatności (Privacy Mode - ochrona przed podglądaniem sald w miejscach publicznych) */
 html.privacy-mode .privacy-blur {
-  filter: blur(6px);
-  user-select: none;
-  transition: filter 0.15s ease-in-out;
+  filter: blur(8px) !important;
+  user-select: none !important;
+  cursor: pointer;
+  transition: filter 0.18s ease-in-out;
 }
 
-html.privacy-mode .privacy-blur:hover {
-  filter: none;
+html.privacy-mode .privacy-blur:hover,
+html.privacy-mode .privacy-blur:active,
+html.privacy-mode .privacy-blur:focus {
+  filter: none !important;
 }

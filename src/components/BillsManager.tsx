@@ -1377,12 +1377,12 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
             /* FIXED BILL VIEW: Display static amount */
             <div className="my-4 flex items-baseline justify-between">
               <div>
-                <span className="text-2xl font-black text-slate-900">
+                <span className="text-2xl font-black text-slate-900 privacy-blur">
                   {bill.amount.toFixed(2)}{' '}
                   <span className="text-xs font-bold text-slate-500">PLN</span>
                 </span>
                 {bill.lastPaidAmount && (
-                  <p className="text-[10px] text-slate-400 mt-0.5">
+                  <p className="text-[10px] text-slate-400 mt-0.5 privacy-blur">
                     Ostatnio opłacono: {bill.lastPaidAmount.toFixed(2)} PLN
                   </p>
                 )}
@@ -1883,7 +1883,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
             <span className="text-xs text-slate-500 font-medium">
               Do zapłaty ({formatMonthName(currentMonth)})
             </span>
-            <p className="text-2xl font-black text-rose-600 mt-1">
+            <p className="text-2xl font-black text-rose-600 mt-1 privacy-blur">
               {totalPendingAmount.toFixed(2)} PLN
             </p>
             <span className="text-xs text-slate-400 mt-0.5 block font-medium">
@@ -1900,7 +1900,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
             <span className="text-xs text-slate-500 font-medium">
               Uregulowane opłaty ({formatMonthName(currentMonth)})
             </span>
-            <p className="text-2xl font-black text-emerald-600 mt-1">
+            <p className="text-2xl font-black text-emerald-600 mt-1 privacy-blur">
               {totalPaidAmount.toFixed(2)} PLN
             </p>
             <span className="text-xs text-slate-400 mt-0.5 block font-medium">
@@ -1917,7 +1917,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
             <span className="text-xs text-slate-500 font-medium">
               Zarejestrowane opłaty ({formatMonthName(currentMonth)})
             </span>
-            <p className="text-2xl font-black text-slate-900 mt-1">
+            <p className="text-2xl font-black text-slate-900 mt-1 privacy-blur">
               {totalRegisteredAmount.toFixed(2)} PLN
             </p>
             <span className="text-xs text-slate-400 mt-0.5 block font-medium">
@@ -2178,7 +2178,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                   <span className="text-xs font-semibold text-rose-700 bg-rose-50 px-2.5 py-1 rounded-full border border-rose-100 self-start sm:self-auto">
                     {filteredMonthPendingBills.length}{' '}
                     {filteredMonthPendingBills.length === 1 ? 'rachunek' : 'rachunki'} •{' '}
-                    {totalPendingAmount.toFixed(2)} PLN
+                    <span className="privacy-blur">{totalPendingAmount.toFixed(2)} PLN</span>
                   </span>
                 )}
               </div>
@@ -2215,7 +2215,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                     </span>
                   </h2>
                   <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100 self-start sm:self-auto">
-                    Opłacono: {totalPaidAmount.toFixed(2)} PLN
+                    Opłacono: <span className="privacy-blur">{totalPaidAmount.toFixed(2)} PLN</span>
                   </span>
                 </div>
                 {renderSettledHistoryList(settledHistoryItems)}
@@ -2243,7 +2243,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
                         </span>
                       </div>
                       <p className="text-xs text-slate-500 mt-0.5">
-                        Łączna kwota: <span className="font-semibold text-slate-700">{futureTotal.toFixed(2)} PLN</span> • Nieobciążające bieżącego miesiąca ({formatMonthName(currentMonth)})
+                        Łączna kwota: <span className="font-semibold text-slate-700 privacy-blur">{futureTotal.toFixed(2)} PLN</span> • Nieobciążające bieżącego miesiąca ({formatMonthName(currentMonth)})
                       </p>
                     </div>
                   </div>

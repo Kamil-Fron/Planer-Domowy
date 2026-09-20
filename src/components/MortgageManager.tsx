@@ -839,11 +839,11 @@ export const MortgageManager: React.FC<MortgageManagerProps> = ({
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
               Pozostały kapitał
             </span>
-            <p className="text-xl sm:text-2xl font-black text-rose-400 mt-1">
+            <p className="text-xl sm:text-2xl font-black text-rose-400 mt-1 privacy-blur">
               {remainingPrincipal.toLocaleString('pl-PL')} <span className="text-xs font-bold text-slate-400">PLN</span>
             </p>
             <span className="text-[10px] text-slate-400 mt-0.5 block">
-              z kwoty początkowej {totalAmount.toLocaleString('pl-PL')} zł
+              z kwoty początkowej <span className="privacy-blur">{totalAmount.toLocaleString('pl-PL')} zł</span>
             </span>
           </div>
 
@@ -851,7 +851,7 @@ export const MortgageManager: React.FC<MortgageManagerProps> = ({
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
               Spłacony kapitał
             </span>
-            <p className="text-xl sm:text-2xl font-black text-emerald-400 mt-1">
+            <p className="text-xl sm:text-2xl font-black text-emerald-400 mt-1 privacy-blur">
               {totalPaidPrincipal.toLocaleString('pl-PL')} <span className="text-xs font-bold text-slate-400">PLN</span>
             </p>
             <span className="text-[10px] text-emerald-300/80 mt-0.5 block">
@@ -863,13 +863,13 @@ export const MortgageManager: React.FC<MortgageManagerProps> = ({
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
               Wysokość raty
             </span>
-            <p className="text-xl sm:text-2xl font-black text-white mt-1">
+            <p className="text-xl sm:text-2xl font-black text-white mt-1 privacy-blur">
               {loan.monthlyPayment.toLocaleString('pl-PL')} <span className="text-xs font-bold text-slate-400">PLN</span>
             </p>
             <span className="text-[10px] text-slate-400 mt-0.5 block">
               {isCurrentlyInGrace
                 ? 'Karencja: 100% odsetki (0 zł kapitału)'
-                : `Kapitał: ~${calculatedCurrentPrincipal.toFixed(0)} zł | Odsetki: ~${calculatedCurrentInterest.toFixed(0)} zł`}
+                : <span className="privacy-blur">Kapitał: ~{calculatedCurrentPrincipal.toFixed(0)} zł | Odsetki: ~{calculatedCurrentInterest.toFixed(0)} zł</span>}
             </span>
           </div>
 

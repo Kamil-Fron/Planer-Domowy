@@ -257,7 +257,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                         />
                         <span className="truncate">{cat.name}</span>
                       </div>
-                      <span className="font-bold whitespace-nowrap">{cat.value.toFixed(2)} zł</span>
+                      <span className="font-bold whitespace-nowrap privacy-blur">{cat.value.toFixed(2)} zł</span>
                     </div>
 
                     <div className="flex items-center justify-between text-[11px] text-slate-500">
@@ -284,7 +284,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               <Activity className="w-5 h-5 text-emerald-600" />
               <span>Dynamika wydatków w poszczególnych dniach ({selectedMonth})</span>
             </h3>
-            <span className="text-xs text-slate-500 font-medium">Suma: {totalExpense.toFixed(2)} PLN</span>
+            <span className="text-xs text-slate-500 font-medium">Suma: <span className="privacy-blur">{totalExpense.toFixed(2)} PLN</span></span>
           </div>
 
           {dailyData.length === 0 ? (

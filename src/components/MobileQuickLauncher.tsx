@@ -27,6 +27,8 @@ interface MobileQuickLauncherProps {
   unreadNotificationsCount: number;
   userName?: string;
   householdName?: string;
+  isPrivacyMode?: boolean;
+  onTogglePrivacyMode?: () => void;
 }
 
 const STORAGE_KEY_ENABLED = 'budget_mobile_quick_launcher_enabled';
@@ -41,6 +43,8 @@ export const MobileQuickLauncher: React.FC<MobileQuickLauncherProps> = ({
   unreadNotificationsCount,
   userName,
   householdName,
+  isPrivacyMode = false,
+  onTogglePrivacyMode,
 }) => {
   const [autoStartEnabled, setAutoStartEnabled] = useState<boolean>(() => {
     try {
@@ -99,14 +103,24 @@ export const MobileQuickLauncher: React.FC<MobileQuickLauncherProps> = ({
       >
         {/* Top bar with Privacy Shield info & Close button */}
         <div className="flex items-center justify-between pt-2">
-          <div className="flex items-center space-x-2 bg-emerald-950/80 border border-emerald-500/40 px-3 py-1.5 rounded-full shadow-sm">
-            <Shield className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="text-[11px] font-semibold text-emerald-300 flex items-center space-x-1">
-              <span>Tryb prywatności</span>
-              <span className="text-emerald-500">•</span>
-              <span className="text-emerald-400/90 font-normal">Saldo ukryte</span>
+          <button
+            type="button"
+            onClick={onTogglePrivacyMode}
+            className={`flex items-center space-x-2 px-3 py-1.5 rounded-full shadow-sm cursor-pointer transition-all border ${
+              isPrivacyMode
+                ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-300'
+                : 'bg-slate-900/90 border-slate-700 text-slate-300 hover:text-white'
+            }`}
+            title="Kliknij, aby przełączyć tryb prywatności"
+          >
+            <Shield className={`w-3.5 h-3.5 ${isPrivacyMode ? 'text-emerald-400' : 'text-slate-400'}`} />
+            <span className="text-[11px] font-semibold flex items-center space-x-1.5">
+              <span>Tryb prywatności:</span>
+              <span className={isPrivacyMode ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>
+                {isPrivacyMode ? 'WŁĄCZONY' : 'WYŁĄCZONY'}
+              </span>
             </span>
-          </div>
+          </button>
 
           <button
             onClick={() => handleAction('dashboard')}

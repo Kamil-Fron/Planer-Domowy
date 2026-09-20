@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Wallet, X, ArrowRight, Bell, Zap, Target, AlertTriangle, CheckCircle2, ShoppingBag } from 'lucide-react';
 import { AppNotification, TabType } from '../types';
+import { resolveNotificationNavigation } from '../utils/notifications';
 
 interface InAppNotificationBannerProps {
   notification: AppNotification | null;
@@ -14,6 +15,10 @@ interface InAppNotificationBannerProps {
       transactionSearch?: string;
       selectedTxId?: string;
       payBillId?: string;
+      billId?: string;
+      openPayModal?: boolean;
+      debtId?: string;
+      shoppingItemId?: string;
       shoppingCategory?: string;
       shoppingTab?: 'active' | 'completed';
       limitCategory?: string;
@@ -63,38 +68,8 @@ export const InAppNotificationBanner: React.FC<InAppNotificationBannerProps> = (
     onDismiss();
     if (!onNavigate) return;
 
-    if (notification.type === 'item_bought') {
-      onNavigate('shopping', { shoppingTab: 'completed', shoppingCategory: notification.relatedId });
-    } else if (notification.type === 'bill_due' || notification.type === 'bill_overdue') {
-      onNavigate('bills', { payBillId: notification.relatedId });
-    } else if (notification.type === 'budget_warning' || notification.type === 'budget_exceeded') {
-      const cat =
-        notification.relatedId ||
-        (notification.id.startsWith('budget-exceeded-')
-          ? notification.id.replace(/^budget-exceeded-/, '').replace(/-\d{4}-\d{2}$/, '')
-          : notification.id.startsWith('budget-warning-')
-          ? notification.id.replace(/^budget-warning-/, '').replace(/-\d{4}-\d{2}$/, '')
-          : undefined);
-      onNavigate('limits', { limitCategory: cat });
-    } else if (notification.type === 'transaction_added' || notification.type === 'item_restored') {
-      onNavigate('transactions', { selectedTxId: notification.relatedId });
-    } else if (notification.type === 'shopping_added') {
-      onNavigate('shopping', { shoppingCategory: notification.relatedId });
-    } else if (notification.targetTab) {
-      onNavigate(notification.targetTab);
-    } else {
-      // Fallback detection
-      const text = `${notification.title} ${notification.message}`.toLowerCase();
-      if (text.includes('rachun') || notification.relatedId?.startsWith('bill-')) {
-        onNavigate('bills', { payBillId: notification.relatedId });
-      } else if (text.includes('transakcj') || text.includes('wydatek') || text.includes('wpłat') || notification.relatedId?.startsWith('tx-')) {
-        onNavigate('transactions', { selectedTxId: notification.relatedId });
-      } else if (text.includes('zakup') || notification.relatedId?.startsWith('shop-')) {
-        onNavigate('shopping');
-      } else if (text.includes('limit') || notification.relatedId?.startsWith('limit-')) {
-        onNavigate('limits');
-      }
-    }
+    const target = resolveNotificationNavigation(notification);
+    onNavigate(target.tab, target.options);
   };
 
   const getIcon = () => {

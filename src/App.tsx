@@ -11,6 +11,7 @@ import {
   AppNotification,
   MortgageLoan,
   DebtItem,
+  DebtPaymentRecord,
   ActivityLogEntry,
   HouseholdMember,
   PendingJoinRequest,
@@ -163,6 +164,10 @@ export default function App() {
   const [navTxSearch, setNavTxSearch] = useState<string>('');
   const [navTxSelectedId, setNavTxSelectedId] = useState<string | null>(null);
   const [navPayBillId, setNavPayBillId] = useState<string | null>(null);
+  const [navBillId, setNavBillId] = useState<string | null>(null);
+  const [navOpenPayModal, setNavOpenPayModal] = useState<boolean>(false);
+  const [navDebtId, setNavDebtId] = useState<string | null>(null);
+  const [navShoppingItemId, setNavShoppingItemId] = useState<string | null>(null);
   const [navShoppingCategory, setNavShoppingCategory] = useState<string | null>(null);
   const [navShoppingTab, setNavShoppingTab] = useState<'active' | 'completed' | null>(null);
   const [navLimitCategory, setNavLimitCategory] = useState<string | null>(null);
@@ -199,6 +204,10 @@ export default function App() {
       transactionSearch?: string;
       selectedTxId?: string;
       payBillId?: string;
+      billId?: string;
+      openPayModal?: boolean;
+      debtId?: string;
+      shoppingItemId?: string;
       shoppingCategory?: string;
       shoppingTab?: 'active' | 'completed';
       limitCategory?: string;
@@ -208,6 +217,10 @@ export default function App() {
     if (options?.transactionSearch !== undefined) setNavTxSearch(options.transactionSearch);
     if (options?.selectedTxId) setNavTxSelectedId(options.selectedTxId);
     if (options?.payBillId) setNavPayBillId(options.payBillId);
+    if (options?.billId) setNavBillId(options.billId);
+    if (options?.openPayModal !== undefined) setNavOpenPayModal(options.openPayModal);
+    if (options?.debtId) setNavDebtId(options.debtId);
+    if (options?.shoppingItemId) setNavShoppingItemId(options.shoppingItemId);
     if (options?.shoppingCategory) setNavShoppingCategory(options.shoppingCategory);
     if (options?.shoppingTab) setNavShoppingTab(options.shoppingTab);
     if (options?.limitCategory) setNavLimitCategory(options.limitCategory);
@@ -1830,14 +1843,14 @@ export default function App() {
     if (origTx && (origTx.debtId || updates.debtId)) {
       setDebts((prevDebts) => {
         const nextDebts = prevDebts.map((debt) => {
-          const hasPayment = debt.paymentsHistory?.some((p) => p.transactionId === id);
+          const hasPayment = debt.paymentsHistory?.some((p) => p.transactionId === id || p.id === id);
           const finalDebtId = updates.debtId !== undefined ? updates.debtId : origTx.debtId;
           const isTargetDebt = debt.id === finalDebtId;
 
           if (!hasPayment && !isTargetDebt) return debt;
 
-          const existingRecord = (debt.paymentsHistory || []).find((p) => p.transactionId === id);
-          let payments = (debt.paymentsHistory || []).filter((p) => p.transactionId !== id);
+          const existingRecord = (debt.paymentsHistory || []).find((p) => p.transactionId === id || p.id === id);
+          let payments = (debt.paymentsHistory || []).filter((p) => p.transactionId !== id && p.id !== id);
 
           if (isTargetDebt && finalDebtId) {
             const finalAmount = updates.amount !== undefined ? updates.amount : origTx.amount;
@@ -1853,10 +1866,10 @@ export default function App() {
 
             const finalType = explicitPaymentType !== undefined
               ? explicitPaymentType
-              : origTx.mortgagePaymentType !== undefined
-              ? origTx.mortgagePaymentType
               : (origTx as any).paymentType !== undefined
               ? (origTx as any).paymentType
+              : origTx.mortgagePaymentType !== undefined
+              ? origTx.mortgagePaymentType
               : (updates.title || origTx.title || '').toLowerCase().includes('nadpłat') ||
                 ((updates.comment || origTx.comment || '') as string).toLowerCase().includes('nadpłat')
               ? 'overpayment'
@@ -1892,7 +1905,7 @@ export default function App() {
               interestRepaid = 0;
             }
 
-            payments.push({
+            const updatedRecord: DebtPaymentRecord = {
               id: existingRecord?.id || `payment-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
               date: finalDate,
               amount: finalAmount,
@@ -1902,7 +1915,16 @@ export default function App() {
               remainingAfter: 0,
               notes: finalNotes,
               transactionId: id,
-            });
+            };
+
+            const existingIdx = (debt.paymentsHistory || []).findIndex((p) => p.transactionId === id || p.id === id);
+            if (existingIdx >= 0) {
+              const nextHistory = [...(debt.paymentsHistory || [])];
+              nextHistory[existingIdx] = updatedRecord;
+              payments = nextHistory;
+            } else {
+              payments = [updatedRecord, ...payments];
+            }
           }
 
           const basePaid = debt.initialPaidAmount !== undefined
@@ -1920,7 +1942,7 @@ export default function App() {
           const newRemaining = Math.max(0, Math.round((debt.initialAmount - newPaid) * 100) / 100);
 
           // Update remainingAfter
-          payments = payments.map((p) => (p.transactionId === id ? { ...p, remainingAfter: newRemaining } : p));
+          payments = payments.map((p) => (p.transactionId === id || p.id === id ? { ...p, remainingAfter: newRemaining } : p));
 
           return {
             ...debt,
@@ -3690,6 +3712,8 @@ export default function App() {
             onClearInitialCategoryFilter={() => setNavShoppingCategory(null)}
             initialTab={navShoppingTab}
             onClearInitialTab={() => setNavShoppingTab(null)}
+            initialShoppingItemId={navShoppingItemId}
+            onClearInitialShoppingItemId={() => setNavShoppingItemId(null)}
           />
         )}
 
@@ -3708,6 +3732,9 @@ export default function App() {
             onDeleteTransaction={handleDeleteTransaction}
             initialPayBillId={navPayBillId}
             onClearInitialPayBillId={() => setNavPayBillId(null)}
+            initialBillId={navBillId}
+            onClearInitialBillId={() => setNavBillId(null)}
+            openPayModal={navOpenPayModal}
             debts={debts}
           />
         )}
@@ -3744,6 +3771,8 @@ export default function App() {
             onDeleteTransaction={handleDeleteTransaction}
             onAddBill={handleAddBill}
             transactions={transactions}
+            initialDebtId={navDebtId}
+            onClearInitialDebtId={() => setNavDebtId(null)}
             onSuccessFeedback={(title, amount, type, onUndo, subtitle) => {
               setToastFeedback({
                 id: `toast-${Date.now()}`,

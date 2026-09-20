@@ -40,7 +40,11 @@ import {
 } from 'lucide-react';
 import { Bill, BudgetLimit, TabType, Transaction, Household, UserProfile, AppNotification } from '../types';
 import { PowerUserSettings } from '../storage';
-import { generateAutomatedNotifications, sendBrowserPushNotification } from '../utils/notifications';
+import {
+  generateAutomatedNotifications,
+  sendBrowserPushNotification,
+  resolveNotificationNavigation,
+} from '../utils/notifications';
 import { getAvailableMonthOptions } from '../utils/rollover';
 import {
   isPushSupported,
@@ -89,6 +93,10 @@ interface NavbarProps {
       transactionSearch?: string;
       selectedTxId?: string;
       payBillId?: string;
+      billId?: string;
+      openPayModal?: boolean;
+      debtId?: string;
+      shoppingItemId?: string;
       shoppingCategory?: string;
       shoppingTab?: 'active' | 'completed';
       limitCategory?: string;
@@ -341,58 +349,17 @@ export const Navbar: React.FC<NavbarProps> = ({
     markNotificationAsRead(notif.id);
     setIsActionMenuOpen(false);
 
-    if (
-      notif.type === 'join_request' ||
-      notif.type === 'join_approved' ||
-      notif.title?.toLowerCase().includes('dołączenie') ||
-      notif.targetTab === ('household' as any)
-    ) {
+    const target = resolveNotificationNavigation(notif);
+
+    if (target.openHouseholdModal) {
       onOpenHouseholdModal();
       return;
     }
 
     if (onNavigate) {
-      if (notif.type === 'item_bought') {
-        onNavigate('shopping', { shoppingTab: 'completed', shoppingCategory: notif.relatedId });
-      } else if (notif.targetTab === 'transactions' || notif.type === 'transaction_added') {
-        onNavigate('transactions', {
-          selectedTxId: notif.relatedId,
-          transactionFilter: 'all',
-        });
-      } else if (notif.targetTab === 'bills' || notif.type === 'bill_due' || notif.type === 'bill_overdue') {
-        onNavigate('bills', { payBillId: notif.relatedId });
-      } else if (notif.targetTab === 'shopping' || notif.type === 'shopping_added') {
-        onNavigate('shopping', { shoppingCategory: notif.relatedId });
-      } else if (notif.targetTab === 'limits' || notif.type === 'budget_warning' || notif.type === 'budget_exceeded') {
-        const cat =
-          notif.relatedId ||
-          (notif.id.startsWith('budget-exceeded-')
-            ? notif.id.replace(/^budget-exceeded-/, '').replace(/-\d{4}-\d{2}$/, '')
-            : notif.id.startsWith('budget-warning-')
-            ? notif.id.replace(/^budget-warning-/, '').replace(/-\d{4}-\d{2}$/, '')
-            : undefined);
-        onNavigate('limits', { limitCategory: cat });
-      } else if (notif.relatedId?.startsWith('tx-')) {
-        onNavigate('transactions', { selectedTxId: notif.relatedId, transactionFilter: 'all' });
-      } else if (notif.relatedId?.startsWith('bill-')) {
-        onNavigate('bills', { payBillId: notif.relatedId });
-      } else if (notif.relatedId?.startsWith('shop-') || notif.relatedId?.startsWith('list-')) {
-        onNavigate('shopping', { shoppingCategory: notif.relatedId });
-      } else if (notif.targetTab) {
-        onNavigate(notif.targetTab);
-      } else {
-        onNavigate('dashboard');
-      }
+      onNavigate(target.tab, target.options);
     } else {
-      if (notif.targetTab) {
-        onTabChange(notif.targetTab);
-      } else if (notif.type === 'bill_due' || notif.type === 'bill_overdue') {
-        onTabChange('bills');
-      } else if (notif.type === 'budget_warning' || notif.type === 'budget_exceeded') {
-        onTabChange('limits');
-      } else {
-        onTabChange('dashboard');
-      }
+      onTabChange(target.tab);
     }
   };
 

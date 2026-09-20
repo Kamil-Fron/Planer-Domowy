@@ -37,6 +37,8 @@ interface ShoppingListsProps {
   onClearInitialCategoryFilter?: () => void;
   initialTab?: 'active' | 'completed' | null;
   onClearInitialTab?: () => void;
+  initialShoppingItemId?: string | null;
+  onClearInitialShoppingItemId?: () => void;
 }
 
 const DEFAULT_CATEGORIES = [
@@ -93,6 +95,8 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
   onClearInitialCategoryFilter,
   initialTab,
   onClearInitialTab,
+  initialShoppingItemId,
+  onClearInitialShoppingItemId,
 }) => {
   // Tab: 'active' (Do kupienia) vs 'completed' (Kupione)
   const [activeTab, setActiveTab] = useState<'active' | 'completed'>('active');
@@ -100,6 +104,7 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>(
     initialCategoryFilter || 'all'
   );
+  const [highlightItemId, setHighlightItemId] = useState<string | null>(null);
 
   // Single-session temporary hiding:
   // Items and category pills gray out and move to the end of the list.
@@ -122,6 +127,43 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
 
   // List Management Modal State (opened via long-press or settings button)
   const [managingList, setManagingList] = useState<ShoppingList | null>(null);
+
+  // Highlight specific shopping item from notification or deep link
+  useEffect(() => {
+    if (!initialShoppingItemId) return;
+
+    const targetItem = shoppingItems.find((i) => i.id === initialShoppingItemId);
+    if (targetItem) {
+      if (targetItem.isCompleted) {
+        setActiveTab('completed');
+      } else {
+        setActiveTab('active');
+      }
+
+      // Reset filters so item is always visible
+      setSelectedCategoryFilter('all');
+      setSearchQuery('');
+      setHighlightItemId(targetItem.id);
+
+      const scrollTimer = setTimeout(() => {
+        const el = document.getElementById(`shopping-item-${targetItem.id}`);
+        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 250);
+
+      const clearTimer = setTimeout(() => {
+        setHighlightItemId(null);
+      }, 6000);
+
+      if (onClearInitialShoppingItemId) {
+        onClearInitialShoppingItemId();
+      }
+
+      return () => {
+        clearTimeout(scrollTimer);
+        clearTimeout(clearTimer);
+      };
+    }
+  }, [initialShoppingItemId, shoppingItems, onClearInitialShoppingItemId]);
 
   // Sync category filter & tab if navigated from Dashboard or Notifications
   useEffect(() => {
@@ -882,6 +924,7 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
                   onRestore={handleToggle}
                   onRequestDelete={(it) => setItemToDelete(it)}
                   onEdit={handleStartEdit}
+                  isHighlighted={highlightItemId === item.id}
                 />
               ) : (
                 <SwipeableShoppingItemRow
@@ -892,6 +935,7 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
                   onToggle={handleToggle}
                   onRequestDelete={(it) => setItemToDelete(it)}
                   onEdit={handleStartEdit}
+                  isHighlighted={highlightItemId === item.id}
                 />
               );
             })
@@ -931,6 +975,7 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
                       onRestore={handleToggle}
                       onRequestDelete={(it) => setItemToDelete(it)}
                       onEdit={handleStartEdit}
+                      isHighlighted={highlightItemId === item.id}
                     />
                   ) : (
                     <SwipeableShoppingItemRow
@@ -941,6 +986,7 @@ export const ShoppingLists: React.FC<ShoppingListsProps> = ({
                       onToggle={handleToggle}
                       onRequestDelete={(it) => setItemToDelete(it)}
                       onEdit={handleStartEdit}
+                      isHighlighted={highlightItemId === item.id}
                     />
                   );
                 })}

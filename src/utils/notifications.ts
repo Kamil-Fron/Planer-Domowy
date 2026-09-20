@@ -1,4 +1,4 @@
-import { AppNotification, Bill, BudgetLimit, Transaction } from '../types';
+import { AppNotification, Bill, BudgetLimit, TabType, Transaction } from '../types';
 
 export async function requestNotificationPermission(): Promise<boolean> {
   if (!('Notification' in window)) {
@@ -276,3 +276,205 @@ export function generateAutomatedNotifications(
 
   return newNotifications;
 }
+
+export interface NotificationNavTarget {
+  tab: TabType;
+  options?: {
+    transactionFilter?: 'all' | 'income' | 'expense';
+    transactionSearch?: string;
+    selectedTxId?: string;
+    payBillId?: string;
+    billId?: string;
+    openPayModal?: boolean;
+    shoppingItemId?: string;
+    shoppingCategory?: string;
+    shoppingTab?: 'active' | 'completed';
+    limitCategory?: string;
+    debtId?: string;
+  };
+  openHouseholdModal?: boolean;
+}
+
+/**
+ * Rozpoznaje i wyznacza precyzyjną zakładkę oraz parametry podświetlenia
+ * dla dowolnego powiadomienia w aplikacji.
+ */
+export function resolveNotificationNavigation(notif: AppNotification): NotificationNavTarget {
+  const notifType = notif.type || '';
+  const notifTitle = (notif.title || '').toLowerCase();
+  const notifMessage = (notif.message || '').toLowerCase();
+  const relatedId = notif.relatedId || '';
+  const notifId = notif.id || '';
+
+  // 1. Gospodarstwo domowe i zaproszenia
+  if (
+    notifType === 'join_request' ||
+    notifType === 'join_approved' ||
+    notif.targetTab === ('household' as any) ||
+    notifTitle.includes('dołączenie') ||
+    notifTitle.includes('gospodarstw')
+  ) {
+    return {
+      tab: 'dashboard',
+      openHouseholdModal: true,
+    };
+  }
+
+  // 2. Kredyty i zobowiązania (Debts)
+  if (
+    notif.targetTab === 'debts' ||
+    notifType === ('debt' as any) ||
+    relatedId.startsWith('debt-') ||
+    notifTitle.includes('zobowiązani') ||
+    notifTitle.includes('kredyt') ||
+    notifTitle.includes('pożyczk')
+  ) {
+    return {
+      tab: 'debts',
+      options: {
+        debtId: relatedId || undefined,
+      },
+    };
+  }
+
+  // 3. Rachunki (Bills)
+  if (
+    notif.targetTab === 'bills' ||
+    notifType === 'bill_due' ||
+    notifType === 'bill_overdue' ||
+    notifType === 'bill_added' ||
+    relatedId.startsWith('bill-') ||
+    notifTitle.includes('rachun') ||
+    notifTitle.includes('opłat')
+  ) {
+    // Czyste ID rachunku
+    let cleanBillId = relatedId;
+    if (!cleanBillId && notifId.startsWith('bill-')) {
+      const parts = notifId.split('-');
+      // format: bill-{billId}-{dueDate}-{status}
+      if (parts.length >= 2) {
+        cleanBillId = parts.slice(1, -2).join('-');
+      }
+    }
+    return {
+      tab: 'bills',
+      options: {
+        billId: cleanBillId || undefined,
+        payBillId: cleanBillId || undefined,
+        openPayModal: false,
+      },
+    };
+  }
+
+  // 4. Limity budżetowe (Limits)
+  if (
+    notif.targetTab === 'limits' ||
+    notifType === 'budget_warning' ||
+    notifType === 'budget_exceeded' ||
+    notifId.startsWith('budget-') ||
+    notifTitle.includes('limit')
+  ) {
+    let cleanCategory = relatedId;
+    if (!cleanCategory || cleanCategory.startsWith('notif-')) {
+      if (notifId.startsWith('budget-exceeded-')) {
+        cleanCategory = notifId.replace(/^budget-exceeded-/, '').replace(/-\d{4}-\d{2}$/, '');
+      } else if (notifId.startsWith('budget-warning-')) {
+        cleanCategory = notifId.replace(/^budget-warning-/, '').replace(/-\d{4}-\d{2}$/, '');
+      }
+    }
+    return {
+      tab: 'limits',
+      options: {
+        limitCategory: cleanCategory || undefined,
+      },
+    };
+  }
+
+  // 5. Lista zakupów (Shopping)
+  if (
+    notif.targetTab === 'shopping' ||
+    notifType === 'shopping_added' ||
+    notifType === 'item_bought' ||
+    relatedId.startsWith('shop-') ||
+    relatedId.startsWith('item-') ||
+    relatedId.startsWith('list-') ||
+    notifTitle.startsWith('kupiono') ||
+    notifTitle.includes('artykuł') ||
+    notifTitle.includes('listy zakupów')
+  ) {
+    const isCompletedItem = notifType === 'item_bought' || notifTitle.startsWith('kupiono');
+    const isList = relatedId.startsWith('list-');
+    return {
+      tab: 'shopping',
+      options: {
+        shoppingItemId: !isList ? relatedId || undefined : undefined,
+        shoppingCategory: isList ? relatedId : undefined,
+        shoppingTab: isCompletedItem ? 'completed' : 'active',
+      },
+    };
+  }
+
+  // 6. Transakcje (Transactions)
+  if (
+    notif.targetTab === 'transactions' ||
+    notifType === 'transaction_added' ||
+    relatedId.startsWith('tx-') ||
+    notifTitle.includes('transakcj') ||
+    notifTitle.includes('paragon') ||
+    notifTitle.includes('wydatek') ||
+    notifTitle.includes('wpłat')
+  ) {
+    return {
+      tab: 'transactions',
+      options: {
+        selectedTxId: relatedId || undefined,
+        transactionFilter: 'all',
+      },
+    };
+  }
+
+  // 7. Przywrócone wpisy (Item Restored)
+  if (notifType === 'item_restored') {
+    if (relatedId.startsWith('tx-')) {
+      return { tab: 'transactions', options: { selectedTxId: relatedId, transactionFilter: 'all' } };
+    }
+    if (relatedId.startsWith('bill-')) {
+      return { tab: 'bills', options: { billId: relatedId, payBillId: relatedId, openPayModal: false } };
+    }
+    if (relatedId.startsWith('shop-') || relatedId.startsWith('item-')) {
+      return { tab: 'shopping', options: { shoppingItemId: relatedId, shoppingTab: 'active' } };
+    }
+    if (relatedId.startsWith('debt-')) {
+      return { tab: 'debts', options: { debtId: relatedId } };
+    }
+    if (relatedId.startsWith('limit-')) {
+      return { tab: 'limits', options: { limitCategory: relatedId } };
+    }
+  }
+
+  // 8. Celowy targetTab
+  if (notif.targetTab) {
+    return { tab: notif.targetTab };
+  }
+
+  // 9. Fallback na słowa kluczowe w treści
+  const combinedText = `${notifTitle} ${notifMessage}`;
+  if (combinedText.includes('rachun') || combinedText.includes('opłat')) {
+    return { tab: 'bills', options: { billId: relatedId || undefined, payBillId: relatedId || undefined } };
+  }
+  if (combinedText.includes('transakcj') || combinedText.includes('wydatek')) {
+    return { tab: 'transactions', options: { selectedTxId: relatedId || undefined, transactionFilter: 'all' } };
+  }
+  if (combinedText.includes('zakup') || combinedText.includes('artykuł')) {
+    return { tab: 'shopping', options: { shoppingItemId: relatedId || undefined } };
+  }
+  if (combinedText.includes('kredyt') || combinedText.includes('pożyczk')) {
+    return { tab: 'debts', options: { debtId: relatedId || undefined } };
+  }
+  if (combinedText.includes('limit')) {
+    return { tab: 'limits', options: { limitCategory: relatedId || undefined } };
+  }
+
+  return { tab: 'dashboard' };
+}
+

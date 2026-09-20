@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Scale,
   Plus,
@@ -58,6 +58,8 @@ interface DebtManagerProps {
     onUndo?: () => void,
     subtitle?: string
   ) => void;
+  initialDebtId?: string | null;
+  onClearInitialDebtId?: () => void;
 }
 
 export const DebtManager: React.FC<DebtManagerProps> = ({
@@ -70,10 +72,54 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
   onAddBill,
   transactions = [],
   onSuccessFeedback,
+  initialDebtId,
+  onClearInitialDebtId,
 }) => {
   // Filter state
   const [filterType, setFilterType] = useState<'all' | 'borrowed' | 'lent' | 'bank' | 'settled'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [highlightDebtId, setHighlightDebtId] = useState<string | null>(null);
+
+  // Deep linking and highlight from notifications or other components
+  useEffect(() => {
+    if (!initialDebtId) return;
+
+    const targetDebt = debts.find((d) => d.id === initialDebtId);
+    if (targetDebt) {
+      if (targetDebt.status === 'settled' || targetDebt.status === 'paid' || targetDebt.currentRemaining <= 0) {
+        setFilterType('settled');
+      } else if (targetDebt.isBankLoan) {
+        setFilterType('bank');
+      } else if (targetDebt.type === 'borrowed') {
+        setFilterType('borrowed');
+      } else if (targetDebt.type === 'lent') {
+        setFilterType('lent');
+      } else {
+        setFilterType('all');
+      }
+      setSearchQuery('');
+
+      setHighlightDebtId(targetDebt.id);
+
+      const scrollTimer = setTimeout(() => {
+        const el = document.getElementById(`debt-card-${targetDebt.id}`);
+        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 250);
+
+      const clearTimer = setTimeout(() => {
+        setHighlightDebtId(null);
+      }, 6000);
+
+      if (onClearInitialDebtId) {
+        onClearInitialDebtId();
+      }
+
+      return () => {
+        clearTimeout(scrollTimer);
+        clearTimeout(clearTimer);
+      };
+    }
+  }, [initialDebtId, debts, onClearInitialDebtId]);
 
   // Modals
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -559,8 +605,13 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
       const p = parseFloat(paymentPrincipal.replace(',', '.'));
       if (!isNaN(p) && p >= 0) {
         principal = p;
-        interest = Math.max(0, Math.round((amount - p) * 100) / 100);
+        interest = paymentInterest !== ''
+          ? (parseFloat(paymentInterest.replace(',', '.')) || 0)
+          : Math.max(0, Math.round((amount - p) * 100) / 100);
       }
+    } else if (paymentType === 'overpayment') {
+      principal = amount;
+      interest = 0;
     }
 
     if (principal > selectedDebtForPayment.currentRemaining + 0.009) {
@@ -569,8 +620,8 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
       return;
     }
 
-    const newRemaining = Math.max(0, selectedDebtForPayment.currentRemaining - principal);
-    const newPaid = selectedDebtForPayment.paidAmount + principal;
+    const newRemaining = Math.max(0, Math.round((selectedDebtForPayment.currentRemaining - principal) * 100) / 100);
+    const newPaid = Math.round((selectedDebtForPayment.paidAmount + principal) * 100) / 100;
 
     const txId = `tx-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
@@ -608,7 +659,9 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
       comment: paymentNotes.trim() || (paymentType === 'overpayment' ? `Nadpłata kapitału w sekcji Zadłużenia` : `Rozliczenie w sekcji Zadłużenia`),
       principalAmount: principal,
       interestAmount: interest,
-    });
+      paymentType: paymentType,
+      mortgagePaymentType: paymentType,
+    } as any);
 
     const basePaid = selectedDebtForPayment.initialPaidAmount !== undefined
       ? selectedDebtForPayment.initialPaidAmount
@@ -951,11 +1004,23 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
               ? Math.min(100, Math.round((item.paidAmount / item.initialAmount) * 100))
               : 0;
 
+            const isHighlighted = highlightDebtId === item.id;
+
             return (
               <div
                 key={item.id}
-                className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-xs hover:shadow-md hover:border-slate-300 transition-all flex flex-col justify-between relative overflow-hidden"
+                id={`debt-card-${item.id}`}
+                className={`rounded-3xl p-5 sm:p-6 border transition-all duration-300 flex flex-col justify-between relative overflow-hidden ${
+                  isHighlighted
+                    ? 'border-2 border-indigo-600 ring-4 ring-indigo-500/30 shadow-xl scale-[1.02] bg-indigo-50/20 z-10'
+                    : 'bg-white border-slate-200 shadow-xs hover:shadow-md hover:border-slate-300'
+                }`}
               >
+                {isHighlighted && (
+                  <div className="absolute -top-3 left-4 bg-indigo-600 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full shadow-md flex items-center space-x-1 animate-pulse z-20">
+                    <span>🎯 Wybrane zobowiązanie</span>
+                  </div>
+                )}
                 {/* Direction Top Strip Badge */}
                 <div className="flex items-center justify-between gap-2 mb-3">
                   <div className="flex items-center space-x-2">
@@ -1989,77 +2054,80 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                       )}
                     </div>
 
-                    {/* Podział raty dla kredytu odsetkowego */}
-                    {hasInterest && splitSuggestion && (
+                    {/* Podział kwoty dla kredytu odsetkowego */}
+                    {hasInterest && (
                       <div className="space-y-2.5">
-                        {paymentType === 'overpayment' ? (
-                          <div className="p-2.5 rounded-xl bg-emerald-50/90 border border-emerald-200 text-xs text-emerald-900 flex items-center space-x-2">
-                            <Zap className="w-4 h-4 text-emerald-600 shrink-0" />
-                            <span>
-                              Nadpłata: 100% wpłaty (<strong>{parsedAmt.toFixed(2)} zł</strong>) w całości pomniejsza kapitał zadłużenia.
-                            </span>
+                        <div className="flex items-center justify-between flex-wrap gap-1">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                            {paymentType === 'overpayment' ? 'Podział nadpłaty' : 'Podział raty'}
+                          </span>
+
+                          {paymentType === 'overpayment' ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPaymentPrincipal(parsedAmt.toFixed(2));
+                                setPaymentInterest('0.00');
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] font-bold border border-emerald-200 transition-colors flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <Zap className="w-3 h-3 text-emerald-600" />
+                              <span>100% kapitał ({parsedAmt.toFixed(2)} zł)</span>
+                            </button>
+                          ) : splitSuggestion ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPaymentPrincipal(splitSuggestion.suggestedPrincipal.toFixed(2));
+                                setPaymentInterest(splitSuggestion.suggestedInterest.toFixed(2));
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-[11px] font-bold transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <Sparkles className="w-3 h-3" />
+                              <span>Sugestia banku ({splitSuggestion.suggestedPrincipal.toFixed(2)} zł / {splitSuggestion.suggestedInterest.toFixed(2)} zł)</span>
+                            </button>
+                          ) : null}
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2.5">
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">
+                              Spłata kapitału (zł):
+                            </label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              placeholder={parsedAmt.toFixed(2)}
+                              value={paymentPrincipal}
+                              onChange={(e) => {
+                                const pVal = e.target.value;
+                                setPaymentPrincipal(pVal);
+                                const pNum = parseFloat(pVal) || 0;
+                                setPaymentInterest(Math.max(0, Math.round((parsedAmt - pNum) * 100) / 100).toFixed(2));
+                              }}
+                              className="w-full px-3 py-1.5 text-xs font-bold text-slate-900 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                            />
                           </div>
-                        ) : (
-                          <>
-                            {/* Dodatkowy przycisk: TYLKO sugestia banku (bez przycisków 100% kapitał / 100% odsetki) */}
-                            <div className="flex items-center justify-between">
-                              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                                Podział kwoty
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setPaymentPrincipal(splitSuggestion.suggestedPrincipal.toFixed(2));
-                                  setPaymentInterest(splitSuggestion.suggestedInterest.toFixed(2));
-                                }}
-                                className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-[11px] font-bold transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer"
-                              >
-                                <Sparkles className="w-3 h-3" />
-                                <span>Sugestia banku ({splitSuggestion.suggestedPrincipal.toFixed(2)} zł / {splitSuggestion.suggestedInterest.toFixed(2)} zł)</span>
-                              </button>
-                            </div>
 
-                            <div className="grid grid-cols-2 gap-2.5">
-                              <div>
-                                <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">
-                                  Spłata kapitału (zł):
-                                </label>
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  placeholder="0.00"
-                                  value={paymentPrincipal}
-                                  onChange={(e) => {
-                                    const pVal = e.target.value;
-                                    setPaymentPrincipal(pVal);
-                                    const pNum = parseFloat(pVal) || 0;
-                                    setPaymentInterest(Math.max(0, parsedAmt - pNum).toFixed(2));
-                                  }}
-                                  className="w-full px-3 py-1.5 text-xs font-bold text-slate-900 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
-                                />
-                              </div>
-
-                              <div>
-                                <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">
-                                  Koszt odsetek (zł):
-                                </label>
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  placeholder="0.00"
-                                  value={paymentInterest}
-                                  onChange={(e) => {
-                                    const iVal = e.target.value;
-                                    setPaymentInterest(iVal);
-                                    const iNum = parseFloat(iVal) || 0;
-                                    setPaymentPrincipal(Math.max(0, parsedAmt - iNum).toFixed(2));
-                                  }}
-                                  className="w-full px-3 py-1.5 text-xs font-bold text-slate-900 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
-                                />
-                              </div>
-                            </div>
-                          </>
-                        )}
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">
+                              {paymentType === 'overpayment' ? 'Prowizja / odsetki (zł):' : 'Koszt odsetek (zł):'}
+                            </label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              placeholder="0.00"
+                              value={paymentInterest}
+                              onChange={(e) => {
+                                const iVal = e.target.value;
+                                setPaymentInterest(iVal);
+                                const iNum = parseFloat(iVal) || 0;
+                                setPaymentPrincipal(Math.max(0, Math.round((parsedAmt - iNum) * 100) / 100).toFixed(2));
+                              }}
+                              className="w-full px-3 py-1.5 text-xs font-bold text-slate-900 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                            />
+                          </div>
+                        </div>
                       </div>
                     )}
 
@@ -2168,20 +2236,22 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
       })()}
 
       {/* MODAL 3: SZCZEGÓŁY I HISTORIA WPŁAT */}
-      {selectedDebtForDetails && (
+      {selectedDebtForDetails && (() => {
+        const activeDebtForDetails = debts.find((d) => d.id === selectedDebtForDetails.id) || selectedDebtForDetails;
+        return (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs p-2.5 sm:p-4 md:py-8 flex min-h-full items-start justify-center">
           <div className="my-auto w-full max-w-2xl rounded-3xl shadow-2xl border border-slate-100 flex flex-col max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] overflow-hidden bg-white animate-in fade-in zoom-in-95">
             {/* Header (sticky at top) */}
             <div className="p-5 sm:p-6 pb-4 border-b border-slate-100 flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-3">
                 <div className={`p-2.5 sm:p-3 rounded-2xl shrink-0 ${
-                  selectedDebtForDetails.isBankLoan || selectedDebtForDetails.category === 'kredyt_bankowy'
+                  activeDebtForDetails.isBankLoan || activeDebtForDetails.category === 'kredyt_bankowy'
                     ? 'bg-indigo-50 text-indigo-600'
-                    : selectedDebtForDetails.type === 'borrowed'
+                    : activeDebtForDetails.type === 'borrowed'
                     ? 'bg-rose-50 text-rose-600'
                     : 'bg-emerald-50 text-emerald-600'
                 }`}>
-                  {selectedDebtForDetails.isBankLoan || selectedDebtForDetails.category === 'kredyt_bankowy' ? (
+                  {activeDebtForDetails.isBankLoan || activeDebtForDetails.category === 'kredyt_bankowy' ? (
                     <Landmark className="w-5 h-5 sm:w-6 sm:h-6" />
                   ) : (
                     <Scale className="w-5 h-5 sm:w-6 sm:h-6" />
@@ -2190,28 +2260,28 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                 <div>
                   <div className="flex items-center space-x-2">
                     <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${
-                      selectedDebtForDetails.type === 'borrowed' ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'
+                      activeDebtForDetails.type === 'borrowed' ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'
                     }`}>
-                      {selectedDebtForDetails.type === 'borrowed' ? 'Moje zobowiązanie' : 'Pożyczone komuś'}
+                      {activeDebtForDetails.type === 'borrowed' ? 'Moje zobowiązanie' : 'Pożyczone komuś'}
                     </span>
-                    {selectedDebtForDetails.isBankLoan && (
+                    {activeDebtForDetails.isBankLoan && (
                       <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-indigo-100 text-indigo-800">
                         Kredyt bankowy / hipoteczny
                       </span>
                     )}
                   </div>
                   <h2 className="text-base sm:text-lg font-black text-slate-900 mt-0.5">
-                    {selectedDebtForDetails.name}
+                    {activeDebtForDetails.name}
                   </h2>
                   <p className="text-xs text-slate-500">
-                    {selectedDebtForDetails.counterparty}
+                    {activeDebtForDetails.counterparty}
                   </p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setSelectedDebtForDetails(null)}
-                className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors shrink-0"
+                className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors shrink-0 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -2224,45 +2294,45 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                 <div>
                   <p className="text-[10px] text-slate-400 font-semibold">Początkowo</p>
                   <p className="text-xs sm:text-sm font-black text-slate-800">
-                    {selectedDebtForDetails.initialAmount.toLocaleString('pl-PL')} zł
+                    {activeDebtForDetails.initialAmount.toLocaleString('pl-PL')} zł
                   </p>
                 </div>
                 <div>
                   <p className="text-[10px] text-slate-400 font-semibold">Spłacono łącznie</p>
                   <p className="text-xs sm:text-sm font-black text-emerald-600">
-                    {selectedDebtForDetails.paidAmount.toLocaleString('pl-PL')} zł
+                    {activeDebtForDetails.paidAmount.toLocaleString('pl-PL')} zł
                   </p>
                 </div>
                 <div>
                   <p className="text-[10px] text-slate-400 font-semibold">Zostało</p>
                   <p className="text-xs sm:text-sm font-black text-rose-600">
-                    {selectedDebtForDetails.currentRemaining.toLocaleString('pl-PL')} zł
+                    {activeDebtForDetails.currentRemaining.toLocaleString('pl-PL')} zł
                   </p>
                 </div>
               </div>
 
               {/* Informacja o podziale spłat: stała deklaracja początkowa vs transakcje */}
-              {selectedDebtForDetails.initialPaidAmount !== undefined && selectedDebtForDetails.initialPaidAmount > 0 && (
+              {activeDebtForDetails.initialPaidAmount !== undefined && activeDebtForDetails.initialPaidAmount > 0 && (
                 <div className="px-3.5 py-2 bg-slate-50/80 rounded-xl border border-slate-200/80 text-[11px] text-slate-600 flex flex-wrap items-center justify-between gap-1.5">
                   <span className="text-slate-500">
-                    W tym deklaracja początkowa: <strong className="text-slate-700 font-semibold">{selectedDebtForDetails.initialPaidAmount.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł</strong>
+                    W tym deklaracja początkowa: <strong className="text-slate-700 font-semibold">{activeDebtForDetails.initialPaidAmount.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł</strong>
                   </span>
                   <span className="text-indigo-600 font-medium">
-                    Spłaty w aplikacji: <strong>{Math.max(0, Math.round((selectedDebtForDetails.paidAmount - selectedDebtForDetails.initialPaidAmount) * 100) / 100).toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł</strong>
+                    Spłaty w aplikacji: <strong>{Math.max(0, Math.round((activeDebtForDetails.paidAmount - activeDebtForDetails.initialPaidAmount) * 100) / 100).toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł</strong>
                   </span>
                 </div>
               )}
 
               {/* MORTGAGE / BANK LOAN ADVANCED STATISTICS */}
               {(() => {
-                const isMortgageOrBank = selectedDebtForDetails.isBankLoan ||
-                  selectedDebtForDetails.category === 'kredyt_bankowy' ||
-                  selectedDebtForDetails.name.toLowerCase().includes('hipoteczn') ||
-                  selectedDebtForDetails.name.toLowerCase().includes('kredyt');
+                const isMortgageOrBank = activeDebtForDetails.isBankLoan ||
+                  activeDebtForDetails.category === 'kredyt_bankowy' ||
+                  activeDebtForDetails.name.toLowerCase().includes('hipoteczn') ||
+                  activeDebtForDetails.name.toLowerCase().includes('kredyt');
 
                 if (!isMortgageOrBank) return null;
 
-                const d = selectedDebtForDetails;
+                const d = activeDebtForDetails;
                 const history = d.paymentsHistory || [];
                 const overpayments = history.filter(p => p.type === 'overpayment');
                 const regularPayments = history.filter(p => p.type !== 'overpayment');
@@ -2509,15 +2579,15 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
               {/* Payments History List */}
               <div className="space-y-2">
                 <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                  Historia rozliczeń ({selectedDebtForDetails.paymentsHistory?.length || 0})
+                  Historia rozliczeń ({activeDebtForDetails.paymentsHistory?.length || 0})
                 </h4>
-                {(!selectedDebtForDetails.paymentsHistory || selectedDebtForDetails.paymentsHistory.length === 0) ? (
+                {(!activeDebtForDetails.paymentsHistory || activeDebtForDetails.paymentsHistory.length === 0) ? (
                   <p className="text-xs text-slate-400 italic py-4 text-center">
                     Brak zarejestrowanych spłat w historii.
                   </p>
                 ) : (
                   <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto pr-1">
-                    {selectedDebtForDetails.paymentsHistory.map((p) => (
+                    {activeDebtForDetails.paymentsHistory.map((p) => (
                       <div key={p.id} className="py-2.5 flex items-center justify-between text-xs">
                         <div>
                           <div className="flex items-center space-x-2">
@@ -2554,7 +2624,7 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
                             title="Usuń ten wpis spłaty i cofnij kwotę do salda zadłużenia"
                             onClick={() =>
                               setPaymentToDeleteFromHistory({
-                                debt: selectedDebtForDetails,
+                                debt: activeDebtForDetails,
                                 payment: p,
                               })
                             }
@@ -2570,77 +2640,77 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
               </div>
 
               {/* Mortgage & Bank Loan extra details if present */}
-              {selectedDebtForDetails.isBankLoan && (
+              {activeDebtForDetails.isBankLoan && (
                 <div className="p-3.5 bg-indigo-50/70 rounded-2xl border border-indigo-100 space-y-2 text-xs">
                   <div className="flex items-center space-x-1.5 font-bold text-indigo-900">
                     <Landmark className="w-4 h-4 text-indigo-600" />
                     <span>Parametry umowy bankowej</span>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-[11px]">
-                    {selectedDebtForDetails.bankName && (
+                    {activeDebtForDetails.bankName && (
                       <div>
                         <span className="text-slate-400">Bank:</span>{' '}
-                        <span className="font-semibold text-slate-800">{selectedDebtForDetails.bankName}</span>
+                        <span className="font-semibold text-slate-800">{activeDebtForDetails.bankName}</span>
                       </div>
                     )}
-                    {selectedDebtForDetails.loanAccountNumber && (
+                    {activeDebtForDetails.loanAccountNumber && (
                       <div className="col-span-2">
                         <span className="text-slate-400">Nr rachunku spłaty:</span>{' '}
-                        <span className="font-mono text-slate-700 select-all">{selectedDebtForDetails.loanAccountNumber}</span>
+                        <span className="font-mono text-slate-700 select-all">{activeDebtForDetails.loanAccountNumber}</span>
                       </div>
                     )}
-                    {selectedDebtForDetails.monthlyPayment && (
+                    {activeDebtForDetails.monthlyPayment && (
                       <div>
                         <span className="text-slate-400">Rata miesięczna:</span>{' '}
-                        <span className="font-semibold text-slate-800">{selectedDebtForDetails.monthlyPayment} zł</span>
+                        <span className="font-semibold text-slate-800">{activeDebtForDetails.monthlyPayment} zł</span>
                       </div>
                     )}
-                    {selectedDebtForDetails.rateType && (
+                    {activeDebtForDetails.rateType && (
                       <div>
                         <span className="text-slate-400">Typ rat:</span>{' '}
-                        <span className="font-semibold text-slate-800">{selectedDebtForDetails.rateType === 'decreasing' ? 'Malejące' : 'Równe'}</span>
+                        <span className="font-semibold text-slate-800">{activeDebtForDetails.rateType === 'decreasing' ? 'Malejące' : 'Równe'}</span>
                       </div>
                     )}
-                    {selectedDebtForDetails.interestRate && (
+                    {activeDebtForDetails.interestRate && (
                       <div>
                         <span className="text-slate-400">Oprocentowanie:</span>{' '}
-                        <span className="font-semibold text-slate-800">{selectedDebtForDetails.interestRate}%</span>
+                        <span className="font-semibold text-slate-800">{activeDebtForDetails.interestRate}%</span>
                       </div>
                     )}
-                    {selectedDebtForDetails.marginRate && (
+                    {activeDebtForDetails.marginRate && (
                       <div>
                         <span className="text-slate-400">Marża banku:</span>{' '}
-                        <span className="font-semibold text-slate-800">{selectedDebtForDetails.marginRate}%</span>
+                        <span className="font-semibold text-slate-800">{activeDebtForDetails.marginRate}%</span>
                       </div>
                     )}
-                    {selectedDebtForDetails.referenceRateType && (
+                    {activeDebtForDetails.referenceRateType && (
                       <div>
                         <span className="text-slate-400">Stawka bazowa:</span>{' '}
-                        <span className="font-semibold text-slate-800">{selectedDebtForDetails.referenceRateType}{selectedDebtForDetails.referenceRate ? ` (${selectedDebtForDetails.referenceRate}%)` : ''}</span>
+                        <span className="font-semibold text-slate-800">{activeDebtForDetails.referenceRateType}{activeDebtForDetails.referenceRate ? ` (${activeDebtForDetails.referenceRate}%)` : ''}</span>
                       </div>
                     )}
-                    {selectedDebtForDetails.insuranceMonthly && (
+                    {activeDebtForDetails.insuranceMonthly && (
                       <div>
                         <span className="text-slate-400">Ubezpieczenia:</span>{' '}
-                        <span className="font-semibold text-slate-800">{selectedDebtForDetails.insuranceMonthly} zł/msc</span>
+                        <span className="font-semibold text-slate-800">{activeDebtForDetails.insuranceMonthly} zł/msc</span>
                       </div>
                     )}
-                    {selectedDebtForDetails.loanTermYears && (
+                    {activeDebtForDetails.loanTermYears && (
                       <div>
                         <span className="text-slate-400">Okres kredytu:</span>{' '}
-                        <span className="font-semibold text-slate-800">{selectedDebtForDetails.loanTermYears} lat</span>
+                        <span className="font-semibold text-slate-800">{activeDebtForDetails.loanTermYears} lat</span>
                       </div>
                     )}
-                    {selectedDebtForDetails.paymentDayOfMonth && (
+                    {activeDebtForDetails.paymentDayOfMonth && (
                       <div>
                         <span className="text-slate-400">Dzień spłaty:</span>{' '}
-                        <span className="font-semibold text-slate-800">{selectedDebtForDetails.paymentDayOfMonth}. dzień msc</span>
+                        <span className="font-semibold text-slate-800">{activeDebtForDetails.paymentDayOfMonth}. dzień msc</span>
                       </div>
                     )}
-                    {selectedDebtForDetails.overpaymentCommission !== undefined && (
+                    {activeDebtForDetails.overpaymentCommission !== undefined && (
                       <div className="col-span-2">
                         <span className="text-slate-400">Prowizja za nadpłatę:</span>{' '}
-                        <span className="font-semibold text-slate-800">{selectedDebtForDetails.overpaymentCommission}% {selectedDebtForDetails.overpaymentCommissionYears ? `(pierwsze ${selectedDebtForDetails.overpaymentCommissionYears} lat)` : ''}</span>
+                        <span className="font-semibold text-slate-800">{activeDebtForDetails.overpaymentCommission}% {activeDebtForDetails.overpaymentCommissionYears ? `(pierwsze ${activeDebtForDetails.overpaymentCommissionYears} lat)` : ''}</span>
                       </div>
                     )}
                   </div>
@@ -2653,7 +2723,7 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  const debt = selectedDebtForDetails;
+                  const debt = activeDebtForDetails;
                   setSelectedDebtForDetails(null);
                   handleOpenEditModal(debt);
                 }}
@@ -2672,7 +2742,8 @@ export const DebtManager: React.FC<DebtManagerProps> = ({
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* MODAL 4: KALKULATOR I SYMULATOR KREDYTU */}
       {selectedDebtForCalculator && (

@@ -10,6 +10,7 @@ interface SwipeableShoppingItemRowProps {
   onToggle: (id: string, category: string) => void;
   onRequestDelete: (item: ShoppingItem) => void;
   onEdit: (item: ShoppingItem, e?: React.MouseEvent) => void;
+  isHighlighted?: boolean;
 }
 
 /**
@@ -41,6 +42,7 @@ export const SwipeableShoppingItemRow: React.FC<SwipeableShoppingItemRowProps> =
   onToggle,
   onRequestDelete,
   onEdit,
+  isHighlighted = false,
 }) => {
   const [swipeDirection, setSwipeDirection] = React.useState<'left' | 'right' | null>(null);
   const itemCategory = item.category || 'Spożywcze';
@@ -60,10 +62,20 @@ export const SwipeableShoppingItemRow: React.FC<SwipeableShoppingItemRowProps> =
 
   return (
     <div
-      className={`relative overflow-hidden rounded-2xl select-none group shadow-2xs transition-all ${
+      id={`shopping-item-${item.id}`}
+      className={`relative rounded-2xl select-none group transition-all duration-300 ${
+        isHighlighted
+          ? 'border-2 border-indigo-600 ring-4 ring-indigo-500/30 shadow-xl scale-[1.01] bg-indigo-50/40 z-20 overflow-visible'
+          : 'shadow-2xs overflow-hidden'
+      } ${
         isTempHidden ? 'opacity-40 grayscale hover:opacity-75' : ''
       }`}
     >
+      {isHighlighted && (
+        <div className="absolute -top-2.5 left-4 bg-indigo-600 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full shadow-md flex items-center space-x-1 animate-pulse z-30 pointer-events-none">
+          <span>🎯 Wybrany produkt</span>
+        </div>
+      )}
       {/* Background Actions Revealed ONLY on Swipe */}
       {/* Swipe Right -> EDIT (Emerald Green with Pencil icon and label) */}
       <div

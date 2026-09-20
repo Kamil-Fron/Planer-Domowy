@@ -8,6 +8,7 @@ interface HistoricalShoppingItemRowProps {
   onRestore: (id: string, category: string) => void;
   onRequestDelete: (item: ShoppingItem) => void;
   onEdit: (item: ShoppingItem, e?: React.MouseEvent) => void;
+  isHighlighted?: boolean;
 }
 
 /**
@@ -53,13 +54,26 @@ export const HistoricalShoppingItemRow: React.FC<HistoricalShoppingItemRowProps>
   onRestore,
   onRequestDelete,
   onEdit,
+  isHighlighted = false,
 }) => {
   const itemCategory = item.category || 'Spożywcze';
   const accentColor = listColor || '#10b981';
   const { displayDate, displayTime } = formatRegistryDate(item.completedAt || item.createdAt);
 
   return (
-    <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-slate-200/90 shadow-2xs hover:shadow-xs transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 group">
+    <div
+      id={`shopping-item-${item.id}`}
+      className={`rounded-2xl p-3.5 sm:p-4 border transition-all duration-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3 group relative ${
+        isHighlighted
+          ? 'bg-indigo-50/50 border-2 border-indigo-600 ring-4 ring-indigo-500/40 shadow-xl scale-[1.01] z-20'
+          : 'bg-white border-slate-200/90 shadow-2xs hover:shadow-xs'
+      }`}
+    >
+      {isHighlighted && (
+        <div className="absolute -top-2.5 left-4 bg-indigo-600 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full shadow-md flex items-center space-x-1 animate-pulse z-30 pointer-events-none">
+          <span>🎯 Wybrany produkt</span>
+        </div>
+      )}
       {/* Left: Metadata and Name */}
       <div className="flex items-start sm:items-center space-x-3.5 min-w-0 flex-1">
         {/* Historical registry icon indicator */}

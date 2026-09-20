@@ -66,6 +66,9 @@ interface BillsManagerProps {
   onDeleteTransaction?: (id: string, skipBillRevert?: boolean) => void;
   initialPayBillId?: string | null;
   onClearInitialPayBillId?: () => void;
+  initialBillId?: string | null;
+  onClearInitialBillId?: () => void;
+  openPayModal?: boolean;
   debts?: DebtItem[];
 }
 
@@ -97,6 +100,9 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
   onDeleteTransaction,
   initialPayBillId,
   onClearInitialPayBillId,
+  initialBillId,
+  onClearInitialBillId,
+  openPayModal = false,
   debts = [],
 }) => {
   const [internalMonth, setInternalMonth] = useState(() => {
@@ -107,6 +113,7 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
     setInternalMonth(newMonth);
     if (onMonthChange) onMonthChange(newMonth);
   };
+  const [highlightBillId, setHighlightBillId] = useState<string | null>(null);
   const [filterType, setFilterType] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'paid' | 'overdue'>('all');
   const [filterPricing, setFilterPricing] = useState<'all' | 'fixed' | 'variable'>('all');
@@ -593,18 +600,47 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
     }
   };
 
-  // Automatyczne otwarcie okna opłacenia rachunku po kliknięciu ze skrótu (np. z Pulpitu)
+  // Obsługa nawigacji, podświetlenia i ewentualnego otwarcia okna opłacenia rachunku
   useEffect(() => {
-    if (initialPayBillId) {
-      const targetBill = bills.find((b) => b.id === initialPayBillId);
-      if (targetBill) {
+    const targetId = initialBillId || initialPayBillId;
+    if (!targetId) return;
+
+    const targetBill = bills.find((b) => b.id === targetId);
+    if (targetBill) {
+      if (targetBill.status === 'paid') {
+        setFilterStatus('paid');
+      } else {
+        setFilterStatus('all');
+      }
+      setFilterType('all');
+      setFilterPricing('all');
+
+      setHighlightBillId(targetBill.id);
+
+      const scrollTimer = setTimeout(() => {
+        const el =
+          document.getElementById(`bill-card-${targetBill.id}`) ||
+          document.getElementById(`settled-bill-${targetBill.id}`);
+        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 250);
+
+      const clearTimer = setTimeout(() => {
+        setHighlightBillId(null);
+      }, 6000);
+
+      if (openPayModal) {
         handleOpenPayModal(targetBill);
       }
-      if (onClearInitialPayBillId) {
-        onClearInitialPayBillId();
-      }
+
+      if (onClearInitialPayBillId) onClearInitialPayBillId();
+      if (onClearInitialBillId) onClearInitialBillId();
+
+      return () => {
+        clearTimeout(scrollTimer);
+        clearTimeout(clearTimer);
+      };
     }
-  }, [initialPayBillId, bills]);
+  }, [initialBillId, initialPayBillId, openPayModal, bills]);
 
   /**
    * Otwarcie okna przełożenia / kumulacji nieopłaconego rachunku na kolejny miesiąc
@@ -1167,15 +1203,25 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
       meterCurr: bill.meterReading?.current?.toString() || '',
     };
 
+    const isHighlighted = highlightBillId === bill.id;
+
     return (
       <div
         key={bill.id}
-        className={`bg-white rounded-2xl p-5 border transition-all hover:shadow-md flex flex-col justify-between ${
-          bill.status === 'paid'
-            ? 'border-emerald-200 bg-emerald-50/10'
-            : 'border-slate-200'
+        id={`bill-card-${bill.id}`}
+        className={`rounded-2xl p-5 border transition-all duration-300 flex flex-col justify-between relative ${
+          isHighlighted
+            ? 'border-2 border-indigo-600 ring-4 ring-indigo-500/30 shadow-xl scale-[1.01] bg-indigo-50/20 z-10'
+            : bill.status === 'paid'
+            ? 'bg-white border-emerald-200 bg-emerald-50/10 hover:shadow-md'
+            : 'bg-white border-slate-200 hover:shadow-md'
         }`}
       >
+        {isHighlighted && (
+          <div className="absolute -top-3 left-4 bg-indigo-600 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full shadow-md flex items-center space-x-1 animate-pulse z-20">
+            <span>🎯 Wybrany rachunek</span>
+          </div>
+        )}
         <div>
           {/* Card Top */}
           <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-100">
@@ -1621,11 +1667,22 @@ export const BillsManager: React.FC<BillsManagerProps> = ({
         {items.map((item) => {
           const meta = getServiceMeta(item.serviceType);
           const ServiceIcon = meta.icon;
+          const isHighlighted = highlightBillId === item.billId || highlightBillId === item.id;
           return (
             <div
               key={item.id}
-              className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/70 transition-colors"
+              id={`settled-bill-${item.billId || item.id}`}
+              className={`p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all duration-300 relative ${
+                isHighlighted
+                  ? 'border-2 border-indigo-600 ring-4 ring-indigo-500/30 shadow-md bg-indigo-50/50 z-10'
+                  : 'hover:bg-slate-50/70'
+              }`}
             >
+              {isHighlighted && (
+                <div className="absolute -top-2.5 left-4 bg-indigo-600 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full shadow-md flex items-center space-x-1 animate-pulse z-20 pointer-events-none">
+                  <span>🎯 Wybrany rachunek</span>
+                </div>
+              )}
               <div className="flex items-center space-x-3.5 min-w-0">
                 <div className={`p-2.5 rounded-xl ${meta.bg} ${meta.text} shrink-0`}>
                   <ServiceIcon className="w-5 h-5" />

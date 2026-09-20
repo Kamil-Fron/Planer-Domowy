@@ -170,6 +170,7 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedReceiptDetails, setSelectedReceiptDetails] = useState<Transaction | null>(null);
   const [isolatedTransactionId, setIsolatedTransactionId] = useState<string | null>(null);
+  const [highlightTxId, setHighlightTxId] = useState<string | null>(null);
 
   // Sync external navigation parameters (e.g. from Dashboard click on Net Balance, Income, Expense or Tx)
   useEffect(() => {
@@ -185,16 +186,48 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
   }, [initialSearchQuery]);
 
   useEffect(() => {
-    if (initialSelectedTransactionId) {
-      setIsolatedTransactionId(initialSelectedTransactionId);
-      const targetTx = transactions.find((t) => t.id === initialSelectedTransactionId);
-      if (targetTx) {
-        if (targetTx.receiptItems && targetTx.receiptItems.length > 0) {
-          setSelectedReceiptDetails(targetTx);
+    if (!initialSelectedTransactionId) return;
+
+    const targetTx = transactions.find((t) => t.id === initialSelectedTransactionId);
+    if (targetTx) {
+      if (targetTx.date && onMonthChange) {
+        const txMonth = targetTx.date.substring(0, 7);
+        if (selectedMonth && selectedMonth !== txMonth) {
+          onMonthChange(txMonth);
         }
       }
+
+      setIsolatedTransactionId(null);
+      setFilterType('all');
+      setFilterCategory('all');
+      setSearchQuery('');
+      setViewMode('transactions');
+
+      if (targetTx.receiptItems && targetTx.receiptItems.length > 0) {
+        setExpandedReceiptIds((prev) => new Set(prev).add(targetTx.id));
+      }
+
+      setHighlightTxId(targetTx.id);
+
+      const scrollTimer = setTimeout(() => {
+        const el = document.getElementById(`tx-row-${targetTx.id}`);
+        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 250);
+
+      const clearTimer = setTimeout(() => {
+        setHighlightTxId(null);
+      }, 6000);
+
+      if (onClearInitialState) {
+        onClearInitialState();
+      }
+
+      return () => {
+        clearTimeout(scrollTimer);
+        clearTimeout(clearTimer);
+      };
     }
-  }, [initialSelectedTransactionId, transactions]);
+  }, [initialSelectedTransactionId, transactions, selectedMonth, onMonthChange, onClearInitialState]);
 
   // Notify parent to clear initial parameters once consumed
   useEffect(() => {
@@ -349,16 +382,14 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
   const handleScrollToTransaction = (txId: string) => {
     setViewMode('transactions');
     setExpandedReceiptIds((prev) => new Set(prev).add(txId));
+    setHighlightTxId(txId);
     setTimeout(() => {
       const el = document.getElementById(`tx-row-${txId}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        el.classList.add('ring-2', 'ring-indigo-500', 'bg-indigo-50/70');
-        setTimeout(() => {
-          el.classList.remove('ring-2', 'ring-indigo-500', 'bg-indigo-50/70');
-        }, 2200);
-      }
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 60);
+    setTimeout(() => {
+      setHighlightTxId((curr) => (curr === txId ? null : curr));
+    }, 4500);
   };
 
   const totalIncome = filtered
@@ -846,6 +877,39 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
         </div>
       </div>
 
+      {/* Quick switcher helper banner when search query matches receipt items */}
+      {searchQuery.trim() && allFilteredReceiptItems.length > 0 && (
+        <div className="bg-indigo-50/90 border border-indigo-200/80 rounded-xl px-3 py-2 text-xs text-indigo-950 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 shadow-2xs">
+          <div className="flex items-center space-x-2">
+            <Receipt className="w-4 h-4 text-indigo-600 shrink-0" />
+            <span>
+              {viewMode === 'transactions' ? (
+                <>Wyszukiwanie znalazło także <strong>{allFilteredReceiptItems.length}</strong> {allFilteredReceiptItems.length === 1 ? 'pojedynczą pozycję' : 'pojedynczych pozycji'} wewnątrz paragonów.</>
+              ) : (
+                <>Przeglądasz listę <strong>{allFilteredReceiptItems.length}</strong> pojedynczych pozycji z paragonów.</>
+              )}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setViewMode(viewMode === 'transactions' ? 'receipt_items' : 'transactions')}
+            className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-xs transition-colors shrink-0 flex items-center space-x-1 cursor-pointer"
+          >
+            {viewMode === 'transactions' ? (
+              <>
+                <span>Przełącz na widok pozycji ({allFilteredReceiptItems.length})</span>
+                <ChevronDown className="w-3.5 h-3.5 -rotate-90" />
+              </>
+            ) : (
+              <>
+                <span>Wróć do głównych wpisów ({filtered.length})</span>
+                <ChevronDown className="w-3.5 h-3.5 rotate-90" />
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
       {/* Out-of-month search matches prompt */}
       {otherMonthMatchesCount > 0 && !searchAllMonths && filtered.length === 0 && (
         <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 text-xs text-indigo-900 flex items-center justify-between gap-3 shadow-xs">
@@ -1079,12 +1143,23 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
                 item.isRecurring ||
                 (item.receiptItems && item.receiptItems.length > 0);
 
+              const isHighlighted = highlightTxId === item.id;
+
               return (
                 <div
                   key={item.id}
                   id={`tx-row-${item.id}`}
-                  className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 sm:gap-4 hover:bg-slate-50/80 transition-colors w-full overflow-hidden"
+                  className={`p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 sm:gap-4 transition-all duration-300 w-full overflow-hidden relative rounded-2xl ${
+                    isHighlighted
+                      ? 'border-2 border-indigo-600 ring-4 ring-indigo-500/30 shadow-xl scale-[1.01] bg-indigo-50/40 z-10'
+                      : 'hover:bg-slate-50/80'
+                  }`}
                 >
+                  {isHighlighted && (
+                    <div className="absolute -top-2.5 left-4 bg-indigo-600 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full shadow-md flex items-center space-x-1 animate-pulse z-20 pointer-events-none">
+                      <span>🎯 Wybrana transakcja</span>
+                    </div>
+                  )}
                   {/* Main Content Area */}
                   <div className="flex items-start space-x-3 min-w-0 flex-1">
                     {/* Direction Arrow Icon */}

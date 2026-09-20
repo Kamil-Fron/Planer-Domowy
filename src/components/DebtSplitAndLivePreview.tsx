@@ -23,6 +23,7 @@ export interface DebtSplitAndLivePreviewProps {
   onChangeInterest: (val: string) => void;
   onSetExactAmount?: (amount: string) => void;
   excludeTransactionId?: string;
+  excludedPrincipalAmount?: number;
   className?: string;
 }
 
@@ -38,30 +39,29 @@ export const DebtSplitAndLivePreview: React.FC<DebtSplitAndLivePreviewProps> = (
   onChangeInterest,
   onSetExactAmount,
   excludeTransactionId,
+  excludedPrincipalAmount,
   className = '',
 }) => {
   const parsedAmt = Math.max(0, isNaN(paymentAmount) ? 0 : paymentAmount);
   const hasInterest = isInterestBearingDebt(debt);
 
-  // Jeśli transakcja jest aktualnie edytowana, odszukujemy jej dotychczasowy wkład kapitałowy w historii,
-  // aby wykluczyć go z bieżącego salda i obliczać podgląd na żywo od czystej bazy wyjściowej sprzed tej wpłaty.
+  // Jeśli transakcja jest aktualnie edytowana, odszukujemy jej dotychczasowy wkład kapitałowy w historii
+  // lub używamy przekazanej bezpośrednio kwoty bazowej, aby wykluczyć ją z bieżącego salda
+  // i obliczać podgląd na żywo od czystej bazy wyjściowej sprzed tej wpłaty.
   const existingPayment = excludeTransactionId && debt.paymentsHistory
     ? debt.paymentsHistory.find((p) => p.transactionId === excludeTransactionId || p.id === excludeTransactionId)
     : null;
 
   const excludedPrincipal = existingPayment
     ? (existingPayment.principalAmount !== undefined ? existingPayment.principalAmount : existingPayment.amount)
-    : 0;
+    : (typeof excludedPrincipalAmount === 'number' && !isNaN(excludedPrincipalAmount) ? excludedPrincipalAmount : 0);
 
-  const totalAmount = debt.totalAmount || debt.initialAmount || (debt.currentRemaining || 0);
-  const baseRemaining = Math.min(
-    totalAmount,
-    Math.max(0, (debt.currentRemaining || 0) + excludedPrincipal)
-  );
-  const basePaid = Math.max(0, (debt.paidAmount || (totalAmount - (debt.currentRemaining || 0))) - excludedPrincipal);
+  const baseRemaining = Math.max(0, Math.round(((debt.currentRemaining ?? 0) + excludedPrincipal) * 100) / 100);
+  const basePaid = Math.max(0, Math.round(((debt.paidAmount ?? 0) - excludedPrincipal) * 100) / 100);
+  const totalAmount = debt.initialAmount || debt.totalAmount || (baseRemaining + basePaid);
 
   // Zasilamy kalkulator odsetek bazowym saldem (sprzed edytowanej transakcji)
-  const effectiveDebtForCalc: DebtItem = excludeTransactionId
+  const effectiveDebtForCalc: DebtItem = excludeTransactionId || excludedPrincipal > 0
     ? {
         ...debt,
         currentRemaining: baseRemaining,
@@ -129,10 +129,8 @@ export const DebtSplitAndLivePreview: React.FC<DebtSplitAndLivePreviewProps> = (
                 type="button"
                 onClick={() => {
                   onSetExactAmount(baseRemaining.toFixed(2));
-                  if (hasInterest) {
-                    onChangePrincipal(baseRemaining.toFixed(2));
-                    onChangeInterest('0.00');
-                  }
+                  onChangePrincipal(baseRemaining.toFixed(2));
+                  onChangeInterest('0.00');
                 }}
                 className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white rounded-xl font-bold text-[11px] transition-colors flex items-center space-x-1.5 cursor-pointer shadow-2xs"
               >
@@ -161,16 +159,16 @@ export const DebtSplitAndLivePreview: React.FC<DebtSplitAndLivePreviewProps> = (
         </div>
       )}
 
-      {/* Jedna minimalistyczna ramka: podział raty połączony z podglądem na żywo */}
-      <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-br from-slate-50/90 via-white to-indigo-50/30 border border-slate-200 space-y-3 shadow-2xs">
-        {/* Nagłówek ramki: Saldo i ew. Oprocentowanie / Karencja */}
-        <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+      {/* Uproszczona, przejrzysta ramka: podział raty/nadpłaty i podgląd na żywo */}
+      <div className="p-3.5 sm:p-4 rounded-2xl bg-white border border-indigo-100/90 shadow-2xs space-y-3">
+        {/* Nagłówek ramki: Saldo bazowe i status */}
+        <div className="flex items-center justify-between pb-2 border-b border-slate-100 flex-wrap gap-1.5">
           <div className="min-w-0">
             <span className="text-xs font-bold text-slate-900 block leading-tight">
-              {hasInterest ? 'Podział raty i stan zadłużenia' : 'Stan zadłużenia po wpłacie'}
+              Podział kwoty i stan zadłużenia
             </span>
             <span className="text-[11px] text-slate-500">
-              {excludeTransactionId ? 'Saldo bazowe (przed tą wpłatą): ' : 'Aktualne saldo: '}
+              {excludedPrincipal > 0 ? 'Baza przed tą wpłatą: ' : 'Aktualne saldo: '}
               <strong className="text-slate-800">{baseRemaining.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł</strong>
             </span>
           </div>
@@ -190,186 +188,122 @@ export const DebtSplitAndLivePreview: React.FC<DebtSplitAndLivePreviewProps> = (
           )}
         </div>
 
-        {/* Przyciski typu spłaty dla kredytu odsetkowego */}
-        {hasInterest && (
-          <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-xl">
-            <button
-              type="button"
-              onClick={() => {
-                onChangePaymentType('regular');
-                if (splitSuggestion) {
+        {/* Proste przełączanie: Rata kredytu vs Nadpłata */}
+        <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-xl">
+          <button
+            type="button"
+            onClick={() => {
+              onChangePaymentType('regular');
+              if (splitSuggestion) {
+                onChangePrincipal(splitSuggestion.suggestedPrincipal.toFixed(2));
+                onChangeInterest(splitSuggestion.suggestedInterest.toFixed(2));
+              }
+            }}
+            className={`flex items-center justify-center space-x-1.5 py-1.5 px-2.5 rounded-lg font-bold text-xs transition-all cursor-pointer ${
+              paymentType !== 'overpayment'
+                ? 'bg-white text-indigo-950 shadow-xs ring-1 ring-slate-200/80'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Landmark className={`w-3.5 h-3.5 ${paymentType !== 'overpayment' ? 'text-indigo-600' : 'text-slate-400'}`} />
+            <span>Rata kredytu</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onChangePaymentType('overpayment');
+              onChangePrincipal(parsedAmt.toFixed(2));
+              onChangeInterest('0.00');
+            }}
+            className={`flex items-center justify-center space-x-1.5 py-1.5 px-2.5 rounded-lg font-bold text-xs transition-all cursor-pointer ${
+              paymentType === 'overpayment'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Zap className={`w-3.5 h-3.5 ${paymentType === 'overpayment' ? 'text-emerald-100' : 'text-slate-400'}`} />
+            <span>Nadpłata</span>
+          </button>
+        </div>
+
+        {/* Pola podziału kapitał / odsetki (dostępne w obu trybach: rata oraz nadpłata) */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between flex-wrap gap-1">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              {paymentType === 'overpayment' ? 'Podział nadpłaty' : 'Podział raty'}
+            </span>
+
+            {paymentType === 'overpayment' ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onChangePrincipal(parsedAmt.toFixed(2));
+                  onChangeInterest('0.00');
+                }}
+                className="px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[10px] font-bold border border-emerald-200 transition-colors flex items-center gap-1 cursor-pointer"
+              >
+                <Zap className="w-3 h-3 text-emerald-600" />
+                <span>100% kapitał ({parsedAmt.toFixed(2)} zł)</span>
+              </button>
+            ) : splitSuggestion ? (
+              <button
+                type="button"
+                onClick={() => {
                   onChangePrincipal(splitSuggestion.suggestedPrincipal.toFixed(2));
                   onChangeInterest(splitSuggestion.suggestedInterest.toFixed(2));
-                }
-              }}
-              className={`flex items-center justify-center space-x-1.5 py-2 px-2.5 rounded-lg font-bold text-xs transition-all cursor-pointer ${
-                paymentType !== 'overpayment'
-                  ? 'bg-white text-indigo-950 shadow-xs ring-1 ring-slate-200/80'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
-              }`}
-            >
-              <Landmark className={`w-3.5 h-3.5 ${paymentType !== 'overpayment' ? 'text-indigo-600' : 'text-slate-500'}`} />
-              <span>Rata kredytu</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                onChangePaymentType('overpayment');
-                onChangePrincipal(parsedAmt.toFixed(2));
-                onChangeInterest('0.00');
-              }}
-              className={`flex items-center justify-center space-x-1.5 py-2 px-2.5 rounded-lg font-bold text-xs transition-all cursor-pointer ${
-                paymentType === 'overpayment'
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
-              }`}
-            >
-              <Zap className={`w-3.5 h-3.5 ${paymentType === 'overpayment' ? 'text-emerald-100' : 'text-slate-500'}`} />
-              <span>Nadpłata</span>
-            </button>
+                }}
+                className="px-2 py-0.5 rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-[10px] font-bold border border-indigo-200 transition-colors flex items-center gap-1 cursor-pointer"
+              >
+                <Sparkles className="w-3 h-3 text-indigo-600" />
+                <span>Sugestia banku ({splitSuggestion.suggestedPrincipal.toFixed(2)} / {splitSuggestion.suggestedInterest.toFixed(2)} zł)</span>
+              </button>
+            ) : null}
           </div>
-        )}
 
-        {/* Podział kwoty na kapitał i odsetki (dostępny w obu trybach) */}
-        {hasInterest && (
-          <div className="space-y-2.5">
-            {paymentType === 'overpayment' ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    Podział nadpłaty
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onChangePrincipal(parsedAmt.toFixed(2));
-                      onChangeInterest('0.00');
-                    }}
-                    className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-[11px] font-bold transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <Zap className="w-3 h-3" />
-                    <span>Domyślnie 100% kapitał ({parsedAmt.toFixed(2)} zł)</span>
-                  </button>
-                </div>
+          <div className="grid grid-cols-2 gap-2.5">
+            <div>
+              <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">
+                Spłata kapitału (zł):
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                placeholder={parsedAmt.toFixed(2)}
+                value={principalAmount}
+                onChange={(e) => {
+                  const pVal = e.target.value;
+                  onChangePrincipal(pVal);
+                  const pNum = parseFloat(pVal) || 0;
+                  onChangeInterest(Math.max(0, Math.round((parsedAmt - pNum) * 100) / 100).toFixed(2));
+                }}
+                className="w-full px-3 py-1.5 text-xs font-bold text-slate-900 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+              />
+            </div>
 
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">
-                      Spłata kapitału (zł):
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder={parsedAmt.toFixed(2)}
-                      value={principalAmount}
-                      onChange={(e) => {
-                        const pVal = e.target.value;
-                        onChangePrincipal(pVal);
-                        const pNum = parseFloat(pVal) || 0;
-                        onChangeInterest(Math.max(0, Math.round((parsedAmt - pNum) * 100) / 100).toFixed(2));
-                      }}
-                      className="w-full px-3 py-1.5 text-xs font-bold text-slate-900 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">
-                      Odsetki / prowizja (zł):
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={interestAmount}
-                      onChange={(e) => {
-                        const iVal = e.target.value;
-                        onChangeInterest(iVal);
-                        const iNum = parseFloat(iVal) || 0;
-                        onChangePrincipal(Math.max(0, Math.round((parsedAmt - iNum) * 100) / 100).toFixed(2));
-                      }}
-                      className="w-full px-3 py-1.5 text-xs font-bold text-slate-900 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500"
-                    />
-                  </div>
-                </div>
-                <p className="text-[10px] text-slate-500 leading-tight">
-                  💡 Nadpłata domyślnie w całości zmniejsza kapitał, ale możesz też wydzielić odsetki lub prowizję banku.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {/* Dodatkowy przycisk: TYLKO sugestia banku (bez przycisków 100% kapitał / 100% odsetki) */}
-                {splitSuggestion && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                      Podział raty
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onChangePrincipal(splitSuggestion.suggestedPrincipal.toFixed(2));
-                        onChangeInterest(splitSuggestion.suggestedInterest.toFixed(2));
-                      }}
-                      className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-[11px] font-bold transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <Sparkles className="w-3 h-3" />
-                      <span>Sugestia banku ({splitSuggestion.suggestedPrincipal.toFixed(2)} zł / {splitSuggestion.suggestedInterest.toFixed(2)} zł)</span>
-                    </button>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">
-                      Spłata kapitału (zł):
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={principalAmount}
-                      onChange={(e) => {
-                        const pVal = e.target.value;
-                        onChangePrincipal(pVal);
-                        const pNum = parseFloat(pVal) || 0;
-                        onChangeInterest(Math.max(0, Math.round((parsedAmt - pNum) * 100) / 100).toFixed(2));
-                      }}
-                      className="w-full px-3 py-1.5 text-xs font-bold text-slate-900 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">
-                      Koszt odsetek (zł):
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={interestAmount}
-                      onChange={(e) => {
-                        const iVal = e.target.value;
-                        onChangeInterest(iVal);
-                        const iNum = parseFloat(iVal) || 0;
-                        onChangePrincipal(Math.max(0, Math.round((parsedAmt - iNum) * 100) / 100).toFixed(2));
-                      }}
-                      className="w-full px-3 py-1.5 text-xs font-bold text-slate-900 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
-                    />
-                  </div>
-                </div>
-
-                {splitSuggestion && (
-                  <p className="text-[10px] text-indigo-700 leading-tight">
-                    {splitSuggestion.explanation}
-                  </p>
-                )}
-              </div>
-            )}
+            <div>
+              <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">
+                Odsetki / prowizja (zł):
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                placeholder="0.00"
+                value={interestAmount}
+                onChange={(e) => {
+                  const iVal = e.target.value;
+                  onChangeInterest(iVal);
+                  const iNum = parseFloat(iVal) || 0;
+                  onChangePrincipal(Math.max(0, Math.round((parsedAmt - iNum) * 100) / 100).toFixed(2));
+                }}
+                className="w-full px-3 py-1.5 text-xs font-bold text-slate-900 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+              />
+            </div>
           </div>
-        )}
+        </div>
 
-        {/* Połączony podgląd na żywo stanu zadłużenia */}
-        <div className={`pt-2.5 space-y-2 ${hasInterest ? 'border-t border-slate-100' : ''}`}>
+        {/* Czysty, czytelny podgląd na żywo stanu zadłużenia */}
+        <div className="pt-2.5 border-t border-slate-100 space-y-2">
           <div className="flex items-center justify-between text-xs">
             <div>
               <span className="text-[11px] text-slate-500 font-medium block">
@@ -383,7 +317,7 @@ export const DebtSplitAndLivePreview: React.FC<DebtSplitAndLivePreviewProps> = (
                 </span>
                 {safePrincipal > 0 && !isOverpaid && (
                   <span className="text-[11px] font-semibold text-emerald-700">
-                    (-{safePrincipal.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł)
+                    (-{safePrincipal.toLocaleString('pl-PL', { minimumFractionDigits: 2 })} zł kapitał)
                   </span>
                 )}
               </div>
@@ -399,7 +333,7 @@ export const DebtSplitAndLivePreview: React.FC<DebtSplitAndLivePreviewProps> = (
           </div>
 
           {/* Pasek postępu */}
-          <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden flex">
+          <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden flex">
             <div
               className="bg-slate-400 h-full transition-all duration-300"
               style={{ width: `${currentProgressPercent}%` }}
@@ -407,7 +341,7 @@ export const DebtSplitAndLivePreview: React.FC<DebtSplitAndLivePreviewProps> = (
             />
             {progressDelta > 0 && (
               <div
-                className="bg-emerald-500 h-full transition-all duration-300 animate-pulse"
+                className="bg-emerald-500 h-full transition-all duration-300"
                 style={{ width: `${progressDelta}%` }}
                 title={`Ta wpłata: +${progressDelta.toFixed(1)}%`}
               />

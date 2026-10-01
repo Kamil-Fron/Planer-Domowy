@@ -38,6 +38,8 @@ import {
   getLoanEffectiveInterestRate,
   isDebtInGracePeriod,
 } from '../utils/loanCalculation';
+import { findMatchingExpenses, DuplicateCandidate } from '../utils/duplicateExpenseCheck';
+import { DuplicateExpenseModal } from './DuplicateExpenseModal';
 
 // Helper do normalizacji tekstu wyszukiwania (usuwanie polskich znaków diakrytycznych, małe litery)
 const normalizeSearchText = (str: string | undefined | null): string => {
@@ -273,6 +275,14 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
   const [formNewDebtCategory, setFormNewDebtCategory] = useState<DebtCategory>('inne');
   const [formNewDebtMonthlyPayment, setFormNewDebtMonthlyPayment] = useState('');
   const [formNewDebtNotes, setFormNewDebtNotes] = useState('');
+
+  const [duplicateModalData, setDuplicateModalData] = useState<{
+    isOpen: boolean;
+    candidate: DuplicateCandidate | null;
+    matchingTransaction: Transaction | null;
+    totalMatchesCount: number;
+    onConfirmAction: () => void;
+  } | null>(null);
 
   // Mobile swipe gesture for month switching
   const { touchHandlers, swipeFeedback } = useMonthSwipe({
@@ -610,40 +620,68 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
       debtAction = formType === 'expense' ? 'repay_borrowed' : 'receive_lent';
     }
 
-    onAddTransaction({
-      type: formType,
-      title: formTitle.trim(),
-      amount: parsedAmount,
-      category: formCategory,
-      date: formDate,
-      comment: formComment.trim() || undefined,
-      isRecurring: formRecurring,
-      debtId: isDebtCategory ? assignedDebtId : undefined,
-      debtAction: isDebtCategory ? debtAction : undefined,
-      debtCounterparty: isDebtCategory && formDebtActionType === 'create_new' ? formNewDebtCounterparty.trim() : undefined,
-      principalAmount: principalAmt,
-      interestAmount: interestAmt,
-      paymentType: formPaymentType,
-      mortgagePaymentType: formPaymentType,
-    } as any);
+    const executeAdd = () => {
+      onAddTransaction({
+        type: formType,
+        title: formTitle.trim(),
+        amount: parsedAmount,
+        category: formCategory,
+        date: formDate,
+        comment: formComment.trim() || undefined,
+        isRecurring: formRecurring,
+        debtId: isDebtCategory ? assignedDebtId : undefined,
+        debtAction: isDebtCategory ? debtAction : undefined,
+        debtCounterparty: isDebtCategory && formDebtActionType === 'create_new' ? formNewDebtCounterparty.trim() : undefined,
+        principalAmount: principalAmt,
+        interestAmount: interestAmt,
+        paymentType: formPaymentType,
+        mortgagePaymentType: formPaymentType,
+      } as any);
 
-    recordTransactionUsage(formTitle.trim(), formCategory, formType, parsedAmount);
+      recordTransactionUsage(formTitle.trim(), formCategory, formType, parsedAmount);
 
-    setFormTitle('');
-    setFormAmount('');
-    setFormComment('');
-    setFormRecurring(false);
-    setFormDebtId('');
-    setFormDebtPrincipal('');
-    setFormDebtInterest('');
-    setFormPaymentType('regular');
-    setFormDebtActionType('link');
-    setFormNewDebtCounterparty('');
-    setFormNewDebtDueDate('');
-    setFormNewDebtCategory('inne');
-    setFormNewDebtMonthlyPayment('');
-    setFormNewDebtNotes('');
-    setShowAddModal(false);
+      setFormTitle('');
+      setFormAmount('');
+      setFormComment('');
+      setFormRecurring(false);
+      setFormDebtId('');
+      setFormDebtPrincipal('');
+      setFormDebtInterest('');
+      setFormPaymentType('regular');
+      setFormDebtActionType('link');
+      setFormNewDebtCounterparty('');
+      setFormNewDebtDueDate('');
+      setFormNewDebtCategory('inne');
+      setFormNewDebtMonthlyPayment('');
+      setFormNewDebtNotes('');
+      setShowAddModal(false);
+    };
+
+    // Sprawdzenie czy wydatek nie był już dodany (po dacie i kwocie)
+    if (formType === 'expense' && transactions && transactions.length > 0) {
+      const matches = findMatchingExpenses(formDate, parsedAmount, transactions);
+      if (matches.length > 0) {
+        setDuplicateModalData({
+          isOpen: true,
+          candidate: {
+            title: formTitle.trim(),
+            amount: parsedAmount,
+            date: formDate,
+            category: formCategory,
+            comment: formComment.trim() || undefined,
+          },
+          matchingTransaction: matches[0],
+          totalMatchesCount: matches.length,
+          onConfirmAction: () => {
+            setDuplicateModalData(null);
+            executeAdd();
+          },
+        });
+        return;
+      }
+    }
+
+    executeAdd();
   };
 
   const dynamicAddSuggestions = React.useMemo(() => {
@@ -2340,6 +2378,18 @@ export const TransactionsManager: React.FC<TransactionsManagerProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal potwierdzenia ponownego dodania wydatku o identycznej dacie i kwocie */}
+      {duplicateModalData && (
+        <DuplicateExpenseModal
+          isOpen={duplicateModalData.isOpen}
+          candidate={duplicateModalData.candidate}
+          matchingTransaction={duplicateModalData.matchingTransaction}
+          totalMatchesCount={duplicateModalData.totalMatchesCount}
+          onConfirm={duplicateModalData.onConfirmAction}
+          onCancel={() => setDuplicateModalData(null)}
+        />
       )}
     </div>
   );

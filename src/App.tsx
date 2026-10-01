@@ -98,6 +98,7 @@ import {
 } from './utils/pushManager';
 import { calculatePreviousDueDate } from './utils/billCycle';
 import { calculateSuggestedLoanSplit, isInterestBearingDebt } from './utils/loanCalculation';
+import { getCurrentCalendarMonth } from './utils/rollover';
 
 export default function App() {
   // Power User Settings (Density, Privacy Mode, Default Start View, Pruning)
@@ -110,7 +111,7 @@ export default function App() {
     } catch {}
     return 'dashboard';
   });
-  const [selectedMonth, setSelectedMonth] = useState<string>('2026-09');
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => getCurrentCalendarMonth());
 
   // Core Data States loaded from Storage
   const [transactions, setTransactions] = useState<Transaction[]>(loadTransactions);
@@ -3692,6 +3693,7 @@ export default function App() {
           <ReceiptScanner
             onAddTransaction={handleAddTransaction}
             onReceiptScanned={handleScannedReceipt}
+            transactions={transactions}
             shoppingItems={shoppingItems}
             onNavigateToTransactions={() => setActiveTab('transactions')}
             onCancel={() => setActiveTab('dashboard')}

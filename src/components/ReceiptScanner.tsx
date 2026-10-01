@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   Upload,
   Camera,
@@ -6,6 +6,7 @@ import {
   Receipt,
   Check,
   AlertCircle,
+  AlertTriangle,
   Plus,
   Trash2,
   ShoppingCart,
@@ -29,6 +30,8 @@ import {
   TrendingDown,
 } from 'lucide-react';
 import { ReceiptItemDetail, ReceiptScanResult, Transaction, ShoppingItem, TransactionType } from '../types';
+import { findMatchingExpenses, DuplicateCandidate } from '../utils/duplicateExpenseCheck';
+import { DuplicateExpenseModal } from './DuplicateExpenseModal';
 
 export type ReceiptSaveMode = 'consolidated' | 'by_category' | 'individual';
 import { INITIAL_CATEGORIES, INITIAL_INCOME_CATEGORIES, SAMPLE_RECEIPTS } from '../mockData';
@@ -50,6 +53,7 @@ interface ReceiptScannerProps {
     date: string;
     items?: { name: string; price: number; quantity: number }[];
   }) => void;
+  transactions?: Transaction[];
   shoppingItems?: ShoppingItem[];
   onCompleteShoppingItem?: (itemId: string) => void;
   onNavigateToTransactions?: () => void;
@@ -59,6 +63,7 @@ interface ReceiptScannerProps {
 export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   onAddTransaction,
   onReceiptScanned,
+  transactions = [],
   shoppingItems = [],
   onCompleteShoppingItem,
   onNavigateToTransactions,
@@ -74,6 +79,23 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [saveMode, setSaveMode] = useState<ReceiptSaveMode>('consolidated');
   
+  const [duplicateModalData, setDuplicateModalData] = useState<{
+    isOpen: boolean;
+    candidate: DuplicateCandidate | null;
+    matchingTransaction: Transaction | null;
+    totalMatchesCount: number;
+    onConfirmAction: () => void;
+  } | null>(null);
+
+  // Sprawdzanie duplikatu dla podglądu skanu
+  const detectedDuplicate = useMemo(() => {
+    if (!scanResult || !transactions || transactions.length === 0) return null;
+    const normalizedDocDate = resolveRelativeDate(scanResult.date, toLocalISODate(new Date()), scanResult.summary);
+    const total = scanResult.totalAmount || scanResult.items.reduce((s, i) => s + i.price, 0);
+    const matches = findMatchingExpenses(normalizedDocDate, total, transactions);
+    return matches[0] || null;
+  }, [scanResult, transactions]);
+
   const [aiStatus, setAiStatus] = useState<AiStatusResult>({
     isConfigured: false,
     source: 'none',
@@ -391,7 +413,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   };
 
   // Save parsed receipt into budget
-  const handleSaveToBudget = () => {
+  const handleSaveToBudget = (skipDuplicateCheck: boolean = false) => {
     if (!scanResult) return;
     setError(null);
 
@@ -408,6 +430,75 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
       const expenseTotal = expenseItems.reduce((s, i) => s + i.price, 0);
 
       const normalizedDocDate = resolveRelativeDate(scanResult.date, toLocalISODate(new Date()), scanResult.summary);
+
+      // Sprawdzenie czy wydatek/paragon nie był już dodany (po dacie i kwocie)
+      if (!skipDuplicateCheck && transactions && transactions.length > 0 && expenseItems.length > 0) {
+        if (saveMode === 'consolidated') {
+          const totalExpense = parseFloat(expenseTotal.toFixed(2));
+          const matches = findMatchingExpenses(normalizedDocDate, totalExpense, transactions);
+          if (matches.length > 0) {
+            setDuplicateModalData({
+              isOpen: true,
+              candidate: {
+                title: `${scanResult.storeName} (Wydatki zbiorczo)`,
+                amount: totalExpense,
+                date: normalizedDocDate,
+                category: scanResult.dominantCategory || 'Inne wydatki',
+                comment: `Zakup ${expenseItems.length} pozycji. Sklep/Dokument: ${scanResult.storeName}.`,
+                receiptItems: expenseItems,
+                receiptStoreName: scanResult.storeName,
+              },
+              matchingTransaction: matches[0],
+              totalMatchesCount: matches.length,
+              onConfirmAction: () => {
+                setDuplicateModalData(null);
+                handleSaveToBudget(true);
+              },
+            });
+            return;
+          }
+        } else if (saveMode === 'individual') {
+          const duplicateItem = expenseItems.find((item) => {
+            const itemDate = resolveRelativeDate(
+              item.date || normalizedDocDate,
+              normalizedDocDate,
+              `${item.name || ''} ${item.notes || ''}`
+            );
+            const itemPrice = parseFloat(item.price.toFixed(2));
+            const matches = findMatchingExpenses(itemDate, itemPrice, transactions);
+            return matches.length > 0;
+          });
+
+          if (duplicateItem) {
+            const itemDate = resolveRelativeDate(
+              duplicateItem.date || normalizedDocDate,
+              normalizedDocDate,
+              `${duplicateItem.name || ''} ${duplicateItem.notes || ''}`
+            );
+            const itemPrice = parseFloat(duplicateItem.price.toFixed(2));
+            const matches = findMatchingExpenses(itemDate, itemPrice, transactions);
+            setDuplicateModalData({
+              isOpen: true,
+              candidate: {
+                title: duplicateItem.name,
+                amount: itemPrice,
+                date: itemDate,
+                category: duplicateItem.category || scanResult.dominantCategory,
+                comment: `Pozycja z dokumentu: ${scanResult.storeName}`,
+                receiptItems: [duplicateItem],
+                receiptStoreName: scanResult.storeName,
+              },
+              matchingTransaction: matches[0],
+              totalMatchesCount: matches.length,
+              onConfirmAction: () => {
+                setDuplicateModalData(null);
+                handleSaveToBudget(true);
+              },
+            });
+            return;
+          }
+        }
+      }
 
       if (saveMode === 'individual') {
         // Każda pozycja osobno jako niezależna transakcja z własną datą i właściwym typem (wydatek lub wpływ)
@@ -1017,6 +1108,28 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
                 💡 <span className="font-semibold">Podsumowanie AI:</span> {scanResult.summary}
               </p>
             )}
+
+            {detectedDuplicate && (
+              <div className="mt-3 p-3.5 bg-amber-50/90 border border-amber-200 rounded-xl text-amber-900 text-xs flex items-start gap-3">
+                <div className="p-1.5 bg-amber-100 rounded-lg text-amber-700 shrink-0 mt-0.5">
+                  <AlertTriangle className="w-4 h-4" />
+                </div>
+                <div className="flex-1 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-amber-950 text-xs uppercase tracking-wide">
+                      Wykryto potencjalny duplikat paragonu
+                    </span>
+                    <span className="text-[10px] font-semibold bg-amber-200/80 text-amber-900 px-2 py-0.5 rounded-full">
+                      Ta sama data i kwota
+                    </span>
+                  </div>
+                  <p className="text-amber-800 leading-relaxed">
+                    W budżecie istnieje już wpis z dnia <strong>{detectedDuplicate.date}</strong> na kwotę <strong>{detectedDuplicate.amount.toFixed(2)} PLN</strong>: <em>„{detectedDuplicate.title}”</em> ({detectedDuplicate.category}).
+                    Przy próbie zapisu system wyświetli porównanie i zapyta, czy chcesz dodać go ponownie, czy to zbieg okoliczności.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Itemized Products Table */}
@@ -1342,6 +1455,18 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
             </div>
           )}
         </div>
+      )}
+
+      {/* Modal potwierdzenia duplikatu paragonu / wydatku */}
+      {duplicateModalData && (
+        <DuplicateExpenseModal
+          isOpen={duplicateModalData.isOpen}
+          candidate={duplicateModalData.candidate}
+          matchingTransaction={duplicateModalData.matchingTransaction}
+          totalMatchesCount={duplicateModalData.totalMatchesCount}
+          onConfirm={duplicateModalData.onConfirmAction}
+          onCancel={() => setDuplicateModalData(null)}
+        />
       )}
     </div>
   );

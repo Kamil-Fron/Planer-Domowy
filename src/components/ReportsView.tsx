@@ -30,6 +30,7 @@ import {
 import { Transaction, Bill, BudgetLimit } from '../types';
 import { INITIAL_CATEGORIES } from '../mockData';
 import { exportTransactionsToCSV, exportBillsToCSV, generatePDFReport } from '../utils/export';
+import { getPreviousMonth, formatMonthName } from '../utils/rollover';
 
 interface ReportsViewProps {
   transactions: Transaction[];
@@ -87,20 +88,23 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     }))
     .sort((a, b) => parseInt(a.rawDay) - parseInt(b.rawDay));
 
-  // 3. Prepare Monthly Comparison Data (Last 4 Months)
-  const monthsList = ['2026-06', '2026-07', '2026-08', '2026-09'];
+  // 3. Prepare Monthly Comparison Data (Last 4 Months up to selectedMonth)
+  const monthsList = React.useMemo(() => {
+    const list: string[] = [];
+    let curr = selectedMonth;
+    for (let i = 0; i < 4; i++) {
+      list.unshift(curr);
+      curr = getPreviousMonth(curr);
+    }
+    return list;
+  }, [selectedMonth]);
+
   const monthlyData = monthsList.map((m) => {
     const mTrans = transactions.filter((t) => t.date.startsWith(m));
     const inc = mTrans.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0);
     const exp = mTrans.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
-    const mNames: Record<string, string> = {
-      '2026-06': 'Czerwiec',
-      '2026-07': 'Lipiec',
-      '2026-08': 'Sierpień',
-      '2026-09': 'Wrzesień',
-    };
     return {
-      month: mNames[m] || m,
+      month: formatMonthName(m),
       Dochody: parseFloat(inc.toFixed(2)),
       Wydatki: parseFloat(exp.toFixed(2)),
       Oszczędności: parseFloat((inc - exp).toFixed(2)),

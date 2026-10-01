@@ -48,6 +48,8 @@ import {
 } from '../utils/loanCalculation';
 import { DebtRepaymentLivePreview } from './DebtRepaymentLivePreview';
 import { DebtSplitAndLivePreview } from './DebtSplitAndLivePreview';
+import { findMatchingExpenses, DuplicateCandidate } from '../utils/duplicateExpenseCheck';
+import { DuplicateExpenseModal } from './DuplicateExpenseModal';
 
 interface QuickAddModalProps {
   isOpen: boolean;
@@ -155,6 +157,13 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
   const [debtInterest, setDebtInterest] = useState<string>('');
   const [debtPaymentType, setDebtPaymentType] = useState<'regular' | 'overpayment'>('regular');
   const [error, setError] = useState<string | null>(null);
+  const [duplicateModalData, setDuplicateModalData] = useState<{
+    isOpen: boolean;
+    candidate: DuplicateCandidate | null;
+    matchingTransaction: Transaction | null;
+    totalMatchesCount: number;
+    onConfirmAction: () => void;
+  } | null>(null);
 
   // New Debt creation sub-form state when category === 'Zobowiązania i pożyczki'
   const [debtActionType, setDebtActionType] = useState<'link' | 'create_new'>('link');
@@ -344,16 +353,44 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
       paymentType: debtPaymentType,
     };
 
-    onAddTransaction(newTxData);
+    const executeSave = () => {
+      onAddTransaction(newTxData);
 
-    // Record usage for dynamic smart suggestions
-    recordTransactionUsage(finalTitle, category, type, cleanAmount);
+      // Record usage for dynamic smart suggestions
+      recordTransactionUsage(finalTitle, category, type, cleanAmount);
 
-    if (onSuccessFeedback) {
-      onSuccessFeedback(finalTitle, cleanAmount, type);
+      if (onSuccessFeedback) {
+        onSuccessFeedback(finalTitle, cleanAmount, type);
+      }
+
+      onClose();
+    };
+
+    // Sprawdzanie duplikatu dla wydatków (po dacie i kwocie)
+    if (type === 'expense' && transactions && transactions.length > 0) {
+      const matches = findMatchingExpenses(newTxData.date, cleanAmount, transactions);
+      if (matches.length > 0) {
+        setDuplicateModalData({
+          isOpen: true,
+          candidate: {
+            title: finalTitle,
+            amount: cleanAmount,
+            date: newTxData.date,
+            category,
+            comment: comment.trim() || undefined,
+          },
+          matchingTransaction: matches[0],
+          totalMatchesCount: matches.length,
+          onConfirmAction: () => {
+            setDuplicateModalData(null);
+            executeSave();
+          },
+        });
+        return;
+      }
     }
 
-    onClose();
+    executeSave();
   };
 
   const handleSubmitShopping = (e: React.FormEvent) => {
@@ -1100,6 +1137,17 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
           </form>
         )}
       </div>
+
+      {duplicateModalData && (
+        <DuplicateExpenseModal
+          isOpen={duplicateModalData.isOpen}
+          candidate={duplicateModalData.candidate}
+          matchingTransaction={duplicateModalData.matchingTransaction}
+          totalMatchesCount={duplicateModalData.totalMatchesCount}
+          onConfirm={duplicateModalData.onConfirmAction}
+          onCancel={() => setDuplicateModalData(null)}
+        />
+      )}
     </div>
   );
 };

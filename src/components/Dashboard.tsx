@@ -583,9 +583,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
           <div className="space-y-2.5">
             {(() => {
-              // Deduplicate by name and filter out hidden lists
+              // Deduplicate by name, filter out hidden lists, and only show lists that are in progress (w trakcie zakupów)
               const seenNames = new Set<string>();
-              const visibleLists = shoppingLists
+              const inProgressLists = shoppingLists
                 .filter((l) => {
                   if (l.isHidden) return false;
                   const key = (l.name || l.category || '').trim().toLowerCase();
@@ -593,31 +593,42 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   seenNames.add(key);
                   return true;
                 })
-                .sort((a, b) => (b.priority || 0) - (a.priority || 0));
+                .map((list) => {
+                  const listItems = shoppingItems.filter(
+                    (i) =>
+                      i.listId === list.id ||
+                      i.category?.toLowerCase() === list.name?.toLowerCase() ||
+                      i.category?.toLowerCase() === list.category?.toLowerCase()
+                  );
+                  const pending = listItems.filter((i) => !i.isCompleted).length;
+                  return { list, listItems, pending };
+                })
+                .filter(({ listItems, pending }) => listItems.length > 0 && pending > 0)
+                .sort((a, b) => (b.list.priority || 0) - (a.list.priority || 0));
 
-              if (visibleLists.length === 0) {
+              if (inProgressLists.length === 0) {
                 return (
-                  <p className="text-xs text-slate-400 text-center py-4">Brak aktywnych list zakupów</p>
+                  <div className="py-6 text-center space-y-1">
+                    <p className="text-xs font-semibold text-slate-500">Brak koszyków w trakcie zakupów</p>
+                    <p className="text-[11px] text-slate-400">
+                      Wszystkie listy zostały kupione lub są puste. Pełną listę znajdziesz w module Listy zakupów.
+                    </p>
+                  </div>
                 );
               }
 
-              return visibleLists.map((list) => {
-                const listItems = shoppingItems.filter(
-                  (i) => i.listId === list.id || i.category?.toLowerCase() === list.name?.toLowerCase() || i.category?.toLowerCase() === list.category?.toLowerCase()
-                );
-                const pending = listItems.filter((i) => !i.isCompleted).length;
-                if (listItems.length === 0) return null;
+              return inProgressLists.map(({ list, pending }) => {
                 return (
                   <div
                     key={list.id}
                     onClick={() =>
                       onNavigate('shopping', {
                         shoppingCategory: list.name || list.category,
-                        shoppingTab: pending === 0 ? 'completed' : 'active',
+                        shoppingTab: 'active',
                       })
                     }
                     className="p-3 rounded-xl bg-slate-50 hover:bg-indigo-50/60 transition-all border border-slate-100 hover:border-indigo-200 cursor-pointer flex items-center justify-between group active:scale-[0.99]"
-                    title={`Kliknij, aby otworzyć listę "${list.name}" (${pending === 0 ? 'zakładka: Kupione' : 'zakładka: Do kupienia'})`}
+                    title={`Kliknij, aby otworzyć listę "${list.name}" (W trakcie zakupów: ${pending} do kupienia)`}
                   >
                     <div className="flex items-center space-x-2.5">
                       <span
@@ -632,8 +643,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       </div>
                     </div>
 
-                    <span className={`text-xs font-semibold ${pending === 0 ? 'text-emerald-700 font-bold' : 'text-slate-600 group-hover:text-indigo-700'}`}>
-                      {pending === 0 ? 'Wszystko kupione' : `${pending} do kupienia →`}
+                    <span className="text-xs font-semibold text-amber-700 bg-amber-50 group-hover:bg-amber-100/80 px-2 py-0.5 rounded-lg border border-amber-200/60 flex items-center gap-1 transition-colors">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                      {pending} do kupienia →
                     </span>
                   </div>
                 );

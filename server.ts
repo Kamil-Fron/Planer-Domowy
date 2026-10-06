@@ -105,7 +105,24 @@ function getGenAI(): GoogleGenAI {
   });
 }
 
-// Resilient fallback across supported model aliases
+// Dynamic quota tracking to bypass models that exceeded quota without generating console errors
+const exhaustedModels = new Map<string, number>();
+
+function isModelExhausted(model: string): boolean {
+  const until = exhaustedModels.get(model);
+  if (!until) return false;
+  if (Date.now() > until) {
+    exhaustedModels.delete(model);
+    return false;
+  }
+  return true;
+}
+
+function markModelExhausted(model: string, cooldownMs = 60 * 60 * 1000) {
+  exhaustedModels.set(model, Date.now() + cooldownMs);
+}
+
+// Resilient fallback across supported models with quota awareness
 async function generateWithFallback(
   ai: GoogleGenAI,
   params: {
@@ -114,26 +131,51 @@ async function generateWithFallback(
     preferredModel?: string;
   }
 ) {
-  const modelsToTry = [
-    params.preferredModel || "gemini-3.8-flash",
-    "gemini-3.8-flash",
+  // Use gemini-3.1-flash-lite as primary high-availability model (separate quota from 3.8-flash)
+  const rawModels = [
+    params.preferredModel || "gemini-3.1-flash-lite",
     "gemini-3.1-flash-lite",
+    "gemini-3.8-flash",
     "gemini-flash-latest",
-  ].filter((v, i, a) => a.indexOf(v) === i);
+  ];
+
+  // Filter out duplicates and prioritize models not currently known to be quota-exhausted
+  const uniqueModels = rawModels.filter((v, i, a) => a.indexOf(v) === i);
+  const modelsToTry = [
+    ...uniqueModels.filter((m) => !isModelExhausted(m)),
+    ...uniqueModels.filter((m) => isModelExhausted(m)),
+  ];
 
   let lastError: any = null;
   for (const modelName of modelsToTry) {
     try {
-      const result = await ai.models.generateContent({
+      const modelCall = ai.models.generateContent({
         model: modelName,
         contents: params.contents,
         config: params.config,
       });
+      // 25s timeout per model attempt to prevent indefinite hanging
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`Przekroczono limit czasu oczekiwania na model ${modelName}.`)), 25000)
+      );
+
+      const result = await Promise.race([modelCall, timeoutPromise]);
       if (result && (result.text || (result as any).candidates)) {
         return result;
       }
     } catch (err: any) {
-      console.warn(`Próba modelu ${modelName} nie powiodła się:`, err?.message || err);
+      const isQuotaExhausted =
+        err?.status === "RESOURCE_EXHAUSTED" ||
+        err?.message?.includes("429") ||
+        err?.message?.includes("quota") ||
+        err?.message?.includes("Quota exceeded");
+
+      if (isQuotaExhausted) {
+        // Mark model as exhausted for 1 hour so subsequent calls skip directly to working models
+        markModelExhausted(modelName, 60 * 60 * 1000);
+      }
+
+      console.info(`Model ${modelName} niedostępny, przełączanie na alternatywę...`);
       lastError = err;
     }
   }
@@ -142,7 +184,7 @@ async function generateWithFallback(
 
 // Clean JSON extraction from AI response
 function extractJsonFromText(rawText: string | undefined): any {
-  if (!rawText) throw new Error("Model AI zwrócił pustą treść.");
+  if (!rawText || !rawText.trim()) throw new Error("Model AI zwrócił pustą treść.");
   let cleaned = rawText.trim();
   if (cleaned.includes("```")) {
     const match = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
@@ -152,7 +194,19 @@ function extractJsonFromText(rawText: string | undefined): any {
       cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
     }
   }
-  return JSON.parse(cleaned);
+
+  const startIdx = cleaned.indexOf("{");
+  const endIdx = cleaned.lastIndexOf("}");
+  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+    cleaned = cleaned.substring(startIdx, endIdx + 1);
+  }
+
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const fixed = cleaned.replace(/,\s*([}\]])/g, "$1");
+    return JSON.parse(fixed);
+  }
 }
 
 // API Routes
@@ -207,7 +261,7 @@ app.post("/api/scan-receipt", async (req, res) => {
     }
 
     // Clean base64 data
-    const cleanBase64 = imageBase64.replace(/^data:[^;]+;base64,/i, "").trim();
+    const cleanBase64 = imageBase64.replace(/^data:[^;]+;base64,/i, "").replace(/\s+/g, "").trim();
 
     const prompt = `Jesteś precyzyjnym systemem OCR i asystentem finansowym do analizy paragonów fiskalnych, faktur VAT, wyciągów bankowych oraz zestawień PDF/zrzutów ekranu (w tym Apple Pay / Apple Wallet / kart płatniczych) w Polsce.
 
@@ -247,7 +301,7 @@ Dla KAŻDEJ pozycji wyodrębnij:
 Zwróć wynik w formacie JSON zgodnym ze schematem.`;
 
     const response = await generateWithFallback(ai, {
-      preferredModel: "gemini-3.8-flash",
+      preferredModel: "gemini-3.1-flash-lite",
       contents: {
         parts: [
           {
@@ -403,7 +457,7 @@ Przygotuj zwięzłą, konkretną analizę w języku polskim:
 Zwróć odpowiedź ściśle w formacie JSON zgodnym ze schematem.`;
 
     const response = await generateWithFallback(ai, {
-      preferredModel: "gemini-3.8-flash",
+      preferredModel: "gemini-3.1-flash-lite",
       contents: prompt,
       config: {
         responseMimeType: "application/json",

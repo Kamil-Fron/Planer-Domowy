@@ -218,7 +218,7 @@ Zwróć wynik w czystym formacie JSON:
 }`;
 
   // Use modern high-accuracy vision and reasoning models
-  const models = ["gemini-3.8-flash", "gemini-3.1-flash-lite", "gemini-flash-latest"];
+  const models = ["gemini-3.1-flash-lite", "gemini-3.8-flash", "gemini-flash-latest"];
   let lastError: any = null;
 
   for (const model of models) {
@@ -274,7 +274,7 @@ Zwróć wynik w czystym formacie JSON:
       }
       return extracted;
     } catch (err: any) {
-      console.warn(`Próba analizy modelem ${model} nie powiodła się:`, err);
+      console.info(`Model ${model} niedostępny, sprawdzam alternatywny...`);
       lastError = err;
     }
   }
@@ -329,7 +329,7 @@ Przygotuj zwięzłą, konkretną analizę w języku polskim w formacie JSON:
   "fullText": "Pełny tekst analizy w punktach po polsku"
 }`;
 
-  const models = ["gemini-3.8-flash", "gemini-3.1-flash-lite", "gemini-flash-latest"];
+  const models = ["gemini-3.1-flash-lite", "gemini-3.8-flash", "gemini-flash-latest"];
   let lastError: any = null;
 
   for (const model of models) {
@@ -360,7 +360,7 @@ Przygotuj zwięzłą, konkretną analizę w języku polskim w formacie JSON:
       const resultData = await res.json();
       return extractJson(resultData);
     } catch (err: any) {
-      console.warn(`Próba generowania porady z modelem ${model} nie powiodła się:`, err);
+      console.info(`Model ${model} niedostępny, sprawdzam alternatywny...`);
       lastError = err;
     }
   }
@@ -380,6 +380,18 @@ export async function scanReceiptWithAI(
     effectiveMime = "application/pdf";
   }
 
+  // Pre-compress high-resolution camera photos to ~250KB to prevent network timeouts and payload limits
+  let cleanBase64ToSend = imageBase64;
+  if (!effectiveMime.includes("pdf") && !imageBase64.startsWith("data:application/pdf")) {
+    try {
+      const comp = await compressImageBase64(imageBase64, 1600, 1600, 0.85);
+      cleanBase64ToSend = comp.base64;
+      effectiveMime = comp.mimeType || "image/jpeg";
+    } catch (e) {
+      console.warn("Kompresja obrazu przed wysyłką:", e);
+    }
+  }
+
   const todayStr = referenceDate && /^\d{4}-\d{2}-\d{2}$/.test(referenceDate)
     ? referenceDate
     : toLocalISODate(new Date());
@@ -391,7 +403,7 @@ export async function scanReceiptWithAI(
     const response = await fetch("/api/scan-receipt", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ imageBase64, mimeType: effectiveMime, currentDate: todayStr }),
+      body: JSON.stringify({ imageBase64: cleanBase64ToSend, mimeType: effectiveMime, currentDate: todayStr }),
     });
 
     if (response.ok) {
@@ -401,8 +413,9 @@ export async function scanReceiptWithAI(
       }
     } else {
       const errData = await response.json().catch(() => ({}));
-      if (errData?.error && !getStoredGeminiApiKey()) {
-        throw new Error(errData.error);
+      const serverErrMsg = errData?.error || `Błąd serwera (${response.status})`;
+      if (!getStoredGeminiApiKey()) {
+        throw new Error(serverErrMsg);
       }
     }
   } catch (e: any) {
@@ -421,7 +434,7 @@ export async function scanReceiptWithAI(
       );
     }
 
-    resultData = await scanReceiptDirectClient(clientKey, imageBase64, effectiveMime, todayStr);
+    resultData = await scanReceiptDirectClient(clientKey, cleanBase64ToSend, effectiveMime, todayStr);
   }
 
   // Final verification & sanitization of relative dates for document and individual items

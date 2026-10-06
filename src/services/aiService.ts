@@ -218,7 +218,7 @@ Zwróć wynik w czystym formacie JSON:
 }`;
 
   // Use modern high-accuracy vision and reasoning models
-  const models = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-flash-latest", "gemini-2.5-flash"];
+  const models = ["gemini-3.8-flash", "gemini-3.1-flash-lite", "gemini-flash-latest"];
   let lastError: any = null;
 
   for (const model of models) {
@@ -255,6 +255,9 @@ Zwróć wynik w czystym formacie JSON:
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
         const errMsg = errJson?.error?.message || `Błąd API (${res.status} ${res.statusText})`;
+        if (res.status === 503 || res.status === 429) {
+          await new Promise((r) => setTimeout(r, 600));
+        }
         throw new Error(errMsg);
       }
 
@@ -326,7 +329,7 @@ Przygotuj zwięzłą, konkretną analizę w języku polskim w formacie JSON:
   "fullText": "Pełny tekst analizy w punktach po polsku"
 }`;
 
-  const models = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-flash-latest", "gemini-2.5-flash"];
+  const models = ["gemini-3.8-flash", "gemini-3.1-flash-lite", "gemini-flash-latest"];
   let lastError: any = null;
 
   for (const model of models) {
@@ -348,6 +351,9 @@ Przygotuj zwięzłą, konkretną analizę w języku polskim w formacie JSON:
 
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
+        if (res.status === 503 || res.status === 429) {
+          await new Promise((r) => setTimeout(r, 600));
+        }
         throw new Error(errJson?.error?.message || `Błąd API (${res.status})`);
       }
 
@@ -393,9 +399,17 @@ export async function scanReceiptWithAI(
       if (resData.success && resData.data) {
         resultData = resData.data;
       }
+    } else {
+      const errData = await response.json().catch(() => ({}));
+      if (errData?.error && !getStoredGeminiApiKey()) {
+        throw new Error(errData.error);
+      }
     }
-  } catch {
-    // Ignore server error and fallback to direct client call
+  } catch (e: any) {
+    if (!getStoredGeminiApiKey() && e?.message && !e.message.includes("fetch")) {
+      throw e;
+    }
+    // Ignore fetch network errors and fallback to direct client call if key is present
   }
 
   // 2. Fallback to client-side direct API call (e.g. GitHub Pages)
@@ -443,9 +457,17 @@ export async function getFinancialAdviceWithAI(params: {
       if (resData.success && resData.advice) {
         return resData.advice;
       }
+    } else {
+      const errData = await response.json().catch(() => ({}));
+      if (errData?.error && !getStoredGeminiApiKey()) {
+        throw new Error(errData.error);
+      }
     }
-  } catch {
-    // Fallback to client call
+  } catch (e: any) {
+    if (!getStoredGeminiApiKey() && e?.message && !e.message.includes("fetch")) {
+      throw e;
+    }
+    // Fallback to client call if key is present
   }
 
   // 2. Fallback to client-side direct call

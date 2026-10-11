@@ -3,6 +3,26 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Suppress Vite HMR WebSocket errors in AI Studio iframe/preview environment
+      window.addEventListener('error', function (event) {
+        if (
+          (event.filename && event.filename.indexOf('@vite/client') !== -1) ||
+          (event.message && (event.message.indexOf('WebSocket') !== -1 || event.message.indexOf('connection lost') !== -1))
+        ) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          return true;
+        }
+      }, true);
+      window.addEventListener('unhandledrejection', function (event) {
+        var reason = event.reason ? (event.reason.message || String(event.reason)) : '';
+        if (reason.indexOf('WebSocket') !== -1 || reason.indexOf('@vite/client') !== -1) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+      }, true);
+    </script>
     <title>Planer Budżetu Domowego & Paragon AI</title>
     <meta name="description" content="Wersja 3.0.0. Kompleksowy planer budżetu domowego z inteligentnym skanerem paragonów Gemini AI, obsługą zobowiązań i pożyczek z podglądem spłaty na żywo, powiadomieniami Web Push, synchronizacją Google Cloud Firestore oraz listami zakupów i rachunkami." />
     <meta property="og:title" content="Planer Budżetu Domowego & Paragon AI" />

@@ -1,4 +1,4 @@
-import { compressImageBase64 } from "../utils/imageCompressor";
+import { compressImageBase64, extractRawBase64 } from "../utils/imageCompressor";
 import { resolveRelativeDate, toLocalISODate } from "../utils/dateParser";
 
 // Helper to retrieve the Gemini API key from environment or local storage
@@ -117,12 +117,12 @@ function extractJson(rawInput: any): any {
   return JSON.parse(cleaned);
 }
 
-// Direct Client-Side Gemini Vision Scan (works seamlessly on GitHub Pages)
 async function scanReceiptDirectClient(
   apiKey: string,
   imageBase64: string,
   mimeType: string,
-  referenceDate?: string
+  referenceDate?: string,
+  options?: ScanReceiptOptions
 ): Promise<any> {
   const isPdf = mimeType === 'application/pdf' || imageBase64.startsWith('data:application/pdf');
 
@@ -142,23 +142,9 @@ async function scanReceiptDirectClient(
   dayBeforeYesterdayDate.setDate(dayBeforeYesterdayDate.getDate() - 2);
   const dayBeforeYesterdayStr = toLocalISODate(dayBeforeYesterdayDate);
 
-  let cleanBase64: string;
-  let detectedMime: string;
-
-  if (isPdf) {
-    cleanBase64 = imageBase64.replace(/^data:[^;]+;base64,/i, '').trim();
-    detectedMime = 'application/pdf';
-  } else {
-    // Compress high-res mobile image to ensure fast transfer (<400KB) and crisp OCR
-    const { base64: compBase64, mimeType: compressedMime } = await compressImageBase64(
-      imageBase64,
-      1600,
-      1600,
-      0.85
-    );
-    cleanBase64 = compBase64;
-    detectedMime = compressedMime || mimeType || 'image/jpeg';
-  }
+  // Clean raw base64 (ensure no data: prefix, no whitespace)
+  const cleanBase64 = extractRawBase64(imageBase64);
+  const detectedMime = isPdf ? 'application/pdf' : (mimeType || 'image/jpeg');
 
   const prompt = `Jesteś precyzyjnym systemem OCR i asystentem finansowym do analizy paragonów fiskalnych, faktur VAT, wyciągów bankowych oraz zestawień PDF i zrzutów ekranu (w tym Apple Pay / Apple Wallet / kart płatniczych) w Polsce.
 
@@ -215,13 +201,31 @@ Zwróć wynik w czystym formacie JSON:
       "notes": "string"
     }
   ]
-}`;
+}
+`;
 
-  // Use modern high-accuracy vision and reasoning models
-  const models = ["gemini-3.1-flash-lite", "gemini-3.8-flash", "gemini-flash-latest"];
+  // Use modern high-accuracy vision models: primary gemini-3.1-flash-lite, fallback gemini-flash-latest, gemini-3.8-flash
+  const models = ["gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-3.8-flash"];
   let lastError: any = null;
+  let allQuotaExhausted = true;
 
-  for (const model of models) {
+  for (let i = 0; i < models.length; i++) {
+    const model = models[i];
+    if (options?.signal?.aborted) {
+      throw new Error("Skanowanie zostało anulowane przez użytkownika.");
+    }
+
+    options?.onProgress?.(`Analiza przez model ${model} (krok ${i + 1}/${models.length})...`);
+
+    // Per-attempt timeout: 10s
+    const attemptController = new AbortController();
+    const attemptTimeout = setTimeout(() => attemptController.abort(), 10000);
+
+    const onParentAbort = () => attemptController.abort();
+    if (options?.signal) {
+      options.signal.addEventListener('abort', onParentAbort, { once: true });
+    }
+
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
       const payload = {
@@ -250,17 +254,38 @@ Zwróć wynik w czystym formacie JSON:
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        signal: attemptController.signal,
       });
+
+      clearTimeout(attemptTimeout);
+      if (options?.signal) {
+        options.signal.removeEventListener('abort', onParentAbort);
+      }
 
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        const errMsg = errJson?.error?.message || `Błąd API (${res.status} ${res.statusText})`;
-        if (res.status === 503 || res.status === 429) {
-          await new Promise((r) => setTimeout(r, 600));
+        const rawErrMsg = errJson?.error?.message || "";
+
+        // Detect invalid API key early and fail fast with actionable guidance
+        if (res.status === 400 || res.status === 403) {
+          if (/API key not valid|INVALID_ARGUMENT|PERMISSION_DENIED|API_KEY_INVALID/i.test(rawErrMsg)) {
+            throw new Error(
+              "Wprowadzony klucz Gemini API jest nieprawidłowy lub nieaktywny. Kliknij 'Skonfiguruj Gemini API' i podaj poprawny klucz z Google AI Studio (aistudio.google.com/app/apikey)."
+            );
+          }
         }
-        throw new Error(errMsg);
+
+        if (res.status === 429) {
+          console.info(`Model ${model} osiągnął limit zapytań (429), sprawdzam model zapasowy...`);
+          lastError = new Error(`Przekroczono limit darmowych zapytań dla modelu ${model} (błąd 429).`);
+          continue;
+        }
+
+        allQuotaExhausted = false;
+        throw new Error(rawErrMsg || `Błąd Gemini API (${res.status} ${res.statusText})`);
       }
 
+      allQuotaExhausted = false;
       const resultData = await res.json();
       const extracted = extractJson(resultData);
       if (extracted) {
@@ -274,12 +299,40 @@ Zwróć wynik w czystym formacie JSON:
       }
       return extracted;
     } catch (err: any) {
-      console.info(`Model ${model} niedostępny, sprawdzam alternatywny...`);
-      lastError = err;
+      clearTimeout(attemptTimeout);
+      if (options?.signal) {
+        options.signal.removeEventListener('abort', onParentAbort);
+      }
+
+      if (options?.signal?.aborted) {
+        throw new Error("Skanowanie zostało anulowane przez użytkownika.");
+      }
+
+      if (err?.message?.includes("Wprowadzony klucz Gemini API jest nieprawidłowy")) {
+        throw err;
+      }
+
+      if (err?.name === "AbortError") {
+        allQuotaExhausted = false;
+        console.info(`Model ${model} przekroczył limit czasu (10s), przełączanie na model zapasowy...`);
+        lastError = new Error(`Przekroczono limit czasu oczekiwania na model ${model} (10s).`);
+      } else {
+        if (!err?.message?.includes("429")) {
+          allQuotaExhausted = false;
+        }
+        console.info(`Model ${model} niedostępny, sprawdzam alternatywny...`, err?.message || err);
+        lastError = err;
+      }
     }
   }
 
-  throw lastError || new Error("Nie udało się przeanalizować paragonu przez Gemini API.");
+  if (allQuotaExhausted && lastError) {
+    throw new Error(
+      "Darmowy limit zapytań Gemini API został wyczerpany (błąd 429 Quota Exceeded). Google odnawia darmowy limit codziennie. Możesz również utworzyć nowy bezpłatny klucz API w Google AI Studio (aistudio.google.com/app/apikey) i wkleić go w ustawieniach skanera."
+    );
+  }
+
+  throw lastError || new Error("Nie udało się przeanalizować paragonu przez Gemini API. Sprawdź jakość zdjęcia lub połączenie z internetem.");
 }
 
 // Direct Client-Side Gemini Financial Advice
@@ -368,11 +421,33 @@ Przygotuj zwięzłą, konkretną analizę w języku polskim w formacie JSON:
   throw lastError || new Error("Nie udało się wygenerować analizy finansowej.");
 }
 
+export interface ScanReceiptOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  onProgress?: (stage: string) => void;
+}
+
+export function isStaticDeployment(): boolean {
+  if (typeof window === "undefined") return false;
+  const host = window.location.hostname.toLowerCase();
+  return (
+    host.endsWith("github.io") ||
+    host.endsWith("pages.dev") ||
+    host.endsWith("github.dev") ||
+    host.includes("netlify.app") ||
+    host.includes("vercel.app") ||
+    host.includes("firebaseapp.com") ||
+    host.includes("web.app") ||
+    window.location.protocol === "file:"
+  );
+}
+
 // Unified Service Call: Scan Receipt
 export async function scanReceiptWithAI(
   imageBase64: string,
   mimeType: string = "image/jpeg",
-  referenceDate?: string
+  referenceDate?: string,
+  options?: ScanReceiptOptions
 ): Promise<any> {
   // Auto-detect PDF from base64 if needed
   let effectiveMime = mimeType;
@@ -380,15 +455,18 @@ export async function scanReceiptWithAI(
     effectiveMime = "application/pdf";
   }
 
-  // Pre-compress high-resolution camera photos to ~250KB to prevent network timeouts and payload limits
-  let cleanBase64ToSend = imageBase64;
+  options?.onProgress?.("Optymalizacja i kompresja zdjęcia...");
+
+  // Pre-compress high-resolution camera photos to ~150-250KB to prevent network timeouts and payload limits
+  let cleanBase64ToSend = extractRawBase64(imageBase64);
   if (!effectiveMime.includes("pdf") && !imageBase64.startsWith("data:application/pdf")) {
     try {
-      const comp = await compressImageBase64(imageBase64, 1600, 1600, 0.85);
+      const comp = await compressImageBase64(imageBase64, 1400, 1400, 0.8);
       cleanBase64ToSend = comp.base64;
       effectiveMime = comp.mimeType || "image/jpeg";
     } catch (e) {
       console.warn("Kompresja obrazu przed wysyłką:", e);
+      cleanBase64ToSend = extractRawBase64(imageBase64);
     }
   }
 
@@ -397,44 +475,74 @@ export async function scanReceiptWithAI(
     : toLocalISODate(new Date());
 
   let resultData: any = null;
+  const isStatic = isStaticDeployment();
 
-  // 1. Try server endpoint first (Node / Express backend in AI Studio)
-  try {
-    const response = await fetch("/api/scan-receipt", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ imageBase64: cleanBase64ToSend, mimeType: effectiveMime, currentDate: todayStr }),
-    });
+  // 1. Try server endpoint ONLY when NOT on static deployment (e.g. Node / Express backend in AI Studio / Cloud Run)
+  if (!isStatic) {
+    options?.onProgress?.("Przetwarzanie przez serwer AI...");
+    try {
+      const serverController = new AbortController();
+      const serverTimeout = setTimeout(() => serverController.abort(), 7000); // 7s fast timeout
+      const onAbort = () => serverController.abort();
+      if (options?.signal) {
+        options.signal.addEventListener("abort", onAbort, { once: true });
+      }
 
-    if (response.ok) {
-      const resData = await response.json();
-      if (resData.success && resData.data) {
-        resultData = resData.data;
+      const response = await fetch("/api/scan-receipt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64: cleanBase64ToSend, mimeType: effectiveMime, currentDate: todayStr }),
+        signal: serverController.signal,
+      });
+
+      clearTimeout(serverTimeout);
+      if (options?.signal) {
+        options.signal.removeEventListener("abort", onAbort);
       }
-    } else {
-      const errData = await response.json().catch(() => ({}));
-      const serverErrMsg = errData?.error || `Błąd serwera (${response.status})`;
-      if (!getStoredGeminiApiKey()) {
-        throw new Error(serverErrMsg);
+
+      if (response.ok) {
+        const resData = await response.json();
+        if (resData.success && resData.data) {
+          resultData = resData.data;
+        }
+      } else {
+        const errData = await response.json().catch(() => ({}));
+        const serverErrMsg = errData?.error || `Błąd serwera (${response.status})`;
+        if (!getStoredGeminiApiKey()) {
+          throw new Error(serverErrMsg);
+        }
       }
+    } catch (e: any) {
+      if (options?.signal?.aborted) {
+        throw new Error("Skanowanie zostało anulowane przez użytkownika.");
+      }
+      if (!getStoredGeminiApiKey() && e?.message && !e.message.includes("fetch") && !e.message.includes("AbortError")) {
+        throw e;
+      }
+      // If server failed and client key exists, fall through to client call
     }
-  } catch (e: any) {
-    if (!getStoredGeminiApiKey() && e?.message && !e.message.includes("fetch")) {
-      throw e;
-    }
-    // Ignore fetch network errors and fallback to direct client call if key is present
   }
 
-  // 2. Fallback to client-side direct API call (e.g. GitHub Pages)
+  // 2. Direct client call (GitHub Pages or fallback)
   if (!resultData) {
+    if (options?.signal?.aborted) {
+      throw new Error("Skanowanie zostało anulowane przez użytkownika.");
+    }
+
     const clientKey = getStoredGeminiApiKey();
     if (!clientKey) {
+      if (isStatic) {
+        throw new Error(
+          "W wersji GitHub Pages wymagany jest klucz Gemini API. Kliknij przycisk 'Skonfiguruj Gemini API' u góry i wprowadź swój bezpłatny klucz z Google AI Studio (aistudio.google.com/app/apikey)."
+        );
+      }
       throw new Error(
         "Klucz GEMINI_API_KEY nie został skonfigurowany. Kliknij przycisk 'Skonfiguruj Gemini API' i podaj swój klucz z Google AI Studio."
       );
     }
 
-    resultData = await scanReceiptDirectClient(clientKey, cleanBase64ToSend, effectiveMime, todayStr);
+    options?.onProgress?.("Wysyłanie do Gemini API z przeglądarki...");
+    resultData = await scanReceiptDirectClient(clientKey, cleanBase64ToSend, effectiveMime, todayStr, options);
   }
 
   // Final verification & sanitization of relative dates for document and individual items

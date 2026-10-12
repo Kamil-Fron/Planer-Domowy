@@ -131,32 +131,23 @@ async function generateWithFallback(
     preferredModel?: string;
   }
 ) {
-  // Use gemini-3.1-flash-lite as primary high-availability model (separate quota from 3.8-flash)
-  const rawModels = [
-    params.preferredModel || "gemini-3.1-flash-lite",
-    "gemini-3.1-flash-lite",
-    "gemini-3.8-flash",
-    "gemini-flash-latest",
-  ];
-
-  // Filter out duplicates and prioritize models not currently known to be quota-exhausted
-  const uniqueModels = rawModels.filter((v, i, a) => a.indexOf(v) === i);
-  const modelsToTry = [
-    ...uniqueModels.filter((m) => !isModelExhausted(m)),
-    ...uniqueModels.filter((m) => isModelExhausted(m)),
+  // Dwa modele rozbite na 28 sekund: model 1 (10s), gemini-3.8-flash (18s)
+  const modelsWithTimeouts = [
+    { name: "gemini-3.1-flash-lite", timeoutMs: 10000 },
+    { name: "gemini-3.8-flash", timeoutMs: 18000 },
   ];
 
   let lastError: any = null;
-  for (const modelName of modelsToTry) {
+  for (const { name: modelName, timeoutMs } of modelsWithTimeouts) {
     try {
       const modelCall = ai.models.generateContent({
         model: modelName,
         contents: params.contents,
         config: params.config,
       });
-      // 25s timeout per model attempt to prevent indefinite hanging
+
       const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`Przekroczono limit czasu oczekiwania na model ${modelName}.`)), 25000)
+        setTimeout(() => reject(new Error(`Przekroczono limit czasu oczekiwania na model ${modelName} (${Math.round(timeoutMs / 1000)}s).`)), timeoutMs)
       );
 
       const result = await Promise.race([modelCall, timeoutPromise]);

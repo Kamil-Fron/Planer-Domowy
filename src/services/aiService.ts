@@ -204,22 +204,32 @@ Zwróć wynik w czystym formacie JSON:
 }
 `;
 
-  // Use modern high-accuracy vision models: primary gemini-3.1-flash-lite, fallback gemini-flash-latest, gemini-3.8-flash
-  const models = ["gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-3.8-flash"];
+  // Dwa modele rozbite na 28 sekund zgodnie z wytycznymi:
+  // Model 1: gemini-3.1-flash-lite (10 sekund)
+  // Model 2: gemini-3.8-flash (pozostałe 18 sekund)
+  const modelConfigs = [
+    { name: "gemini-3.1-flash-lite", timeoutMs: 10000, label: "gemini-3.1-flash-lite (szybki)" },
+    { name: "gemini-3.8-flash", timeoutMs: 18000, label: "gemini-3.8-flash (główny)" },
+  ];
   let lastError: any = null;
   let allQuotaExhausted = true;
+  let allHighDemand = true;
 
-  for (let i = 0; i < models.length; i++) {
-    const model = models[i];
+  for (let i = 0; i < modelConfigs.length; i++) {
+    const config = modelConfigs[i];
+    const model = config.name;
+    const timeoutMs = config.timeoutMs;
+    const timeoutSec = Math.round(timeoutMs / 1000);
+
     if (options?.signal?.aborted) {
       throw new Error("Skanowanie zostało anulowane przez użytkownika.");
     }
 
-    options?.onProgress?.(`Analiza przez model ${model} (krok ${i + 1}/${models.length})...`);
+    options?.onProgress?.(`Analiza przez model ${model} (krok ${i + 1}/2, limit ${timeoutSec}s)...`);
 
-    // Per-attempt timeout: 10s
+    // Dedykowany timeout: 10s dla pierwszego modelu, 18s dla modelu gemini-3.8-flash
     const attemptController = new AbortController();
-    const attemptTimeout = setTimeout(() => attemptController.abort(), 10000);
+    const attemptTimeout = setTimeout(() => attemptController.abort(), timeoutMs);
 
     const onParentAbort = () => attemptController.abort();
     if (options?.signal) {
@@ -266,7 +276,7 @@ Zwróć wynik w czystym formacie JSON:
         const errJson = await res.json().catch(() => ({}));
         const rawErrMsg = errJson?.error?.message || "";
 
-        // Detect invalid API key early and fail fast with actionable guidance
+        // Wykryj nieprawidłowy klucz API wcześnie i zgłoś jasny komunikat
         if (res.status === 400 || res.status === 403) {
           if (/API key not valid|INVALID_ARGUMENT|PERMISSION_DENIED|API_KEY_INVALID/i.test(rawErrMsg)) {
             throw new Error(
@@ -275,17 +285,38 @@ Zwróć wynik w czystym formacie JSON:
           }
         }
 
+        // Błąd wyczerpania limitu (429) -> przełącz na kolejny model
         if (res.status === 429) {
-          console.info(`Model ${model} osiągnął limit zapytań (429), sprawdzam model zapasowy...`);
+          console.info(`Model ${model} osiągnął limit zapytań (429), przełączam na kolejny model...`);
           lastError = new Error(`Przekroczono limit darmowych zapytań dla modelu ${model} (błąd 429).`);
           continue;
         }
 
+        // Błąd przeciążenia serwerów Google (503 / High Demand) -> przełącz na kolejny model
+        const isHighDemand =
+          res.status === 503 ||
+          res.status === 500 ||
+          res.status === 502 ||
+          res.status === 504 ||
+          /high demand|overloaded|spikes in demand|temporary|unavailable/i.test(rawErrMsg);
+
+        if (isHighDemand) {
+          allQuotaExhausted = false;
+          console.info(`Model ${model} chwilowo przeciążony przez Google (503 High Demand), przełączam na kolejny model...`);
+          lastError = new Error(
+            `Model ${model} jest chwilowo przeciążony przez serwery Google (High Demand).`
+          );
+          continue;
+        }
+
         allQuotaExhausted = false;
-        throw new Error(rawErrMsg || `Błąd Gemini API (${res.status} ${res.statusText})`);
+        allHighDemand = false;
+        lastError = new Error(rawErrMsg || `Błąd Gemini API (${res.status} ${res.statusText})`);
+        continue;
       }
 
       allQuotaExhausted = false;
+      allHighDemand = false;
       const resultData = await res.json();
       const extracted = extractJson(resultData);
       if (extracted) {
@@ -314,13 +345,17 @@ Zwróć wynik w czystym formacie JSON:
 
       if (err?.name === "AbortError") {
         allQuotaExhausted = false;
-        console.info(`Model ${model} przekroczył limit czasu (10s), przełączanie na model zapasowy...`);
-        lastError = new Error(`Przekroczono limit czasu oczekiwania na model ${model} (10s).`);
+        allHighDemand = false;
+        console.info(`Model ${model} przekroczył limit czasu (${timeoutSec}s), przełączanie na kolejny model...`);
+        lastError = new Error(`Przekroczono limit czasu oczekiwania na model ${model} (${timeoutSec}s).`);
       } else {
         if (!err?.message?.includes("429")) {
           allQuotaExhausted = false;
         }
-        console.info(`Model ${model} niedostępny, sprawdzam alternatywny...`, err?.message || err);
+        if (!/high demand|overloaded|spikes/i.test(err?.message || '')) {
+          allHighDemand = false;
+        }
+        console.info(`Model ${model} niedostępny, sprawdzam kolejny model...`, err?.message || err);
         lastError = err;
       }
     }
@@ -329,6 +364,18 @@ Zwróć wynik w czystym formacie JSON:
   if (allQuotaExhausted && lastError) {
     throw new Error(
       "Darmowy limit zapytań Gemini API został wyczerpany (błąd 429 Quota Exceeded). Google odnawia darmowy limit codziennie. Możesz również utworzyć nowy bezpłatny klucz API w Google AI Studio (aistudio.google.com/app/apikey) i wkleić go w ustawieniach skanera."
+    );
+  }
+
+  if (allHighDemand && lastError) {
+    throw new Error(
+      "Serwery Google Gemini są w tej chwili mocno obciążone ('This model is currently experiencing high demand'). Zwykle przeciążenie ustępuje po chwili. Odczekaj moment i kliknij 'Spróbuj ponownie'."
+    );
+  }
+
+  if (lastError?.message && /high demand|spikes in demand/i.test(lastError.message)) {
+    throw new Error(
+      "Serwery Google Gemini są w tej chwili mocno obciążone ('High demand'). Odczekaj chwilę i kliknij 'Spróbuj ponownie'."
     );
   }
 

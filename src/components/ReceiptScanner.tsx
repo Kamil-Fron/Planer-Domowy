@@ -400,10 +400,14 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
         }
       } else {
         console.error('Błąd podczas skanowania paragonu AI:', err);
-        setError(
+        let displayError =
           err?.message ||
-            'Wystąpił problem z przetworzeniem zdjęcia przez model Gemini AI. Upewnij się, że zdjęcie jest wyraźne i dobrze oświetlone lub podaj poprawny klucz GEMINI_API_KEY.'
-        );
+          'Wystąpił problem z przetworzeniem zdjęcia przez model Gemini AI. Upewnij się, że zdjęcie jest wyraźne i dobrze oświetlone lub podaj poprawny klucz GEMINI_API_KEY.';
+        if (/high demand|spikes in demand/i.test(displayError)) {
+          displayError =
+            'Serwery Google Gemini są w tej chwili mocno obciążone ("High demand"). Zwykle przeciążenie ustępuje po chwili. Odczekaj chwilę i kliknij "Spróbuj ponownie".';
+        }
+        setError(displayError);
       }
     } finally {
       clearTimeout(timeoutId);
